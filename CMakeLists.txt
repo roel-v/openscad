@@ -107,7 +107,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/submodules/sanitizers-cmake/cmake" ${
 find_package(Sanitizers)
 
 # Strict c++17, e.g. no GNU extensions
-set_property(TARGET OpenSCAD PROPERTY CXX_STANDARD 17)
+set_property(TARGET OpenSCAD PROPERTY CXX_STANDARD 20)
 set_property(TARGET OpenSCAD PROPERTY CXX_EXTENSIONS OFF)
 set_property(TARGET OpenSCAD PROPERTY CXX_STANDARD_REQUIRED ON)
 # Output compilation database (compile_commands.json), so we can e.g. run clang-tidy or other tools separately
@@ -255,9 +255,19 @@ macro(find_graphics)
 endmacro(find_graphics)
 
 if (MSVC)
+  # Disable distracting warning messages
+  add_definitions(/wd4003)  # not enough arguments for function-like macro invocation
+  add_definitions(/wd4101)  # unreferenced local variable
+  add_definitions(/wd4005)  # macro redefinition
+  add_definitions(/wd4244)  # conversion, possible loss of data
+  add_definitions(/wd4267)  # '': conversion from '' to '', possible loss of data
+  add_definitions(/wd4305)  # '': truncation from '' to ''
+  add_definitions(/wd4996)  # '': This function or variable may be unsafe. Consider using [...]
+
   # Flex lexer options
   set(WINCOMPAT "--wincompat --nounistd")
   target_compile_definitions(OpenSCAD PRIVATE _USE_MATH_DEFINES)
+  target_compile_definitions(OpenSCAD PRIVATE NOMINMAX)
 
   find_package(Eigen3 CONFIG REQUIRED)
   target_link_libraries(OpenSCAD PRIVATE Eigen3::Eigen)
@@ -274,17 +284,16 @@ if (MSVC)
   target_include_directories(OpenSCAD SYSTEM PRIVATE ${HARFBUZZ_INCLUDE_DIRS}/harfbuzz)
   target_link_libraries(OpenSCAD PRIVATE harfbuzz::harfbuzz)
 
-  find_package(unofficial-fontconfig CONFIG REQUIRED)
-  target_link_libraries(OpenSCAD PRIVATE unofficial::fontconfig::fontconfig)
+  find_package(Fontconfig)
+  target_link_libraries(OpenSCAD PRIVATE Fontconfig::Fontconfig)
 
-  find_package(unofficial-glib CONFIG REQUIRED)
-  target_include_directories(OpenSCAD SYSTEM PRIVATE ${GLIB2_INCLUDE_DIRS})
-  target_link_libraries(OpenSCAD PRIVATE unofficial::glib::gio unofficial::glib::glib unofficial::glib::gmodule unofficial::glib::gobject)
+  PKG_CHECK_MODULES(GLIB2 REQUIRED IMPORTED_TARGET glib-2.0)
+  target_link_libraries(OpenSCAD PRIVATE PkgConfig::GLIB2)
 
   find_package(double-conversion CONFIG REQUIRED)
   target_link_libraries(OpenSCAD PRIVATE double-conversion::double-conversion)
 
-  find_library(GETTEXT_LIBRARY libintl)
+  find_library(GETTEXT_LIBRARY intl)
   target_link_libraries(OpenSCAD PRIVATE ${GETTEXT_LIBRARY})
 
   # call before setting local CMAKE_MODULE_PATH so we use VCPKG version of FindGLEW
@@ -388,7 +397,7 @@ message(STATUS "Freetype: ${FREETYPE_VERSION_STRING}")
 target_include_directories(OpenSCAD SYSTEM PRIVATE ${FREETYPE_INCLUDE_DIRS})
 target_link_libraries(OpenSCAD PRIVATE ${FREETYPE_LIBRARIES})
 
-find_package(LibXml2 2.9 REQUIRED QUIET)
+find_package(LibXml2 2.11 REQUIRED QUIET)
 message(STATUS "LibXml2: ${LIBXML2_VERSION_STRING}")
 target_include_directories(OpenSCAD SYSTEM PRIVATE ${LIBXML2_INCLUDE_DIR})
 target_link_libraries(OpenSCAD PRIVATE ${LIBXML2_LIBRARIES})

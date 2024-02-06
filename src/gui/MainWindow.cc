@@ -1905,7 +1905,7 @@ void MainWindow::parseTopLevelDocument()
     "\n\x03\n" + commandline_commands;
 
   auto fnameba = activeEditor->filepath.toLocal8Bit();
-  const char *fname = activeEditor->filepath.isEmpty() ? "" : fnameba;
+  const char *fname = activeEditor->filepath.isEmpty() ? "" : fnameba.constData();
   delete this->parsed_file;
 #ifdef ENABLE_PYTHON
   this->python_active = false;

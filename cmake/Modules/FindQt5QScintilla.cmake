@@ -42,7 +42,6 @@
 # either expressed or implied, of the FreeBSD Project.
 #=============================================================================
 
-
 find_path ( QT5QSCINTILLA_INCLUDE_DIR
   NAMES qsciscintilla.h
   HINTS ${Qt5Widgets_INCLUDE_DIRS}
@@ -50,6 +49,9 @@ find_path ( QT5QSCINTILLA_INCLUDE_DIR
 )
 
 set ( QT5QSCINTILLA_INCLUDE_DIRS ${QT5QSCINTILLA_INCLUDE_DIR} )
+# Strip off the last directory - QScintilla uses <QSci/[xyz].h> paths. So to make QT5QSCINTILLA_INCLUDE_DIRS useful, we
+# need to strip off the QSci part.
+get_filename_component(QT5QSCINTILLA_INCLUDE_DIRS "${QT5QSCINTILLA_INCLUDE_DIRS}" DIRECTORY)
 
 # version
 set ( _VERSION_FILE ${QT5QSCINTILLA_INCLUDE_DIR}/qsciglobal.h )
@@ -78,22 +80,47 @@ if ( QScintilla_FIND_VERSION AND QT5QSCINTILLA_VERSION_STRING )
   endif ()
 endif ()
 
+# On Windows, append 'd' for the debug version
+if(WIN32)
+    set(QT5QSCINTILLA_DEBUG_NAMES qt5scintilla2d qscintilla2-qt5d qscintilla2d qscintilla2_qt5d qscintilla2_qt6d)
+else()
+    set(QT5QSCINTILLA_DEBUG_NAMES qt5scintilla2 qscintilla2-qt5 qscintilla2 qscintilla2_qt5 qscintilla2_qt6)
+endif()
 
-find_library ( QT5QSCINTILLA_LIBRARY
-  NAMES qt5scintilla2 qscintilla2-qt5 qscintilla2 qscintilla2_qt5
+find_library ( QT5QSCINTILLA_RELEASE
+  NAMES qt5scintilla2 qscintilla2-qt5 qscintilla2 qscintilla2_qt5 qscintilla2_qt6
   HINTS ${Qt5Widgets_LIBRARIES}
 )
 
-set ( QT5QSCINTILLA_LIBRARIES ${QT5QSCINTILLA_LIBRARY} )
+find_library ( QT5QSCINTILLA_DEBUG
+  NAMES ${QT5QSCINTILLA_DEBUG_NAMES}
+  HINTS ${Qt5Widgets_LIBRARIES}
+)
 
-IF( QT5QSCINTILLA_LIBRARY AND QT5QSCINTILLA_INCLUDE_DIR )
-        SET( QT5QSCINTILLA_FOUND TRUE )
-ENDIF( QT5QSCINTILLA_LIBRARY AND QT5QSCINTILLA_INCLUDE_DIR )
+# handle the QUIETLY and REQUIRED arguments
+include ( FindPackageHandleStandardArgs )
+if ( CMAKE_VERSION VERSION_LESS 2.8.3 )
+  find_package_handle_standard_args( Qt5QScintilla DEFAULT_MSG QT5QSCINTILLA_DEBUG QT5QSCINTILLA_RELEASE QT5QSCINTILLA_INCLUDE_DIR _QT5QSCINTILLA_VERSION_MATCH )
+else ()
+  find_package_handle_standard_args( Qt5QScintilla REQUIRED_VARS QT5QSCINTILLA_DEBUG QT5QSCINTILLA_RELEASE QT5QSCINTILLA_INCLUDE_DIR _QT5QSCINTILLA_VERSION_MATCH VERSION_VAR QT5QSCINTILLA_VERSION_STRING )
+endif ()
 
-#IF( QT5QSCINTILLA_FOUND )
-#                MESSAGE( STATUS "Found QScintilla-Qt5 header files in ${QT5QSCINTILLA_INCLUDE_DIR}")
-#                MESSAGE( STATUS "Found QScintilla-Qt5 libraries: ${QT5QSCINTILLA_LIBRARY}")
-#ENDIF(QT5QSCINTILLA_FOUND)
+if(Qt5QScintilla_FOUND)
+  if(NOT QT5QSCINTILLA_DEBUG AND NOT QT5QSCINTILLA_RELEASE)
+    set(Qt5QScintilla_FOUND FALSE)
+  endif()
+endif()
+
+if(QT5QSCINTILLA_FOUND)
+  if(NOT QT5QSCINTILLA_DEBUG)
+    set(QT5QSCINTILLA_DEBUG ${QT5QSCINTILLA_RELEASE}) # Use release lib if debug not found
+  elseif(NOT QT5QSCINTILLA_RELEASE)
+    set(QT5QSCINTILLA_RELEASE ${QT5QSCINTILLA_DEBUG}) # Use debug lib if release not found
+  endif()
+endif()
+
+set(QT5QSCINTILLA_LIBRARY debug ${QT5QSCINTILLA_DEBUG} optimized ${QT5QSCINTILLA_RELEASE})
+set(QT5QSCINTILLA_LIBRARIES debug ${QT5QSCINTILLA_DEBUG} optimized ${QT5QSCINTILLA_RELEASE})
 
 # try to guess root dir from include dir
 if ( QT5QSCINTILLA_INCLUDE_DIR )
@@ -103,14 +130,12 @@ elseif ( QT5QSCINTILLA_LIBRARY )
   string ( REGEX REPLACE "(.*)/lib[/|32|64].*" "\\1" QT5QSCINTILLA_ROOT_DIR ${QT5QSCINTILLA_LIBRARY} )
 endif ()
 
-
-# handle the QUIETLY and REQUIRED arguments
-include ( FindPackageHandleStandardArgs )
-if ( CMAKE_VERSION VERSION_LESS 2.8.3 )
-  find_package_handle_standard_args( Qt5QScintilla DEFAULT_MSG QT5QSCINTILLA_LIBRARY QT5QSCINTILLA_INCLUDE_DIR _QT5QSCINTILLA_VERSION_MATCH )
-else ()
-  find_package_handle_standard_args( Qt5QScintilla REQUIRED_VARS QT5QSCINTILLA_LIBRARY QT5QSCINTILLA_INCLUDE_DIR _QT5QSCINTILLA_VERSION_MATCH VERSION_VAR QT5QSCINTILLA_VERSION_STRING )
-endif ()
+#IF( QT5QSCINTILLA_FOUND )
+#    MESSAGE( STATUS "Set QT5QSCINTILLA_INCLUDE_DIR to ${QT5QSCINTILLA_INCLUDE_DIR}")
+#    MESSAGE( STATUS "Set QT5QSCINTILLA_INCLUDE_DIRS to ${QT5QSCINTILLA_INCLUDE_DIRS}")
+#    MESSAGE( STATUS "Set QT5QSCINTILLA_LIBRARY to ${QT5QSCINTILLA_LIBRARY}")
+#    MESSAGE( STATUS "Set QT5QSCINTILLA_LIBRARIES to ${QT5QSCINTILLA_LIBRARIES}")
+#ENDIF(QT5QSCINTILLA_FOUND)
 
 mark_as_advanced (
   QT5QSCINTILLA_LIBRARY

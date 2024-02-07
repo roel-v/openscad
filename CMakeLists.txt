@@ -101,7 +101,8 @@ if(CLANG_TIDY)
   #  append ";--fix" to arguments above to apply automatic fix (if the given checks support it)
 endif(CLANG_TIDY)
 
-add_executable(OpenSCAD)
+# The 'WIN32' here makes CMake build a separate version for Debug builds, on non-Windows platforms it is ignored.
+add_executable(OpenSCAD WIN32)
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/submodules/sanitizers-cmake/cmake" ${CMAKE_MODULE_PATH})
 find_package(Sanitizers)
@@ -301,6 +302,9 @@ if (MSVC)
 
   # needed for Qt5QScintilla, maybe others
   set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules")
+
+  # Set the default 'startup project', i.e. the project that is selected/run by default when you open the generated solution in Visual Studio.
+  set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT OpenSCAD)
 else()
   set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules")
   if(MXECROSS)
@@ -666,6 +670,11 @@ elseif(WIN32)
     message(STATUS "Offscreen OpenGL Context - using Microsoft WGL")
     set(PLATFORM_SOURCES ${PLATFORM_SOURCES} src/glview/offscreen-old/OffscreenContextWGL.cc)
   endif()
+
+  # Append 'd' suffix for debug builds
+  set_target_properties(${PROJECT_NAME} PROPERTIES
+    DEBUG_POSTFIX "d"
+  )
 endif()
 
 # NOTE: To keep HEADLESS builds working, do NOT add Qt-dependent sources here,

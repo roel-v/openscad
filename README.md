@@ -41,6 +41,8 @@ STL and OFF file formats.
         - [Building for Linux/BSD](#building-for-linuxbsd)
         - [Building for Linux/BSD on systems with older or missing dependencies](#building-for-linuxbsd-on-systems-with-older-or-missing-dependencies)
         - [Building for Windows](#building-for-windows)
+            - [Cross compiling](#cross-compiling)
+            - [Using Visual Studio and vcpkg](#using-visual-studio-and-vcpkg)
         - [Compilation](#compilation)
 
 # Getting started
@@ -203,9 +205,16 @@ After that, follow the Compilation instructions below.
 
 ### Building for Windows
 
-OpenSCAD for Windows is usually cross-compiled from Linux. If you wish to
-attempt an MSVC build on Windows, please see this site:
-https://en.wikibooks.org/wiki/OpenSCAD_User_Manual/Building_on_Windows
+There are two ways to build OpenSCAD for Windows: cross compiling (this is how
+the official releases are built), or compiling using Microsoft Visual Studio and
+fetching all dependencies using Microsoft's vcpkg package management system.
+This last option is convenient if you want to use Visual Studio to work on
+OpenSCAD, as it will let you run OpenSCAD from within Visual Studio's debugger
+so that you can step through the code, set breakpoints etc.
+
+#### Cross compiling
+
+OpenSCAD for Windows is usually cross-compiled from Linux.
 
 To cross-build, first make sure that you have all necessary dependencies 
 of the MXE project ( listed at https://mxe.cc/#requirements ). Don't install
@@ -229,6 +238,39 @@ installer:
     ./scripts/release-common.sh mingw64
 
 For a 32-bit Windows cross-build, replace 64 with 32 in the above instructions. 
+
+#### Using Visual Studio and vcpkg
+
+Follow these steps to build OpenSCAD with Microsoft Visual Studio:
+
+- Make sure you have git installed and in your PATH.
+- Install Visual Studio 2022. Check the 'Desktop development with C++' component
+  in the VS installer.
+- Download WinFlexBison binaries from the project's Github page:
+  https://github.com/lexxmark/winflexbison . Unzip it somewhere convenient and
+  add that location to your PATH.
+- Install vcpkg in a convenient location with a short path (this is important),
+  e.g. c:\vcpkg or d:\vcpkg. Instructions are at
+  https://vcpkg.io/en/getting-started but an even shorter version is to do:
+
+    cd d:\vcpkg
+    git clone https://github.com/Microsoft/vcpkg.git
+    .\vcpkg\bootstrap-vcpkg.bat
+
+Then add d:\vckg to your PATH .
+
+Clone the OpenSCAD repo somewhere (in this example, d:\openscad) and run
+build\_vcpkg.bat in it:
+
+    cd d:\openscad
+    git clone -b vcpkg-built https://github.com/roel-v/openscad.git
+    cd openscad
+    build\_vcpkg.bat
+
+What that batch file does is first install all required packages through vcpkg,
+then generate Visual Studio project files in the 'build' directory and finally
+builds Release and Debug versions. Results will be in build\Debug and
+build\Release.
 
 ### Compilation
 

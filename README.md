@@ -253,19 +253,23 @@ Follow these steps to build OpenSCAD with Microsoft Visual Studio:
   e.g. c:\vcpkg or d:\vcpkg. Instructions are at
   https://vcpkg.io/en/getting-started but an even shorter version is to do:
 
+    ```
     cd d:\vcpkg
     git clone https://github.com/Microsoft/vcpkg.git
     .\vcpkg\bootstrap-vcpkg.bat
+    ```
 
 Then add d:\vckg to your PATH .
 
 Clone the OpenSCAD repo somewhere (in this example, d:\openscad) and run
 build\_vcpkg.bat in it:
 
+    ```
     cd d:\openscad
     git clone -b vcpkg-built https://github.com/roel-v/openscad.git
     cd openscad
     build\_vcpkg.bat
+    ```
 
 What that batch file does is first install all required packages through vcpkg,
 then generate Visual Studio project files in the 'build' directory and finally

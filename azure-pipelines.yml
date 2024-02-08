@@ -7,7 +7,8 @@ trigger:
 - master
 
 pool:
-  vmImage: windows-latest
+  vmImage: windows-2022 # Not windows-latest so we at least know what's happening
+                        # See https://github.com/actions/runner-images/blob/main/images/windows/Windows2022-Readme.md
 
 steps:
 - script: echo Hello, world!

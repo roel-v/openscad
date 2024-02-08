@@ -18,3 +18,9 @@ steps:
     echo Add other tasks to build, test, and deploy your project.
     echo See https://aka.ms/yaml
   displayName: 'Run a multi-line script'
+
+# @todo:
+# - Download/unzip  WinFlexBison into c:\WinFlexBison
+# - Add c:\WinFlexBison to %PATH%
+# - Get git clone of https://github.com/roel-v/openscad.git into c:\openscad-build
+# - Run c:\openscad-build\build_vcpkg.bat

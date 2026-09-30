@@ -1677,6 +1677,8 @@ elseif(MINGW)
   set_property(TARGET OpenSCADLibInternal APPEND_STRING PROPERTY LINK_FLAGS " -municode")
   set_property(TARGET OpenSCADExe APPEND_STRING PROPERTY LINK_FLAGS " -municode")
 elseif(MSVC)
+  # The Windows resource already embeds scripts/winmanifest.xml for each executable.
+  target_link_options(OpenSCADLibInternal INTERFACE /MANIFEST:NO)
   set_target_properties(OpenSCADExe PROPERTIES
     LINK_FLAGS "-subsystem:windows -ENTRY:mainCRTStartup -stack:${STACKSIZE}"
   )

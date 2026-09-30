@@ -414,7 +414,9 @@ struct NumericLimits {
   boost::optional<double> maximum;
   boost::optional<double> step;
 };
-static NumericLimits parseNumericLimits(const Expression *parameter, const std::vector<double>& values)
+static NumericLimits parseNumericLimits(const std::string& name, const Expression *parameter,
+                                        const Location& location, const std::string& docPath,
+                                        const std::vector<double>& values)
 {
   NumericLimits output;
 
@@ -442,12 +444,26 @@ static NumericLimits parseNumericLimits(const Expression *parameter, const std::
       }
     }
   }
+
+  // output.minimum/maximum get widened multiple times when processing vectors,
+  // therefore the original values need to be cached for accurate warnings
+  const boost::optional<double> declaredMinimum = output.minimum;
+  const boost::optional<double> declaredMaximum = output.maximum;
+
   for (double value : values) {
-    if (output.minimum && value < output.minimum) {
-      output.minimum = value;
+    if (declaredMinimum && value < declaredMinimum) {
+      LOG(message_group::Warning, location, docPath,
+          "Parameter %1$s: value %2$g is below the declared minimum %3$g, adjusting minimum value",
+          quoteVar(name), value, *declaredMinimum);
+
+      if (value < output.minimum) output.minimum = value;
     }
-    if (output.maximum && value > output.maximum) {
-      output.maximum = value;
+    if (declaredMaximum && value > declaredMaximum) {
+      LOG(message_group::Warning, location, docPath,
+          "Parameter %1$s: value %2$g is above the declared maximum %3$g, adjusting maximum value",
+          quoteVar(name), value, *declaredMaximum);
+
+      if (value > output.maximum) output.maximum = value;
     }
   }
 
@@ -455,12 +471,13 @@ static NumericLimits parseNumericLimits(const Expression *parameter, const std::
 }
 
 std::unique_ptr<ParameterObject> ParameterObject::fromAssignment(const Assignment *assignment,
+                                                                 const std::string& docPath,
                                                                  const Context *context)
 {
   const Annotation *nativeAnn = assignment->annotation("NativeAttributes");
   if (nativeAnn) {
     if (auto *obj = dynamic_cast<const ObjectExpression *>(nativeAnn->getExpr().get())) {
-      return fromObjectExpression(obj, assignment, context);
+      return fromObjectExpression(obj, assignment, docPath, context);
     }
   }
 
@@ -487,14 +504,16 @@ std::unique_ptr<ParameterObject> ParameterObject::fromAssignment(const Assignmen
   }
 
   return ParameterObject::createParameter(assignment->getName(), description, group, parameterExpr,
-                                          assignment->getExpr().get());
+                                          assignment->getExpr().get(), assignment->location(), docPath);
 }
 
 std::unique_ptr<ParameterObject> ParameterObject::createParameter(const std::string& name,
                                                                   const std::string& description,
                                                                   const std::string& group,
                                                                   const Expression *parameterExpr,
-                                                                  const Expression *valueExpression)
+                                                                  const Expression *valueExpression,
+                                                                  const Location& location,
+                                                                  const std::string& docPath)
 {
   if (const auto *lit = dynamic_cast<const Literal *>(valueExpression)) {
     if (lit->isBool()) return std::make_unique<BoolParameter>(name, description, group, lit->toBool());
@@ -519,7 +538,7 @@ std::unique_ptr<ParameterObject> ParameterObject::createParameter(const std::str
 
     if (lit->isDouble()) {
       double val = lit->toDouble();
-      NumericLimits limits = parseNumericLimits(parameterExpr, {val});
+      auto limits = parseNumericLimits(name, parameterExpr, location, docPath, {val});
       return std::make_unique<NumberParameter>(name, description, group, val, limits.minimum,
                                                limits.maximum, limits.step);
     }
@@ -531,7 +550,7 @@ std::unique_ptr<ParameterObject> ParameterObject::createParameter(const std::str
       }
     }
     if (values.size() >= 1 && values.size() <= 4) {
-      NumericLimits limits = parseNumericLimits(parameterExpr, values);
+      auto limits = parseNumericLimits(name, parameterExpr, location, docPath, values);
       return std::make_unique<VectorParameter>(name, description, group, values, limits.minimum,
                                                limits.maximum, limits.step);
     }
@@ -541,6 +560,7 @@ std::unique_ptr<ParameterObject> ParameterObject::createParameter(const std::str
 
 std::unique_ptr<ParameterObject> ParameterObject::fromObjectExpression(const ObjectExpression *nativeObj,
                                                                        const Assignment *assignment,
+                                                                       const std::string& docPath,
                                                                        const Context *context)
 {
   std::string description, group = "Parameters";
@@ -581,8 +601,8 @@ std::unique_ptr<ParameterObject> ParameterObject::fromObjectExpression(const Obj
     }
   }
 
-  auto param =
-    createParameter(assignment->getName(), description, group, rangeExpr, assignment->getExpr().get());
+  auto param = createParameter(assignment->getName(), description, group, rangeExpr,
+                               assignment->getExpr().get(), assignment->location(), docPath);
   if (param) {
     param->setLocked(isLocked);
     param->setHidden(isHidden);
@@ -599,10 +619,15 @@ std::unique_ptr<ParameterObject> ParameterObject::fromObjectExpression(const Obj
 
 ParameterObjects ParameterObjects::fromSourceFile(const SourceFile *sourceFile, const Context *context)
 {
+  // Warnings logged while parsing parameters (see parseNumericLimits) need a
+  // stable docPath: an empty one makes Location::toRelativeString() fall back
+  // to the current working directory (see fs_uncomplete()), which is neither
+  // stable across invocations nor meaningful to the person reading the warning.
+  const auto docPath = fs::path(sourceFile->getFullpath()).parent_path().generic_string();
+
   ParameterObjects output;
   for (const auto& assignment : sourceFile->scope->assignments) {
-    std::unique_ptr<ParameterObject> parameter =
-      ParameterObject::fromAssignment(assignment.get(), context);
+    auto parameter = ParameterObject::fromAssignment(assignment.get(), docPath, context);
     if (parameter) {
       output.push_back(std::move(parameter));
     }

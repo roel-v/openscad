@@ -25,16 +25,20 @@ public:
 
   virtual ~ParameterObject() = default;
   static std::unique_ptr<ParameterObject> fromAssignment(const Assignment *assignment,
+                                                         const std::string& docPath,
                                                          const Context *context = nullptr);
   static std::unique_ptr<ParameterObject> fromObjectExpression(const ObjectExpression *obj,
                                                                const Assignment *assignment,
+                                                               const std::string& docPath,
                                                                const Context *context = nullptr);
 
   static std::unique_ptr<ParameterObject> createParameter(const std::string& name,
                                                           const std::string& description,
                                                           const std::string& group,
                                                           const Expression *parameterExpr,
-                                                          const Expression *valueExpression);
+                                                          const Expression *valueExpression,
+                                                          const Location& location,
+                                                          const std::string& docPath);
   [[nodiscard]] ParameterType type() const { return type_; }
   [[nodiscard]] const std::string& name() const { return name_; }
   [[nodiscard]] const std::string& description() const { return description_; }

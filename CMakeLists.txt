@@ -80,7 +80,7 @@ cmake_dependent_option(ENABLE_QTDBUS "Enable DBus input driver for Qt." ON "NOT 
 set(ENABLE_GAMEPAD "AUTO" CACHE STRING "Enable Qt5Gamepad input driver")
 set_property(CACHE ENABLE_GAMEPAD PROPERTY STRINGS "AUTO" "ON" "OFF")
 set(WASM_BUILD_TYPE "web" CACHE STRING
-  "WebAssembly build type. Support web (builds an OpenSCAD module) or node (standalone .js executable)")
+  "WebAssembly build type. Support web (builds an OpenSCAD module), node (standalone .js executable) or node-module (ES module for node)")
 
 if (USE_QT6)
   # Minimum version required for Qt-6.8
@@ -141,6 +141,15 @@ set_target_properties(OpenSCADLibInternal PROPERTIES
 )
 
 add_library(svg STATIC)
+# Disable floating-point contraction (fusing a*b+c into a single fma) for the SVG code.
+# arm64 has FMA in its baseline ISA and Clang fuses by default; the x86-64 baseline has no
+# FMA instruction, so the same expressions round at every step. path::arc_to() feeds its
+# results into a ceil() that picks the arc's segment count, so a sub-ulp difference there
+# changes the number of segments and hence every emitted coordinate.
+# See https://github.com/openscad/openscad/issues/6161.
+if(NOT MSVC)
+  target_compile_options(svg PRIVATE -ffp-contract=off)
+endif()
 target_link_libraries(OpenSCADExe PUBLIC svg)
 # TODO: https://github.com/openscad/openscad/issues/6369 - Update includes so we don't need this, which also prevents trivially including other parts of OpenSCAD.
 target_include_directories(svg PUBLIC
@@ -346,8 +355,22 @@ if (CMAKE_SYSTEM_NAME STREQUAL Emscripten)
       POST_BUILD TARGET OpenSCADExe
       COMMAND ${CMAKE_COMMAND} "-DFILE=$<TARGET_FILE:OpenSCADExe>" -P "${CMAKE_CURRENT_BINARY_DIR}/prepend_node_shebang.cmake"
     )
+  elseif (WASM_BUILD_TYPE STREQUAL "node-module")
+    target_link_options(OpenSCADExe PUBLIC
+      -sENVIRONMENT=node,worker
+      -sEXPORT_ES6=1
+      -sEXPORT_NAME=OpenSCAD
+      -sMODULARIZE=1
+      -sNODERAWFS
+
+      # Single .js (more elegant for CLI release) is larger than separate .js & .wasm (preferred for web)
+      $<$<CONFIG:Release>:-sSINGLE_FILE>
+
+      # Alternatively to single-file mode, code caching could make repeated runs faster:
+      # -sNODE_CODE_CACHING -sWASM_ASYNC_COMPILATION=0
+    )
   else()
-    message(FATAL_ERROR "Invalid WASM_BUILD_TYPE: ${WASM_BUILD_TYPE} (allowed: node, web)")
+    message(FATAL_ERROR "Invalid WASM_BUILD_TYPE: ${WASM_BUILD_TYPE} (allowed: node, node-module, web)")
   endif()
 endif()
 
@@ -786,19 +809,15 @@ if(NOT HEADLESS)
   if (APPLE AND EXISTS /usr/local/opt/qt)
     list(APPEND CMAKE_PREFIX_PATH "/usr/local/opt/qt")
   endif()
+  if (APPLE AND EXISTS /opt/homebrew/opt/qt)
+    list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/qt")
+  endif()
   if (USE_QT6)
     if (APPLE AND EXISTS /usr/local/opt/qt@6)
       list(APPEND CMAKE_PREFIX_PATH "/usr/local/opt/qt@6")
     endif()
     if (APPLE AND EXISTS /opt/homebrew/opt/qt@6)
       list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/qt@6")
-    endif()
-  else()
-    if (APPLE AND EXISTS /usr/local/opt/qt@5)
-      list(APPEND CMAKE_PREFIX_PATH "/usr/local/opt/qt@5")
-    endif()
-    if (APPLE AND EXISTS /opt/homebrew/opt/qt@5)
-      list(APPEND CMAKE_PREFIX_PATH "/opt/homebrew/opt/qt@5")
     endif()
   endif()
 
@@ -988,7 +1007,10 @@ elseif(WIN32)
   if(NOT NULLGL)
     set(OFFSCREEN_METHOD "Windows WGL")
     message(STATUS "Offscreen OpenGL Context - using Microsoft WGL")
-    set(PLATFORM_SOURCES ${PLATFORM_SOURCES} src/glview/offscreen-old/OffscreenContextWGL.cc)
+    set(PLATFORM_SOURCES ${PLATFORM_SOURCES}
+        src/glview/offscreen-old/OffscreenContextWGL.cc
+        src/glview/OffscreenContextWGL.cc)
+
   endif()
 endif()
 
@@ -1045,6 +1067,7 @@ set(CORE_SOURCES
   src/core/TransformNode.cc
   src/core/Tree.cc
   src/core/UndefType.cc
+  src/core/UnicodeIdentifier.cc
   src/core/UserModule.cc
   src/core/Value.cc
   src/core/builtin_functions.cc
@@ -1085,6 +1108,7 @@ set(CORE_SOURCES
   src/geometry/rotate_extrude.cc
   src/glview/Camera.cc
   src/glview/ColorMap.cc
+  src/glview/CsgInfo.cc
   src/glview/OffscreenContextFactory.cc
   src/glview/RenderSettings.cc
   src/glview/preview/CSGTreeNormalizer.cc
@@ -1092,7 +1116,6 @@ set(CORE_SOURCES
   src/io/DxfData.cc
   src/io/dxfdim.cc
   src/io/export.cc
-  src/io/export_amf.cc
   src/io/export_dxf.cc
   src/io/export_obj.cc
   src/io/export_off.cc
@@ -1104,7 +1127,6 @@ set(CORE_SOURCES
   src/io/export_param.cc
   src/io/export_wrl.cc
   src/io/fileutils.cc
-  src/io/import_amf.cc
   src/io/import_json.cc
   src/io/import_obj.cc
   src/io/import_off.cc
@@ -1295,7 +1317,7 @@ set(GUI_SOURCES
   ${GUI_SOURCES}
   src/openscad_gui.cc
   src/gui/AutoUpdater.cc
-  src/gui/CGALWorker.cc
+  src/gui/GeometryWorker.cc
   src/gui/ViewportControl.cc
   src/gui/Console.cc
   src/gui/Dock.cc
@@ -1375,7 +1397,7 @@ set(GUI_HEADERS
     src/gui/Animate.h
     src/gui/AppleEvents.h
     src/gui/AutoUpdater.h
-    src/gui/CGALWorker.h
+    src/gui/GeometryWorker.h
     src/gui/Console.h
     src/gui/Dock.h
     src/gui/Editor.h
@@ -1577,6 +1599,7 @@ endif()
 file(GLOB_RECURSE TEST_SOURCES
   "src/utils/*_test.cc"
   "src/core/*_test.cc"
+  "src/io/*_test.cc"
 )
 file(GLOB_RECURSE GUI_TEST_SOURCES
   "src/gui/*_test.cc"
@@ -1798,6 +1821,8 @@ if(ENABLE_TESTS)
       add_executable(OpenSCADUnitTests ${TEST_SOURCES} ${GUI_TEST_SOURCES})
     endif()
     target_link_libraries(OpenSCADUnitTests PRIVATE Catch2::Catch2WithMain OpenSCADLibInternal svg)
+    target_compile_definitions(OpenSCADUnitTests PRIVATE
+      OPENSCAD_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
     include(CTest)
     include(Catch)
     catch_discover_tests(OpenSCADUnitTests ADD_TAGS_AS_LABELS)

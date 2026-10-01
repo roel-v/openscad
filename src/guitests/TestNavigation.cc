@@ -327,6 +327,27 @@ void TestNavigation::cubeTargetsAndGestures()
   for (int i=0;i<4;++i) cube->step(Eigen::Vector3d::UnitY(),90);
   QVERIFY(CameraPose::matrix(view->cam.object_rot).isApprox(CameraPose::matrix(original.rotation),1e-10));
   const auto position=cube->pos();
+  // Exercise actual pointer clicks: direct snap() calls do not cover click/drag arbitration.
+  for (const QPoint jitter : {QPoint(0,0),QPoint(3,3)}) {
+    nav->apply(original,false);
+    nav->settings.animate=true;
+    nav->settings.duration=100;
+    const auto visible=cube->projected();
+    const auto front=std::find_if(visible.begin(),visible.end(),[](const auto& face){return face.label=="FRONT";});
+    QVERIFY(front!=visible.end());
+    const QPoint click=front->center.toPoint();
+    QTest::mousePress(cube,Qt::LeftButton,Qt::NoModifier,click);
+    QTest::mouseMove(cube,click+jitter,20);
+    QTest::mouseRelease(cube,Qt::LeftButton,Qt::NoModifier,click+jitter);
+    QTest::qWait(180);
+    QVERIFY2(CameraPose::matrix(nav->current().rotation).isApprox(Eigen::Matrix3d::Identity(),1e-10),
+             qPrintable(QString("Front-face click (%1,%2 jitter) stopped at %3,%4,%5")
+               .arg(jitter.x()).arg(jitter.y()).arg(nav->current().rotation.x())
+               .arg(nav->current().rotation.y()).arg(nav->current().rotation.z())));
+    QVERIFY(!nav->animating());
+  }
+  nav->settings.animate=false;
+  nav->apply(original,false);
   const QPoint center(qRound(cube->width()*0.5),qRound(cube->width()*80.0/140));
   const QPoint end=center+QPoint(18,8);
   QSignalSpy selected(view,&QGLView::doLeftClick);

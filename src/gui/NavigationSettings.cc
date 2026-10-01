@@ -6,6 +6,7 @@
 #include <QSpinBox>
 #include <QGroupBox>
 #include <QSignalBlocker>
+#include <QApplication>
 #include <algorithm>
 
 namespace {
@@ -15,6 +16,9 @@ const QList<QByteArray> persistentKeys{"visible","animate","duration","showInfor
 
 NavigationSettings::NavigationSettings(QObject *parent) : QObject(parent)
 {
+  // Match native click/drag tolerance before recording the session baseline.
+  // The former four-pixel threshold turned ordinary click jitter into free orbit.
+  dragThreshold=QApplication::startDragDistance();
   for (const auto& name : persistentKeys) {
     auto value=persistent(name,property(name));
     if (name=="duration") value=std::clamp(value.toInt(),0,5000);

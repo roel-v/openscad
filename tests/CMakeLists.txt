@@ -1537,10 +1537,15 @@ if(NOT ENABLE_MANIFOLD)
 endif()
 
 # Exercise real file I/O, including paths that cannot be represented by legacy Windows code pages.
+if(TARGET OpenSCADExe)
+  set(UNICODE_TEST_BINARY "$<TARGET_FILE:OpenSCADExe>")
+else()
+  set(UNICODE_TEST_BINARY "${OPENSCAD_BINPATH}")
+endif()
 add_test(NAME unicode_filenames
   CONFIGURATIONS Default
   COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_unicode_filenames.py
-          ${OPENSCAD_BINPATH} ${CMAKE_CURRENT_BINARY_DIR}/unicode-filenames
+          ${UNICODE_TEST_BINARY} ${CMAKE_CURRENT_BINARY_DIR}/unicode-filenames
 )
 set_tests_properties(unicode_filenames PROPERTIES TIMEOUT 180)
 

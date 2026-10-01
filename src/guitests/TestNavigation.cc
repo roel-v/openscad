@@ -21,6 +21,7 @@
 #include <QDoubleSpinBox>
 #include <QPainter>
 #include "gui/TabManager.h"
+#include "gui/Animate.h"
 #include "gui/SavedViews.h"
 #include <QLockFile>
 #include <QJsonDocument>
@@ -28,6 +29,26 @@
 #include <QJsonArray>
 #include <QLineEdit>
 #include <QDateTime>
+
+void TestNavigation::settingsOnStartup()
+{
+  if (qEnvironmentVariable("OPENSCAD_NAVIGATION_RESTART_STAGE")!="read") return;
+  const auto& settings=window->qglview->navigation()->settings;
+  QCOMPARE(settings.duration,345);
+  QVERIFY(settings.showInformation);
+  QCOMPARE(settings.cubeRight,10);
+  QCOMPARE(settings.scale,0.75);
+}
+
+void TestNavigation::settingsBeforeExit()
+{
+  if (qEnvironmentVariable("OPENSCAD_NAVIGATION_RESTART_STAGE")!="write") return;
+  auto& settings=window->qglview->navigation()->settings;
+  NavigationSettings::setPersistent("duration",345);
+  NavigationSettings::setPersistent("showInformation",true);
+  settings.setTemporary("cubeRight",33);
+  settings.setTemporary("scale",1.2);
+}
 
 void TestNavigation::savedViewTransactions()
 {
@@ -87,6 +108,25 @@ void TestNavigation::savedViewTransactions()
   QVERIFY(QDir().rmdir(SavedViews::companion(partial)));
   QVERIFY(store.save(partial,false,write,error));
   QVERIFY(!store.dirty());
+  const auto validRoot=QJsonDocument::fromJson(store.serialize()).object();
+  const auto validEntry=validRoot.value("views").toArray().first().toObject();
+  QList<QByteArray> invalidFiles{QByteArray(4*1024*1024+1,' ')};
+  for (int scenario=0;scenario<5;++scenario) {
+    auto entry=validEntry;
+    if (scenario==0) entry["distance"]=-1;
+    if (scenario==1) entry["rotation"]=QJsonArray{0,QJsonValue(),0};
+    if (scenario==2) entry["name"]=QString(257,'x');
+    QJsonArray entries{entry};
+    if (scenario==3) entries.append(entry);
+    if (scenario==4) { for (int i=0;i<1001;++i) entries.append(entry); }
+    auto root=validRoot;root["views"]=entries;invalidFiles.append(QJsonDocument(root).toJson());
+  }
+  for (const auto& bytes:invalidFiles) {
+    QVERIFY(damaged.open(QIODevice::WriteOnly|QIODevice::Truncate));
+    QCOMPARE(damaged.write(bytes),qint64(bytes.size()));damaged.close();
+    QVERIFY(!reopened.load(moved));
+    QVERIFY(damaged.open(QIODevice::ReadOnly));QCOMPARE(damaged.readAll(),bytes);damaged.close();
+  }
 }
 
 void TestNavigation::savedViewDocumentLifecycle()
@@ -432,6 +472,65 @@ void TestNavigation::popupAndTuning()
 #include "gui/ViewportStatistics.h"
 #include "gui/ai/ViewportGrabber.h"
 #include <stdexcept>
+#include <QMessageBox>
+#include <QTimer>
+
+void TestNavigation::visualCalibrationAndClose()
+{
+  window->tabManager->createTab("");
+  auto editor=window->activeEditor;
+  editor->setPlainText("difference(){cube([24,18,12],center=true);cylinder(h=20,r=4,center=true,$fn=32);}\n");
+  window->actionRenderPreview();
+  auto view=window->qglview;
+  view->navigation()->settings.animate=false;
+  view->viewAll();
+  auto popup=window->findChild<ViewportPopup *>();
+  if (!popup->isVisible()) popup->toggle();
+  QTest::mouseClick(popup->addView,Qt::LeftButton);
+  auto store=SavedViews::forEditor(editor);
+  QTRY_COMPARE(store->entries().size(),1);
+  auto currentEditor=[&]() -> QLineEdit * {
+    for (auto candidate:popup->views->findChildren<QLineEdit *>()) if (candidate->isVisible()) return candidate;
+    return nullptr;
+  };
+  QLineEdit *name=nullptr;QTRY_VERIFY(name=currentEditor());
+  name->clear();QTest::keyClick(name,Qt::Key_Return);
+  QTRY_COMPARE(popup->views->item(0)->text(),QString("View 1"));
+  QTest::mouseClick(popup->addView,Qt::LeftButton);
+  QTRY_COMPARE(store->entries().size(),2);
+  QTRY_VERIFY(name=currentEditor());
+  name->setText("Focus-loss name");
+  QTest::mouseClick(popup->findChild<QRadioButton *>("viewportPerspective"),Qt::LeftButton);
+  QTRY_VERIFY(popup->findChild<QRadioButton *>("viewportPerspective")->isChecked());
+  QVERIFY(!view->orthoMode());
+  QTRY_COMPARE(store->entries().last().name,QString("Focus-loss name"));
+  const auto output=qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
+  const auto oldSize=window->size();
+  const auto oldFont=popup->font();
+  const auto oldStyle=popup->styleSheet();
+  popup->setStyleSheet("QWidget { font-size: 14pt; }");
+  auto largeFont=oldFont;largeFont.setPointSize(14);popup->setFont(largeFont);
+  popup->resize(410,690);
+  QTest::qWait(50);
+  if (!output.isEmpty()) QVERIFY(popup->grab().save(output+"/popup-large-font.png"));
+  popup->hide();popup->setFont(oldFont);popup->setStyleSheet(oldStyle);
+  window->resize(820,620);
+  popup->toggle();QTest::qWait(50);
+  if (!output.isEmpty()) QVERIFY(window->grab().save(output+"/small-window.png"));
+  popup->hide();window->resize(oldSize);
+  editor->setContentModified(false);
+  const auto count=window->tabManager->count();
+  QTimer::singleShot(0,window,[] {
+    if (auto box=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) box->done(QMessageBox::Cancel);
+  });
+  window->tabManager->closeCurrentTab();
+  QCOMPARE(window->tabManager->count(),count);QVERIFY(editor->hasViewChanges());
+  QTimer::singleShot(0,window,[] {
+    if (auto box=qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) box->done(QMessageBox::Discard);
+  });
+  window->tabManager->closeCurrentTab();
+  QCOMPARE(window->tabManager->count(),count-1);
+}
 
 void TestNavigation::statisticsAndCleanCapture()
 {
@@ -474,8 +573,26 @@ void TestNavigation::statisticsAndCleanCapture()
   window->editActionCopyViewport->trigger();
   QCOMPARE(QApplication::clipboard()->image(),reference);
   const auto encoded=ViewportGrabber::captureViewportBase64(view,10000);
-  const auto decoded=QImage::fromData(QByteArray::fromBase64(QByteArray::fromStdString(encoded)),"PNG");
+  auto decoded=QImage::fromData(QByteArray::fromBase64(QByteArray::fromStdString(encoded)),"PNG");
+  decoded.setDevicePixelRatio(reference.devicePixelRatio());
   QCOMPARE(decoded.convertToFormat(reference.format()),reference);
+  // Exercise the real animation-dump caller, keeping its timer beyond this synchronous frame.
+  QTemporaryDir animationOutput;
+  QVERIFY(animationOutput.isValid());
+  editor->filepath=animationOutput.filePath("animation.scad");
+  auto animation=window->findChild<Animate *>();
+  QVERIFY(animation);
+  animation->e_dump->setChecked(true);
+  animation->animateTimer->start(60000);
+  window->actionRenderPreview();
+  animation->animateTimer->stop();
+  animation->e_dump->setChecked(false);
+  const auto frames=QDir(animationOutput.path()).entryList({"frame*.png"},QDir::Files);
+  QCOMPARE(frames.size(),1);
+  QImage frame(animationOutput.filePath(frames.first()));
+  frame.setDevicePixelRatio(reference.devicePixelRatio());
+  QCOMPARE(frame.convertToFormat(reference.format()),reference);
+  editor->filepath.clear();
   int compositions=0;
   view->composeAnnotations=[&](QImage& image){++compositions;image.setPixelColor(2,2,Qt::red);};
   const QImage annotated=view->grabFrame();
@@ -500,4 +617,36 @@ void TestNavigation::statisticsAndCleanCapture()
   nav->settings.resetOverrides();
   editor->setContentModified(false);
   window->tabManager->closeCurrentTab();
+}
+#include "glview/RenderSettings.h"
+
+void TestNavigation::resultStatisticsStates()
+{
+  window->tabManager->createTab("");
+  auto editor=window->activeEditor;
+  auto view=window->qglview;
+  view->navigation()->settings.setTemporary("showInformation",true);
+  editor->setPlainText("square(10);\n");window->actionRenderPreview();
+  QTRY_VERIFY(view->getRenderer());
+  QCOMPARE(view->getRenderer()->triangleStatistics().dimension,2);
+  view->statistics()->refresh();QVERIFY(view->statistics()->text().contains("2D"));
+  editor->setPlainText("cube(10);\n");window->actionRenderPreview();
+  QTRY_COMPARE(window->displayedDocument(),editor);
+  QCOMPARE(*view->getRenderer()->triangleStatistics().count,uint64_t(12));
+  const auto oldBackend=RenderSettings::inst()->backend3D;
+  RenderSettings::inst()->backend3D=RenderBackend3D::ManifoldBackend;
+  window->designActionRender->trigger();
+  QTRY_VERIFY_WITH_TIMEOUT(view->getRenderer() && view->getRenderer()->triangleStatistics().kind==Renderer::TriangleStatistics::Kind::Final,10000);
+  QCOMPARE(*view->getRenderer()->triangleStatistics().count,uint64_t(12));
+  RenderSettings::inst()->backend3D=oldBackend;
+  editor->setPlainText("invalid syntax ?\n");window->actionRenderPreview();
+  QTRY_VERIFY(view->statistics()->text().contains("failed"));
+  QCOMPARE(window->displayedDocument(),editor);
+  editor->setPlainText("");window->actionRenderPreview();
+  QTRY_COMPARE(window->displayedDocument(),editor);
+  const auto empty=view->getRenderer();
+  QVERIFY(empty);QVERIFY(empty->triangleStatistics().count.has_value());
+  QCOMPARE(*empty->triangleStatistics().count,uint64_t(0));
+  view->navigation()->settings.resetOverrides();
+  editor->setContentModified(false);window->tabManager->closeCurrentTab();
 }

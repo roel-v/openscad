@@ -4,6 +4,7 @@
 class TestNavigation : public UXTest {
   Q_OBJECT
 private slots:
+  void settingsOnStartup();
   void cameraOperationBoundary();
   void nativeOverlayComposition();
   void documentMetadataLifetimeProbe();
@@ -13,4 +14,7 @@ private slots:
   void savedViewTransactions();
   void savedViewDocumentLifecycle();
   void statisticsAndCleanCapture();
+  void visualCalibrationAndClose();
+  void resultStatisticsStates();
+  void settingsBeforeExit();
 };

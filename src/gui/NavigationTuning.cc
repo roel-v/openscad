@@ -129,7 +129,7 @@ QString NavigationTuning::description() const
     .arg(view->orthoMode() ? "orthographic" : "perspective").arg(view->showAxes()).arg(view->showScaleProportional())
     .arg(view->showCrosshairs()).arg(view->showEdges());
   const auto size=QSettingsCached().value("navigation/popupSize",QSize(300,480)).toSize();
-  if (auto popup=view->findChild<QWidget *>("viewportPopup")) text+="popup current = "+rect(popup->geometry())+"\n";
+  if (auto popup=view->findChild<QWidget *>("viewportPopup")) text+="popup current (screen coordinates) = "+rect(popup->geometry())+"\n";
   text+=QString("saved popup size = %1 × %2 logical px\n").arg(size.width()).arg(size.height());
   return text;
 }

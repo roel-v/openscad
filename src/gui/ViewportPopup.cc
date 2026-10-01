@@ -8,6 +8,7 @@
 #include "gui/TabManager.h"
 #include <QLineEdit>
 #include <QTimer>
+#include <QStyledItemDelegate>
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QRadioButton>
@@ -22,6 +23,15 @@
 #include <QFileInfo>
 
 namespace {
+class ViewNameDelegate : public QStyledItemDelegate {
+public:
+  using QStyledItemDelegate::QStyledItemDelegate;
+  void setModelData(QWidget *editor,QAbstractItemModel *model,const QModelIndex& index) const override {
+    const auto line=qobject_cast<QLineEdit *>(editor);
+    if (line && line->text().trimmed().isEmpty()) return;
+    QStyledItemDelegate::setModelData(editor,model,index);
+  }
+};
 class CompactViewList : public QListWidget {
 public:
   using QListWidget::QListWidget;
@@ -63,6 +73,12 @@ ViewportPopup::ViewportPopup(MainWindow *window)
   layout->addLayout(projectionRow);
   connect(perspective,&QRadioButton::clicked,window->viewActionPerspective,&QAction::trigger);
   connect(orthographic,&QRadioButton::clicked,window->viewActionOrthogonal,&QAction::trigger);
+  auto projectionAvailability=[this] {
+    perspective->setEnabled(this->window->viewActionPerspective->isEnabled());
+    orthographic->setEnabled(this->window->viewActionOrthogonal->isEnabled());
+  };
+  connect(window->viewActionPerspective,&QAction::changed,this,projectionAvailability);
+  connect(window->viewActionOrthogonal,&QAction::changed,this,projectionAvailability);
   auto commands=new QHBoxLayout;
   const QList<QAction *> actions{window->viewActionCenter,window->viewActionViewAll,window->viewActionResetView};
   const QStringList names{tr("Center"),tr("View All"),tr("Reset")};
@@ -70,6 +86,9 @@ ViewportPopup::ViewportPopup(MainWindow *window)
     auto button=new QPushButton(names[i],content);
     commands->addWidget(button);
     connect(button,&QPushButton::clicked,actions[i],&QAction::trigger);
+    auto action=actions[i];
+    button->setEnabled(action->isEnabled());
+    connect(action,&QAction::changed,button,[button,action]{button->setEnabled(action->isEnabled());});
   }
   layout->addLayout(commands);
   heading(tr("Viewport information"));
@@ -102,10 +121,11 @@ ViewportPopup::ViewportPopup(MainWindow *window)
     auto box=new QCheckBox(displayNames[i],content);
     auto action=displayActions[i];
     box->setChecked(action->isChecked());
+    box->setEnabled(action->isEnabled());
     display->addWidget(box,i%2,i/2);
     connect(box,&QCheckBox::clicked,action,&QAction::trigger);
     connect(action,&QAction::changed,box,[box,action] {
-      const QSignalBlocker block(box); box->setChecked(action->isChecked());
+      const QSignalBlocker block(box); box->setChecked(action->isChecked()); box->setEnabled(action->isEnabled());
     });
   }
   layout->addLayout(display);
@@ -118,6 +138,7 @@ ViewportPopup::ViewportPopup(MainWindow *window)
   views->setAccessibleName(tr("Saved camera views"));
   views->setMinimumHeight(60);
   views->setEditTriggers(QAbstractItemView::EditKeyPressed);
+  views->setItemDelegate(new ViewNameDelegate(views));
   layout->addWidget(views,1);
   auto buttons=new QHBoxLayout;
   addView=new QPushButton(tr("Add"),content);
@@ -146,11 +167,7 @@ ViewportPopup::ViewportPopup(MainWindow *window)
   connect(views,&QListWidget::itemChanged,this,[this](QListWidgetItem *item) {
     if (!store) return;
     const QString id=item->data(Qt::UserRole).toString();
-    // Queue the refresh: the delegate must finish committing before its item is replaced.
-    const QSignalBlocker block(store);
     store->rename(id,item->text());
-    const QPointer<SavedViews> editedStore=store;
-    QTimer::singleShot(0,this,[editedStore]{ if (editedStore) emit editedStore->changed(); });
   });
   connect(views,&QListWidget::itemActivated,this,[this]{recallView();});
   connect(window,&MainWindow::displayedDocumentChanged,this,&ViewportPopup::synchronize);
@@ -166,8 +183,10 @@ ViewportPopup::ViewportPopup(MainWindow *window)
 void ViewportPopup::synchronize()
 {
   const bool ortho=window->qglview->orthoMode();
-  const QSignalBlocker a(perspective),b(orthographic),c(window->viewActionPerspective),d(window->viewActionOrthogonal);
+  const QSignalBlocker a(perspective),b(orthographic);
   perspective->setChecked(!ortho); orthographic->setChecked(ortho);
+  perspective->setEnabled(window->viewActionPerspective->isEnabled());
+  orthographic->setEnabled(window->viewActionOrthogonal->isEnabled());
   window->viewActionPerspective->setChecked(!ortho);
   window->viewActionOrthogonal->setChecked(ortho);
   const auto editor=window->displayedDocument();
@@ -185,14 +204,19 @@ void ViewportPopup::synchronize()
 
 void ViewportPopup::refreshViews()
 {
-  const QString selected=views->currentItem() ? views->currentItem()->data(Qt::UserRole).toString() : QString();
   const QSignalBlocker block(views);
-  views->clear();
+  // Update by identity so deferred name commits do not destroy a subsequent inline editor.
+  for (int row=views->count()-1;row>=0;--row) {
+    if (!store || !store->find(views->item(row)->data(Qt::UserRole).toString())) delete views->takeItem(row);
+  }
   if (store) for (const auto& entry:store->entries()) {
-    auto item=new QListWidgetItem(entry.name,views);
-    item->setData(Qt::UserRole,entry.id);
-    item->setFlags(item->flags()|Qt::ItemIsEditable);
-    if (entry.id==selected) views->setCurrentItem(item);
+    QListWidgetItem *item=nullptr;
+    for (int row=0;row<views->count();++row) if (views->item(row)->data(Qt::UserRole).toString()==entry.id) {item=views->item(row);break;}
+    if (!item) {
+      item=new QListWidgetItem(entry.name,views);
+      item->setData(Qt::UserRole,entry.id);
+      item->setFlags(item->flags()|Qt::ItemIsEditable);
+    } else if (item->text()!=entry.name) item->setText(entry.name);
   }
   removeView->setEnabled(store && views->currentItem());
   renameView->setEnabled(store && views->currentItem());

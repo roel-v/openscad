@@ -51,8 +51,10 @@ void ViewportStatistics::refresh()
   const auto renderer=view->getRenderer();
   if (settings.triangles) {
     const auto stats=renderer ? renderer->triangleStatistics() : Renderer::TriangleStatistics{Renderer::TriangleStatistics::Kind::Preview,std::nullopt};
-    const QString kind=stats.kind==Renderer::TriangleStatistics::Kind::Preview ? tr("preview") : tr("final");
-    lines.append(tr("Triangles (%1): %2%3").arg(kind,stats.count ? QString::number(*stats.count) : tr("unavailable"),retained ? tr(" — stale") : QString()));
+    QString kind=stats.kind==Renderer::TriangleStatistics::Kind::Preview ? tr("preview") : tr("final");
+    if (stats.dimension==2) kind+=tr(", 2D");
+    const QString state=failed ? tr(" — evaluation failed") : retained ? tr(" — stale") : QString();
+    lines.append(tr("Triangles (%1): %2%3").arg(kind,stats.count ? QString::number(*stats.count) : tr("unavailable"),state));
   }
   const double mean=intervals.isEmpty() ? 0 : std::accumulate(intervals.begin(),intervals.end(),0.0)/intervals.size();
   if (settings.fps) lines.append(mean>0 ? tr("Viewport FPS: %1").arg(1000.0/mean,0,'f',1) : tr("Viewport FPS: Idle"));

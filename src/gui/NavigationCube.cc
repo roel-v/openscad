@@ -90,6 +90,23 @@ void NavigationCube::relayout()
   update();
 }
 
+void NavigationCube::updateContrast()
+{
+  if (!view->colorscheme) return;
+  const auto background=ColorMap::getColor(*view->colorscheme,RenderColor::BACKGROUND_COLOR);
+  const double brightness=0.2126*background.r()+0.7152*background.g()+0.0722*background.b();
+  const QColor color=brightness<0.5 ? QColor(Qt::white) : QColor(Qt::black);
+  auto setColor=[&](QToolButton *button) {
+    auto colors=button->palette();
+    if (colors.color(QPalette::ButtonText)==color) return;
+    colors.setColor(QPalette::ButtonText,color);
+    colors.setColor(QPalette::WindowText,color);
+    button->setPalette(colors);
+  };
+  for (auto button:arrows) setColor(button);
+  setColor(triangle);
+}
+
 std::vector<ProjectedNavigationFacet> NavigationCube::projected() const
 {
   const auto& s = navigation->settings;

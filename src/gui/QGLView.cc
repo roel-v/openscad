@@ -239,6 +239,7 @@ void QGLView::paintGL()
 {
   cameraNavigation->observe();
   GLView::paintGL();
+  if (cube && !capturing) cube->updateContrast();
   if (!capturing && stats) { stats->frameCompleted(); emit viewportPaintCompleted(); }
 
   if (statusLabel) {

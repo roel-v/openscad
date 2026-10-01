@@ -11,7 +11,8 @@ public:
   explicit ViewportStatistics(QGLView *view);
   void frameCompleted();
   void refresh();
-  void setStale(bool stale) { retained=stale; refresh(); }
+  void setStale(bool stale) { retained=stale; failed=false; refresh(); }
+  void evaluationFailed() { failed=true; refresh(); }
   int sampleCount() const { return intervals.size(); }
 private:
   QGLView *view;
@@ -20,4 +21,5 @@ private:
   QVector<double> intervals;
   QTimer idle;
   bool retained=false;
+  bool failed=false;
 };

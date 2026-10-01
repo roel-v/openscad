@@ -15,6 +15,7 @@ class NavigationCube : public QWidget {
 public:
   explicit NavigationCube(QGLView *view);
   void relayout();
+  void updateContrast();
   void snap(int id);
   void step(const Eigen::Vector3d& axis, double degrees);
   QToolButton *menuTriangle() const { return triangle; }

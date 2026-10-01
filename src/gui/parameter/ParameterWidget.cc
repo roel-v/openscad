@@ -27,6 +27,7 @@
 
 #include <QAction>
 #include <QEvent>
+#include <QSignalBlocker>
 #include <QInputDialog>
 #include <QLayoutItem>
 #include <QMenu>
@@ -60,6 +61,11 @@
 ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
 {
   setupUi(this);
+  // Keep the existing mode positions; compact hover help is the initial presentation.
+  {
+    const QSignalBlocker blocker(comboBoxDetails);
+    comboBoxDetails->setCurrentIndex(static_cast<int>(DescriptionStyle::HideDetails));
+  }
   updateSpacing();
   scrollAreaWidgetContents->layout()->setAlignment(Qt::AlignTop);
 

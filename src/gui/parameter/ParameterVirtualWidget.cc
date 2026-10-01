@@ -1,5 +1,7 @@
 #include "gui/parameter/ParameterVirtualWidget.h"
 #include "gui/UIUtils.h"
+#include "gui/Icons.h"
+#include <QStyle>
 
 #include <QBoxLayout>
 #include <QEvent>
@@ -14,6 +16,14 @@
 ParameterDescriptionWidget::ParameterDescriptionWidget(QWidget *parent) : QWidget(parent)
 {
   setupUi(this);
+  helpIcon = new QLabel(this);
+  helpIcon->setObjectName("parameterHelpIcon");
+  helpIcon->setFocusPolicy(Qt::NoFocus);
+  helpIcon->setAlignment(Qt::AlignCenter);
+  helpIcon->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+  horizontalLayout->insertWidget(1, helpIcon, 0, Qt::AlignTop);
+  horizontalLayout->setStretch(horizontalLayout->indexOf(labelInline), 1);
+  helpIcon->hide();
   QFont emphasis;
   emphasis.setWeight(QFont::Medium);
   labelParameter->setFont(emphasis);
@@ -28,6 +38,11 @@ void ParameterDescriptionWidget::updateSpacing()
 {
   verticalLayout->setSpacing(UIUtils::layoutSpacing(this, Qt::Vertical) / 2);
   horizontalLayout->setSpacing(UIUtils::layoutSpacing(this, Qt::Horizontal) / 2);
+  if (helpIcon) {
+    const int size = style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, this);
+    helpIcon->setMargin(UIUtils::layoutSpacing(this, Qt::Horizontal) / 4);
+    Icons::setLabelIcon(helpIcon, "help", size);
+  }
 }
 
 void ParameterDescriptionWidget::changeEvent(QEvent *event)
@@ -41,7 +56,15 @@ void ParameterDescriptionWidget::setDescription(ParameterObject *parameter,
 {
   labelParameter->setText(
     QString::fromStdString(parameter->name()).replace(QRegularExpression("([_]+)"), " "));
-  if (parameter->description().empty()) {
+  const auto description = QString::fromStdString(parameter->description());
+  labelParameter->show();
+  labelInline->show();
+  labelDescription->show();
+  helpIcon->hide();
+  helpIcon->setToolTip({});
+  setToolTip({});
+  setAccessibleDescription(description);
+  if (description.trimmed().isEmpty()) {
     labelDescription->hide();
     labelInline->setText("");
   } else if (descriptionStyle == DescriptionStyle::ShowDetails) {
@@ -53,7 +76,11 @@ void ParameterDescriptionWidget::setDescription(ParameterObject *parameter,
   } else if (descriptionStyle == DescriptionStyle::HideDetails) {
     labelDescription->hide();
     labelInline->setText("");
-    this->setToolTip(QString::fromStdString(parameter->description()));
+    // Escape author text before wrapping it for a native, multiline tooltip.
+    helpIcon->setToolTip("<p>" + description.toHtmlEscaped().replace("\n", "<br/>") + "</p>");
+    helpIcon->setAccessibleName(tr("Help for %1").arg(labelParameter->text()));
+    helpIcon->setAccessibleDescription(description);
+    helpIcon->show();
   } else if (descriptionStyle == DescriptionStyle::DescriptionOnly) {
     labelParameter->hide();
     labelDescription->setText(QString::fromStdString(parameter->description()));

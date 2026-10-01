@@ -221,6 +221,36 @@ TEST_CASE("UI font inheritance preserves independent content fonts", "[ui-typogr
   (void)app;
 }
 
+TEST_CASE("Customizer help is compact hover-only and modes can be reused", "[ui-customizer]")
+{
+  typographyApp();
+  ParameterWidget panel;
+  CHECK(panel.comboBoxDetails->currentIndex() == int(DescriptionStyle::HideDetails));
+  BoolParameter parameter("test_parameter", "Use <5 mm & keep units.\nSecond line", "Group", true);
+  ParameterDescriptionWidget description(&panel);
+  auto *help = description.findChild<QLabel *>("parameterHelpIcon");
+  REQUIRE(help);
+  for (auto mode : {DescriptionStyle::DescriptionOnly, DescriptionStyle::HideDetails,
+                    DescriptionStyle::ShowDetails, DescriptionStyle::Inline, DescriptionStyle::HideDetails}) {
+    description.setDescription(&parameter, mode);
+    CHECK(help->isHidden() == (mode != DescriptionStyle::HideDetails));
+    CHECK(help->focusPolicy() == Qt::NoFocus);
+    CHECK(description.toolTip().isEmpty());
+    CHECK(description.labelParameter->isHidden() == (mode == DescriptionStyle::DescriptionOnly));
+    if (mode == DescriptionStyle::HideDetails) {
+      QTextDocument tooltip;
+      tooltip.setHtml(help->toolTip());
+      CHECK(tooltip.toPlainText() == QString::fromStdString(parameter.description()));
+      CHECK_FALSE(help->findChild<QAbstractButton *>());
+    }
+    CHECK(parameter.value);
+  }
+  BoolParameter empty("empty", " \n ", "Group", false);
+  description.setDescription(&empty, DescriptionStyle::HideDetails);
+  CHECK(help->isHidden());
+  CHECK(help->toolTip().isEmpty());
+}
+
 TEST_CASE("Customizer hierarchy and geometry follow font and native style changes", "[ui-typography]")
 {
   typographyApp();

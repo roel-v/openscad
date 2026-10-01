@@ -22,6 +22,7 @@ protected:
   void changeEvent(QEvent *event) override;
 
 private:
+  QLabel *helpIcon = nullptr;
   void updateSpacing();
 };
 

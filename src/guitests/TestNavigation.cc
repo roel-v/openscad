@@ -499,7 +499,15 @@ void TestNavigation::popupAndTuning()
 #ifdef ENABLE_NAVIGATION_CUBE_TUNING
   auto tuning=window->findChild<NavigationTuning *>();
   QVERIFY(tuning);
-  tuning->show();
+  QVERIFY(window->menuWindow->actions().contains(tuning->toggleViewAction()));
+  QVERIFY(!window->menu_View->actions().contains(tuning->toggleViewAction()));
+  tuning->toggleViewAction()->trigger();
+  QTRY_VERIFY(tuning->isVisible());
+  tuning->setFloating(false);
+  QCOMPARE(window->dockWidgetArea(tuning),Qt::RightDockWidgetArea);
+  QVERIFY(!tuning->isFloating());
+  tuning->setFloating(true);
+  QVERIFY(tuning->isFloating());
   QTest::qWait(20);
   auto copy=tuning->findChild<QPushButton *>("copyNavigationSettings");
   QVERIFY(copy);
@@ -515,6 +523,10 @@ void TestNavigation::popupAndTuning()
     QFile settingsFile(output+"/copied-settings.txt");
     QVERIFY(settingsFile.open(QIODevice::WriteOnly)); settingsFile.write(text.toUtf8());
   }
+  tuning->close();
+  QVERIFY(!tuning->toggleViewAction()->isChecked());
+  tuning->toggleViewAction()->trigger();
+  QTRY_VERIFY(tuning->isVisible());
   tuning->hide();
 #endif
   settings->resetOverrides();

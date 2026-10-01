@@ -17,13 +17,17 @@
 #include <QRegularExpression>
 #include <QSignalBlocker>
 
-NavigationTuning::NavigationTuning(QGLView *view) : QDialog(view->window(),Qt::Tool),view(view)
+NavigationTuning::NavigationTuning(QGLView *view) : Dock(view->window()),view(view)
 {
   setObjectName("navigationTuning");
-  setWindowTitle(tr("Navigation tuning — DEV"));
+  setName(tr("Navigation tuning"));
   resize(390,620);
-  auto layout=new QVBoxLayout(this);
-  layout->addWidget(new QLabel(tr("Live session overrides. Copy settings to retain an experiment."),this));
+  auto content=new QWidget(this);
+  setWidget(content);
+  auto layout=new QVBoxLayout(content);
+  auto hint=new QLabel(tr("Live session overrides. Copy settings to retain an experiment."),content);
+  hint->setWordWrap(true);
+  layout->addWidget(hint);
   auto scroll=new QScrollArea(this);
   scroll->setWidgetResizable(true);
   auto body=new QWidget(scroll);

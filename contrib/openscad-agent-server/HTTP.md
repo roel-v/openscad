@@ -100,3 +100,37 @@ Disk and editor provenance remain distinct. Source inspection never writes files
 The source/node/outcome wire records are specified in [schemas.json](schemas.json); subsequent phases implement
 their adapters and bounded scalar/property encodings. Until then,
 the legacy evidence client continues to provide the already implemented annotations/camera workflow on `/v1`.
+
+## Parse and syntax trees (phase 3)
+
+POST `/v2/documents/{id}/parse` requires document/window/server/request IDs and a retained `snapshot_id`.
+It holds the native compilation gate, parses those immutable bytes, and never evaluates modules or imports.
+The operation receipt's `succeeded` means the parse operation ran; its result's `success` reports whether syntax
+parsing succeeded. Invalid syntax returns its own diagnostics and no tree. `/parse-result` under the document
+returns the latest parse outcome; `/diagnostics` also includes a separately identified `latest_parse` array.
+`editor_advanced` records whether the editor revision has moved since capture. Historical input is never replaced.
+
+The result supplies `parse_id`, `tree_id` when successful, dependencies, source provenance and duration. Include
+content is bounded and cached during the operation; use libraries are parsed once each without ModuleCache or
+dependency-command side effects. Relative/library resolution uses the native lookup rules. Missing/recursive
+includes remain reported warnings; `dependencies_complete:false` prevents treating partial knowledge as proof.
+Dynamic imports are syntax-only records with unresolved paths and linked node IDs. No imported geometry is read.
+Known include/use entries carry opaque `dependency_id` values: a subsequent source-snapshot request can explicitly
+select that handle with `origin:disk`. Handles belong to the document's latest parse, and never accept a path override.
+Dependency hashes refer to bytes actually read; cross-file reads are not filesystem transactions.
+
+GET `/v2/trees/{id}`, `/nodes/{node_id}` and `/nodes/{node_id}/children` under it reads detached immutable records.
+Follow `next_cursor` routes verbatim to traverse child pages (up to 500 edges). IDs are local to their tree; expired
+trees or invalid nodes/pages return 410. Syntax preserves native lexical statement order, including overwritten
+assignments and disabled calls. Named child roles expose expressions, arguments, parameters and control branches.
+Literal values are syntax literals, never inferred runtime values; undefined/non-finite values are typed objects.
+Source spans use one-based UTF-8 byte columns with exclusive end, in the bytes parsed for that file; a module
+definition's native span may cover its declaration header. Missing/unverified locations are null.
+
+Inspection caps: root/file 4 MiB, total dependency bytes 32 MiB, 256 dependency entries, 64 nested include files,
+8,192 lexical tokens and 256 delimiter nesting. A cooperative two-second parsing deadline is checked at token/file
+boundaries; it cannot interrupt a blocked filesystem call. Tree traversal caps 100,000 nodes/depth 256 and reports
+incomplete nodes explicitly. Strings cap at 4,096 UTF-16 units. At most eight trees with five-minute expiry and
+an estimated 32 MiB retention budget coexist; source pages use their separate 32 MiB budget. Every tree response
+is capped at 1 MiB. Expiry is enforced on the HTTP worker even while the GUI is busy. No native AST pointers cross
+that boundary. Closing/replacing a document or restarting the service invalidates its handles.

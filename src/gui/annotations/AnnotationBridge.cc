@@ -1,6 +1,7 @@
 #include "AnnotationBridge.h"
 #include "AnnotationController.h"
 #include "gui/Editor.h"
+#include "gui/MainWindow.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
@@ -65,6 +66,8 @@ void Bridge::stop(bool remember)
   starting = false;
   heartbeat.stop();
   sources.clear();
+  trees.clear();
+  parseOutcomes.clear();
   QMetaObject::invokeMethod(transport, [this] { transport->stop(); }, Qt::BlockingQueuedConnection);
   emit accessChanged({}, {});
 }
@@ -208,11 +211,34 @@ void Bridge::publish()
       it = sources.erase(it);
       continue;
     }
-    for (auto page = it->pages.cbegin(); page != it->pages.cend(); ++page)
+    for (auto page = it->pages.cbegin(); page != it->pages.cend(); ++page) {
       snapshot.reads.insert(page.key(), page.value());
+      snapshot.readExpiry.insert(page.key(), it->expires);
+    }
     ++it;
   }
   snapshot.status = {{"documents", documents}, {"viewports", viewports}};
+  for (auto it = trees.begin(); it != trees.end();) {
+    if (it->expires.hasExpired() || !liveDocuments.contains(it->document)) { it = trees.erase(it); continue; }
+    for (auto page = it->pages.cbegin(); page != it->pages.cend(); ++page) {
+      snapshot.reads.insert(page.key(), page.value());
+      snapshot.readExpiry.insert(page.key(), it->expires);
+    }
+    ++it;
+  }
+  for (auto it = parseOutcomes.begin(); it != parseOutcomes.end();) {
+    if (!liveDocuments.contains(it.key())) { it = parseOutcomes.erase(it); continue; }
+    const auto base = "/v2/documents/" + it.key();
+    snapshot.reads.insert(base + "/parse-result", it.value());
+    auto diagnostics = snapshot.reads.value(base + "/diagnostics");
+    diagnostics["latest_parse"] = it->value("diagnostics");
+    diagnostics["latest_parse_id"] = it->value("parse_id");
+    snapshot.reads.insert(base + "/diagnostics", diagnostics);
+    snapshot.reads.insert(base + "/dependencies", {{"document_id", it.key()},
+      {"scope", "parse"}, {"snapshot_id", it->value("snapshot_id")},
+      {"dependencies", it->value("dependencies")}, {"complete", it->value("dependencies_complete")}});
+    ++it;
+  }
   QMetaObject::invokeMethod(
     transport,
     [transport = transport, snapshot = std::move(snapshot)]() mutable {
@@ -241,7 +267,23 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
       for (auto editor : controller->editors()) {
         if (editor->annotations->sessionId != body.value("document_id")) continue;
         QString error;
-        auto result = snapshotSource(editor, body, &error);
+        QJsonObject result;
+        if (path.endsWith("/parse")) {
+          const auto source = sources.constFind(body.value("snapshot_id").toString());
+          if (source == sources.cend() || source->expires.hasExpired() || source->metadata.value("document_id") != body.value("document_id"))
+            error = "Source snapshot expired or belongs to another document.";
+          else if (controller->busy() || QApplication::activeModalWidget()) error = "Native compilation or interaction is busy.";
+          else {
+            const GuiLocker lock;
+            auto parsed = inspectSyntax(source->metadata, source->text);
+            result = parsed.outcome;
+            result["editor_advanced"] = source->metadata.value("source_revision").toString() != QString::number(editor->sourceRevision);
+            if (!parsed.tree.metadata.isEmpty() && !retainTree(parsed.tree)) {
+              result.remove("tree_id"); result["success"] = false; result["error"] = "Tree retention budget exceeded.";
+            }
+            parseOutcomes.insert(editor->annotations->sessionId, result);
+          }
+        } else result = snapshotSource(editor, body, &error);
         publish();
         done(result, {}, error);
         return;
@@ -299,6 +341,19 @@ QJsonObject Bridge::snapshotSource(EditorInterface *editor, const QJsonObject& r
 {
   constexpr qint64 maxBytes = 4 * 1024 * 1024;
   const auto origin = request.value("origin").toString();
+  QString sourcePath = editor->filepath;
+  if (request.contains("dependency_id")) {
+    sourcePath.clear();
+    for (const auto& entry : parseOutcomes.value(editor->annotations->sessionId).value("dependencies").toArray()) {
+      const auto dependency = entry.toObject();
+      if (dependency.value("dependency_id") == request.value("dependency_id") && dependency.value("available").toBool())
+        sourcePath = dependency.value("resolved_path").toString();
+    }
+    if (sourcePath.isEmpty() || origin != "disk") {
+      *error = "Dependency handle unavailable; dependencies are read explicitly from disk.";
+      return {};
+    }
+  }
   QByteArray bytes;
   if (origin == "editor") {
     if (request.value("expected_source_revision").toString() != QString::number(editor->sourceRevision)) {
@@ -311,18 +366,18 @@ QJsonObject Bridge::snapshotSource(EditorInterface *editor, const QJsonObject& r
       return {};
     }
   } else if (origin == "disk") {
-    if (editor->filepath.isEmpty()) {
+    if (sourcePath.isEmpty()) {
       *error = "Untitled document has no disk source.";
       return {};
     }
-    QFile file(editor->filepath);
+    QFile file(sourcePath);
     QFileInfo before(file);
     if (!file.open(QIODevice::ReadOnly) || file.size() > maxBytes) {
       *error = "Disk source unavailable or exceeds 4 MiB.";
       return {};
     }
     bytes = file.read(maxBytes + 1);
-    QFileInfo after(editor->filepath);
+    QFileInfo after(sourcePath);
     if (bytes.size() > maxBytes || file.error() != QFile::NoError || before.size() != after.size() ||
         before.lastModified() != after.lastModified() || before.canonicalFilePath() != after.canonicalFilePath()) {
       *error = "Disk source changed during read or exceeded its budget.";
@@ -351,7 +406,7 @@ QJsonObject Bridge::snapshotSource(EditorInterface *editor, const QJsonObject& r
   }
   const auto id = QUuid::createUuid().toString(QUuid::WithoutBraces);
   QJsonObject metadata{{"snapshot_id", id}, {"document_id", editor->annotations->sessionId},
-    {"origin", origin}, {"path", editor->filepath}, {"source_revision", QString::number(editor->sourceRevision)},
+    {"origin", origin}, {"path", sourcePath}, {"source_revision", QString::number(editor->sourceRevision)},
     {"source_sha256", hash}, {"disk_sha256", origin == "disk" ? QJsonValue(QString::fromLatin1(Store::hash(bytes))) : QJsonValue(QJsonValue::Null)},
     {"normalization", "utf8_lf"}, {"byte_count", bytes.size()}, {"filesystem_atomic", false},
     {"source_dirty", editor->isContentModified()}, {"editor_utf8_sha256", editor->sourceFingerprint},
@@ -383,5 +438,26 @@ QJsonObject Bridge::snapshotSource(EditorInterface *editor, const QJsonObject& r
   }
   sources.insert(id, std::move(source));
   return metadata;
+}
+bool Bridge::retainTree(const InspectionTree& tree)
+{
+  auto pages = treePages(tree);
+  qint64 bytes = 0;
+  for (const auto& page : pages) {
+    const auto size = QJsonDocument(page).toJson(QJsonDocument::Compact).size();
+    if (size > 1024 * 1024) return false;
+    bytes += size * 2 + 256; // Account for the detached Qt representation and per-route overhead.
+  }
+  if (bytes > 32 * 1024 * 1024) return false;
+  auto total = [&] { qint64 size = bytes; for (const auto& entry : trees) size += entry.bytes; return size; };
+  while (!trees.isEmpty() && (trees.size() >= 8 || total() > 32 * 1024 * 1024)) {
+    auto oldest = trees.begin();
+    for (auto it = trees.begin(); it != trees.end(); ++it)
+      if (it->expires.remainingTime() < oldest->expires.remainingTime()) oldest = it;
+    trees.erase(oldest);
+  }
+  trees.insert(tree.metadata.value("tree_id").toString(),
+    {tree.metadata.value("document_id").toString(), std::move(pages), QDeadlineTimer(300000), bytes});
+  return true;
 }
 }  // namespace AgentAnnotations

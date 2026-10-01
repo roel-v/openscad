@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QTcpServer>
 #include <QTimer>
+#include <QDeadlineTimer>
 #include <functional>
 class QTcpSocket;
 
@@ -12,6 +13,7 @@ struct Snapshot {
   QJsonObject status;
   QHash<QString, QVector<Record>> records;
   QHash<QString, QJsonObject> reads;
+  QHash<QString, QDeadlineTimer> readExpiry;
 };
 // Owns only detached evidence and transport state; never touches widgets or OpenGL.
 class Transport : public QObject

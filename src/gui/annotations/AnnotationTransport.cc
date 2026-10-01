@@ -412,6 +412,10 @@ void Transport::complete(const QString& serverId, const QString& id, QJsonObject
 }
 void Transport::expire()
 {
+  for (auto it = snapshot.readExpiry.begin(); it != snapshot.readExpiry.end();) {
+    if (it->hasExpired()) { snapshot.reads.remove(it.key()); it = snapshot.readExpiry.erase(it); }
+    else ++it;
+  }
   for (auto it = jobs.begin(); it != jobs.end(); ++it) {
     auto state = it->value.value("state").toString();
     if (state == "queued" && now() > it->deadline) {
@@ -450,7 +454,7 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     auto value = path == "/v2/info" ? info : snapshot.status;
     value["api_version"] = 2;
     value["capabilities"] = QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
-      "source.read", "attempts.read", "results.read", "diagnostics.read"};
+      "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read", "dependencies.read"};
     value["state_generation"] = QString::number(stateGeneration);
     value["server_id"] = info.value("server_id");
     value["gui_heartbeat_age_ms"] = heartbeat ? double(now() - heartbeat) : -1;
@@ -469,18 +473,19 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     respond(socket, 200, snapshot.reads.value(path));
     return;
   }
-  if (method == "GET" && path.startsWith("/v2/source-snapshots/")) {
+  if (method == "GET" && (path.startsWith("/v2/source-snapshots/") || path.startsWith("/v2/trees/"))) {
     respond(socket, 410, {{"code", "expired"}, {"message", "Snapshot/page unavailable; capture explicitly again."}});
     return;
   }
-  if (method == "POST" && QRegularExpression("^/v2/documents/[a-fA-F0-9-]{36}/source-snapshots$").match(path).hasMatch()) {
+  if (method == "POST" && QRegularExpression("^/v2/documents/[a-fA-F0-9-]{36}/(source-snapshots|parse)$").match(path).hasMatch()) {
     QJsonParseError error;
     auto document = QJsonDocument::fromJson(bytes, &error);
     auto body = document.object();
     if (error.error != QJsonParseError::NoError || !document.isObject() ||
         !validId(body.value("request_id").toString()) || body.value("server_id") != info.value("server_id") ||
         body.value("document_id") != path.section('/', 3, 3) || !validId(body.value("window_id").toString()) ||
-        (body.value("origin") != "disk" && body.value("origin") != "editor")) {
+        (path.endsWith("/parse") ? !validId(body.value("snapshot_id").toString()) :
+          (body.value("origin") != "disk" && body.value("origin") != "editor"))) {
       respond(socket, 400, {{"code", "invalid_request"}, {"message", "Explicit document/window, origin, server and request required."}});
       return;
     }

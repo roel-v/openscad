@@ -7,6 +7,7 @@ private slots:
   void agentAccessLifecycle();
   void sourceInspection();
   void targetInspection();
+  void syntaxInspection();
   void documentLifecycle();
   void viewportWorkflow();
   void agentAndAutomaticReload();

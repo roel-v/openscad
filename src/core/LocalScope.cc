@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "core/Assignment.h"
+#include "core/ParserInspection.h"
 #include "core/ModuleInstantiation.h"
 #include "core/UserModule.h"
 #include "core/function.h"
@@ -18,6 +19,7 @@ void LocalScope::addModuleInst(const std::shared_ptr<ModuleInstantiation>& modin
 {
   assert(modinst);
   this->moduleInstantiations.push_back(modinst);
+  if (parserInspection) syntaxOrder.push_back(modinst);
 }
 
 void LocalScope::addModule(const std::shared_ptr<class UserModule>& module)
@@ -27,6 +29,7 @@ void LocalScope::addModule(const std::shared_ptr<class UserModule>& module)
   if (it != this->modules.end()) it->second = module;
   else this->modules.emplace(module->name, module);
   this->astModules.emplace_back(module->name, module);
+  if (parserInspection) syntaxOrder.push_back(module);
 }
 
 void LocalScope::addFunction(const std::shared_ptr<class UserFunction>& func)
@@ -36,6 +39,7 @@ void LocalScope::addFunction(const std::shared_ptr<class UserFunction>& func)
   if (it != this->functions.end()) it->second = func;
   else this->functions.emplace(func->name, func);
   this->astFunctions.emplace_back(func->name, func);
+  if (parserInspection) syntaxOrder.push_back(func);
 }
 
 void LocalScope::addAssignment(const std::shared_ptr<Assignment>& assignment)

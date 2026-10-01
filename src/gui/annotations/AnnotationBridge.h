@@ -1,5 +1,6 @@
 #pragma once
 #include "AnnotationTransport.h"
+#include "AgentSyntax.h"
 #include <QPointer>
 #include <QThread>
 #include <QDeadlineTimer>
@@ -22,6 +23,7 @@ public:
   QJsonObject connection() const { return info; }
   void publish();
   QJsonObject snapshotSource(EditorInterface *editor, const QJsonObject& request, QString *error);
+  bool retainTree(const InspectionTree& tree);
 signals:
   void accessChanged(QJsonObject info, QString error);
 
@@ -39,6 +41,14 @@ private:
     QHash<QString, QJsonObject> pages;
   };
   QMap<QString, Source> sources;
+  struct TreeEntry {
+    QString document;
+    QHash<QString, QJsonObject> pages;
+    QDeadlineTimer expires;
+    qint64 bytes;
+  };
+  QMap<QString, TreeEntry> trees;
+  QHash<QString, QJsonObject> parseOutcomes;
   void dispatch(QString server, QString id, QString path, QJsonObject body);
 };
 }  // namespace AgentAnnotations

@@ -41,6 +41,18 @@ class TransportTest : public QObject
     return result;
   }
 private slots:
+  void cachedInspectionExpiry()
+  {
+    Transport transport;
+    transport.start(true);
+    Snapshot snapshot;
+    const auto route = "/v2/trees/" + uuid();
+    snapshot.reads.insert(route, {{"kind", "syntax"}});
+    snapshot.readExpiry.insert(route, QDeadlineTimer(0));
+    transport.publish(snapshot);
+    QCOMPARE(request(transport.connection(), route).first, 410);
+    QCOMPARE(request(transport.connection(), "/v2/info").second.value("gui_responsive").toBool(), true);
+  }
   void broadConsentAndGuards()
   {
     Transport transport;

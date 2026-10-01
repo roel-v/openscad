@@ -29,6 +29,7 @@ public:
 
 class UnaryOp : public Expression
 {
+  friend class AgentSyntaxBuilder;
 public:
   enum class Op { Not, BinaryNot, Negate };
   [[nodiscard]] bool isLiteral() const override;
@@ -45,6 +46,7 @@ private:
 
 class BinaryOp : public Expression
 {
+  friend class AgentSyntaxBuilder;
 public:
   enum class Op {
     LogicalAnd,
@@ -81,6 +83,7 @@ private:
 
 class TernaryOp : public Expression
 {
+  friend class AgentSyntaxBuilder;
 public:
   TernaryOp(Expression *cond, Expression *ifexpr, Expression *elseexpr, const Location& loc);
   [[nodiscard]] const Expression *evaluateStep(const std::shared_ptr<const Context>& context) const;
@@ -95,6 +98,7 @@ private:
 
 class ArrayLookup : public Expression
 {
+  friend class AgentSyntaxBuilder;
 public:
   ArrayLookup(Expression *array, Expression *index, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
@@ -173,6 +177,7 @@ private:
 
 class MemberLookup : public Expression
 {
+  friend class AgentSyntaxBuilder;
 public:
   MemberLookup(Expression *expr, std::string member, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
@@ -217,6 +222,7 @@ public:
 
 class Assert : public Expression
 {
+  friend class AgentSyntaxBuilder;
 public:
   Assert(AssignmentList args, Expression *expr, const Location& loc);
   static void performAssert(const AssignmentList& arguments, const Location& location,
@@ -232,6 +238,7 @@ private:
 
 class Echo : public Expression
 {
+  friend class AgentSyntaxBuilder;
 public:
   Echo(AssignmentList args, Expression *expr, const Location& loc);
   [[nodiscard]] const Expression *evaluateStep(const std::shared_ptr<const Context>& context) const;
@@ -245,6 +252,7 @@ private:
 
 class Let : public Expression
 {
+  friend class AgentSyntaxBuilder;
 public:
   Let(AssignmentList args, Expression *expr, const Location& loc);
   static void doSequentialAssignment(const AssignmentList& assignments, const Location& location,
@@ -269,6 +277,7 @@ public:
 
 class LcIf : public ListComprehension
 {
+  friend class AgentSyntaxBuilder;
 public:
   LcIf(Expression *cond, Expression *ifexpr, Expression *elseexpr, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
@@ -282,6 +291,7 @@ private:
 
 class LcFor : public ListComprehension
 {
+  friend class AgentSyntaxBuilder;
 public:
   LcFor(AssignmentList args, Expression *expr, const Location& loc);
   static void forEach(const AssignmentList& assignments, const Location& loc,
@@ -298,6 +308,7 @@ private:
 
 class LcForC : public ListComprehension
 {
+  friend class AgentSyntaxBuilder;
 public:
   LcForC(AssignmentList args, AssignmentList incrargs, Expression *cond, Expression *expr,
          const Location& loc);
@@ -313,6 +324,7 @@ private:
 
 class LcEach : public ListComprehension
 {
+  friend class AgentSyntaxBuilder;
 public:
   LcEach(Expression *expr, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
@@ -325,6 +337,7 @@ private:
 
 class LcLet : public ListComprehension
 {
+  friend class AgentSyntaxBuilder;
 public:
   LcLet(AssignmentList args, Expression *expr, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;

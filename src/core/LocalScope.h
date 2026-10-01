@@ -39,6 +39,8 @@ public:
   std::optional<T> lookup(const std::string& name) const;
 
   AssignmentList assignments;
+  // Populated only for isolated inspection; keeps lexical ordering and overwritten assignments.
+  std::vector<std::shared_ptr<ASTNode>> syntaxOrder;
   std::vector<std::shared_ptr<ModuleInstantiation>> moduleInstantiations;
 
   inline const std::unordered_map<std::string, std::shared_ptr<UserFunction>>& getUserFunctions() const

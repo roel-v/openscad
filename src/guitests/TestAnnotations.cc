@@ -2,6 +2,11 @@
 #include "gui/ScintillaEditor.h"
 #include "gui/annotations/AnnotationController.h"
 #include "gui/annotations/AnnotationBridge.h"
+#include "gui/annotations/AgentSyntax.h"
+#include "core/parsersettings.h"
+#include "core/ParserInspection.h"
+#include "core/SourceFile.h"
+#include "utils/printutils.h"
 #include "gui/Dock.h"
 #include <QDialog>
 #include <QPlainTextEdit>
@@ -187,6 +192,142 @@ void TestAnnotations::targetInspection()
   QTRY_COMPARE(agentRequest(info, "/v2/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
   window->tabManager->closeCurrentTab();
   bridge->stop();
+}
+
+void TestAnnotations::syntaxInspection()
+{
+  QTemporaryDir dir;
+  auto write = [](const QString& path, const QByteArray& data) {
+    QFile file(path); return file.open(QIODevice::WriteOnly) && file.write(data) == data.size();
+  };
+  QVERIFY(write(dir.filePath("included.scad"), "included=7;\n"));
+  QVERIFY(write(dir.filePath("library.scad"), "module part(x=1){cube(x);}\n"));
+  const QString code = QString::fromUtf8("include <included.scad>\nuse <library.scad>\n"
+    "// \xe2\x86\x92\nx=1; x=2; function f(a=3)=a>0 ? a+1 : -a;\n"
+    "module item(s=4){if(s>1) translate([1,2,3]) cube(s); else sphere(1);}\n"
+    "for(i=[0:2]) item(i); *cube(9); v=[for(i=[1:3]) if(i>1) i*2];\n"
+    "echo(\"do not evaluate\"); import(str(\"file\",\".stl\"));\n");
+  const auto path = dir.filePath("root.scad");
+  QVERIFY(write(path, code.toUtf8()));
+  window->tabManager->open(path);
+  auto editor = window->activeEditor;
+  // The live result is deliberately different from the source being parsed.
+  editor->setPlainText("cube(4);\n");
+  window->actionRenderPreview();
+  const auto root = window->rootFile;
+  const auto model = window->absoluteRootNode;
+  const auto view = window->annotationController->status().value("result");
+  const auto camera = window->annotationController->camera();
+  const auto handler = outputhandler;
+  const auto handlerData = outputhandler_data;
+  const auto oldError = parser_error_pos;
+  QJsonObject source{{"document_id", editor->annotations->sessionId}, {"snapshot_id", QUuid::createUuid().toString(QUuid::WithoutBraces)}, {"path", path}, {"origin", "disk"}};
+  auto inspect = [&](const QString& text) {
+    const GuiLocker lock;
+    return AgentAnnotations::inspectSyntax(source, text);
+  };
+  auto parsed = inspect(code);
+  QVERIFY2(parsed.outcome.value("success").toBool(), QJsonDocument(parsed.outcome).toJson().constData());
+  QCOMPARE(parsed.outcome.value("dependencies").toArray().size(), 3);
+  QSet<QString> kinds, names;
+  bool disabled = false;
+  int assignments = 0;
+  for (const auto& node : parsed.tree.nodes) {
+    kinds.insert(node.value("kind").toString()); names.insert(node.value("name").toString());
+    disabled |= node.value("attributes").toObject().value("disabled").toBool();
+    if (node.value("kind") == "assignment" && node.value("name") == "x" &&
+        node.value("location").toObject().value("path") == path) ++assignments;
+    if (node.value("kind") == "literal" && node.value("attributes").toObject().value("value") == 2) {
+      QVERIFY(node.value("location").isObject());
+      QCOMPARE(node.value("location").toObject().value("column_units").toString(), QString("utf8_bytes"));
+    }
+  }
+  QVERIFY(kinds.contains("module_definition") && kinds.contains("function_definition") && kinds.contains("binary") && kinds.contains("conditional") && kinds.contains("comprehension_for"));
+  QVERIFY(names.contains("part") && names.contains("included"));
+  QVERIFY(disabled);
+  QCOMPARE(assignments, 2);
+  const auto unicodeText = QString::fromUtf8("echo(\"\xe2\x86\x92\"); cube(1);");
+  auto unicode = inspect(unicodeText);
+  QVERIFY(unicode.outcome.value("success").toBool());
+  for (const auto& node : unicode.tree.nodes) if (node.value("name") == "cube") {
+    const auto location = node.value("location").toObject();
+    const auto start = unicodeText.toUtf8().indexOf("cube");
+    QCOMPARE(location.value("first_column").toInt(), int(start + 1));
+    QCOMPARE(location.value("last_column").toInt(), int(unicodeText.toUtf8().indexOf(");", start) + 2));
+  }
+  for (const auto& invalid : {"cube( ;", "module broken(a=1) { cube(1);", "if(true) {sphere(1);", "cube([1,2,);"}) {
+    for (int n = 0; n < 30; ++n) {
+      auto failed = inspect(invalid);
+      QVERIFY(!failed.outcome.value("success").toBool());
+      QVERIFY(failed.tree.metadata.isEmpty());
+      QVERIFY(!failed.outcome.value("diagnostics").toArray().isEmpty());
+    }
+  }
+  auto deep = inspect(QString(300, '(') + "1" + QString(300, ')') + ";");
+  QVERIFY(!deep.outcome.value("success").toBool());
+  auto large = inspect(QString("cube(1);\n").repeated(2000));
+  QVERIFY(!large.outcome.value("success").toBool());
+  QVERIFY(large.outcome.value("limits_reached").toBool());
+  auto wide = inspect(QString("cube(1);\n").repeated(600));
+  QVERIFY(wide.outcome.value("success").toBool());
+  const auto pages = AgentAnnotations::treePages(wide.tree);
+  const auto wideBase = "/v2/trees/" + wide.tree.metadata.value("tree_id").toString();
+  const auto wideRoot = wide.tree.nodes.value(wide.tree.metadata.value("root_ids").toArray().first().toString());
+  const auto scopeId = wideRoot.value("children").toArray().first().toObject().value("node_id").toString();
+  const auto page = pages.value(wideBase + "/nodes/" + scopeId + "/children");
+  QCOMPARE(page.value("children").toArray().size(), 500);
+  QCOMPARE(pages.value(page.value("next_cursor").toString()).value("children").toArray().size(), 100);
+  {
+    const GuiLocker lock;
+    ParserInspection probe;
+    probe.read = [](const std::string&) -> std::string { throw std::runtime_error("read exception probe"); };
+    probe.dependency = [](const std::string&, const std::string&, const std::string&, const Location&) {};
+    probe.alive = [] { return true; };
+    SourceFile *file = nullptr;
+    bool caught = false;
+    try { parseInspection(file, "include <included.scad>", path.toStdString(), probe); }
+    catch (const std::runtime_error&) { caught = true; }
+    std::unique_ptr<SourceFile> cleanup(file);
+    QVERIFY(caught);
+    QVERIFY(parserInspection == nullptr);
+  }
+  auto missing = inspect("include <absent.scad>\ncube(1);");
+  QVERIFY(!missing.outcome.value("dependencies_complete").toBool());
+  QVERIFY(write(dir.filePath("cycle.scad"), "include <cycle.scad>\ncube(1);"));
+  auto cycle = inspect("include <cycle.scad>\n");
+  QVERIFY(!cycle.outcome.value("dependencies_complete").toBool());
+  QCOMPARE(window->rootFile, root);
+  QCOMPARE(window->absoluteRootNode, model);
+  QCOMPARE(window->annotationController->status().value("result"), view);
+  QCOMPARE(window->annotationController->camera(), camera);
+  QCOMPARE(editor->toPlainText(), QString("cube(4);\n"));
+  QCOMPARE(outputhandler, handler);
+  QCOMPARE(outputhandler_data, handlerData);
+  QCOMPARE(parser_error_pos, oldError);
+  QVERIFY(!GuiLocker::isLocked());
+  auto bridge = AgentAnnotations::Bridge::instance();
+  bridge->startAgent(false);
+  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  QString error;
+  auto snapshot = bridge->snapshotSource(editor, {{"origin", "disk"}}, &error);
+  QVERIFY(error.isEmpty());
+  const auto info = bridge->connection();
+  QJsonObject body{{"server_id", info.value("server_id")}, {"document_id", editor->annotations->sessionId},
+    {"window_id", window->annotationController->windowId}, {"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)}, {"snapshot_id", snapshot.value("snapshot_id")}};
+  QCOMPARE(agentRequest(info, "/v2/documents/" + editor->annotations->sessionId + "/parse", body).value("http_status").toInt(), 202);
+  QJsonObject job;
+  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  QVERIFY(job.value("result").toObject().value("success").toBool());
+  const auto treePath = "/v2/trees/" + job.value("result").toObject().value("tree_id").toString();
+  auto tree = agentRequest(info, treePath);
+  QCOMPARE(tree.value("kind").toString(), QString("syntax"));
+  const auto nodePath = treePath + "/nodes/" + tree.value("root_ids").toArray().first().toString();
+  QCOMPARE(agentRequest(info, nodePath).value("kind").toString(), QString("source_file"));
+  QVERIFY(!agentRequest(info, nodePath + "/children").value("children").toArray().isEmpty());
+  QCOMPARE(agentRequest(info, treePath + "/nodes/invalid").value("http_status").toInt(), 410);
+  bridge->stop();
+  window->actionRenderPreview();
+  QCOMPARE(window->annotationController->status().value("result").toObject().value("outcome").toString(), QString("installed"));
 }
 
 void TestAnnotations::documentLifecycle()

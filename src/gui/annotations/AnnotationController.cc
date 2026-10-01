@@ -1,5 +1,6 @@
 #include "AnnotationController.h"
 #include "AnnotationBridge.h"
+#include "AgentModel.h"
 #include "gui/Animate.h"
 #include "gui/Dock.h"
 #include "gui/Editor.h"
@@ -481,6 +482,22 @@ void Controller::finishEvaluation(bool success)
   }
   lastAttempt = evaluation;
   lastAttempt["outcome"] = success ? (view->getRenderer() ? "installed" : "empty") : "failed";
+  if (success) {
+    lastAttempt["result_id"] = lastAttempt.value("attempt_id");
+    // Detach while both root SourceFile and cached library ModuleInstantiations are alive.
+    // Never recover mappings later from an old renderer's raw modinst pointers.
+    try {
+    auto tree = inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), lastAttempt);
+    if (Bridge::instance()->retainTree(tree)) {
+      lastAttempt["tree_id"] = tree.metadata.value("tree_id");
+      lastAttempt["tree_complete"] = tree.metadata.value("complete");
+      lastAttempt["instantiated_node_count"] = tree.metadata.value("node_count");
+      lastAttempt["dependencies"] = tree.metadata.value("dependencies");
+    } else lastAttempt["tree_unavailable_reason"] = "Inspection retention budget exceeded.";
+    } catch (const std::exception&) {
+      lastAttempt["tree_unavailable_reason"] = "Inspection could not serialize this result.";
+    }
+  }
   const auto document = lastAttempt.value("document_id").toString();
   auto& attempts = attemptHistory[document];
   attempts.append(lastAttempt);
@@ -575,6 +592,7 @@ QJsonObject Controller::status() const
     {"viewport_id", viewportId},
     {"document_id", owner() ? owner()->annotations->sessionId : ""},
     {"active_document_id", window->activeEditor ? window->activeEditor->annotations->sessionId : ""},
+    {"displayed_result_id", result.value("outcome") == "installed" || result.value("outcome") == "empty" ? result.value("result_id") : QJsonValue(QJsonValue::Null)},
     {"busy", busy()},
     {"draft", drafting()},
     {"evaluation", evaluation.isEmpty() ? lastAttempt : evaluation},

@@ -1814,6 +1814,8 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
     // add parameters as annotation in AST
     CommentParser::collectParameters(fulltext, sourceFile);
     editor->parameterWidget->setParameters(sourceFile, fulltext);
+    editor->parameterWidget->setProperty("agentSourceRevision", QString::number(editor->sourceRevision));
+    editor->parameterWidget->setProperty("agentSourceFingerprint", editor->sourceFingerprint);
     editor->parameterWidget->applyParameters(sourceFile);
     editor->parameterWidget->setEnabled(true);
     editor->setIndicator(sourceFile->indicatorData);

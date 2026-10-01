@@ -76,7 +76,9 @@ void Bridge::startAgent(bool remember)
   if (remember) QSettings().setValue("agentServer/enabled", true);
   if (info.value("access_mode") == "agent") return;
   // Upgrading consent starts a new server identity, invalidating old queued work.
+  auto observedTrees = std::move(trees);
   stop(false);
+  trees = std::move(observedTrees);
   starting = true;
   QMetaObject::invokeMethod(transport, [this] { transport->start(true); }, Qt::QueuedConnection);
 }
@@ -197,6 +199,14 @@ void Bridge::publish()
                     {"annotation_revision", QString::number(editor->annotations->revision())},
                     {"diagnostic", editor->annotations->diagnostic()}});
       snapshot.records.insert(id, editor->annotations->records());
+      auto parameters = editor->parameterWidget->annotationValues();
+      QJsonObject parameterState{{"document_id", id}, {"source_revision", QString::number(editor->sourceRevision)},
+        {"origin", "current_customizer"}, {"values", parameters}, {"metadata_available", false},
+        {"defined_from_source_revision", editor->parameterWidget->property("agentSourceRevision").toString()},
+        {"stale_source", editor->parameterWidget->property("agentSourceFingerprint").toString() != editor->sourceFingerprint}};
+      if (QJsonDocument(parameterState).toJson(QJsonDocument::Compact).size() > 65536)
+        parameterState = {{"document_id", id}, {"available", false}, {"reason", "Parameter byte budget exceeded."}};
+      snapshot.reads.insert("/v2/documents/" + id + "/parameters", parameterState);
       const auto inspection = controller->inspection(id);
       for (const auto& kind : {"attempts", "results", "diagnostics"})
         snapshot.reads.insert("/v2/documents/" + id + "/" + kind,

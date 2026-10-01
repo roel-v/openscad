@@ -454,7 +454,7 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     auto value = path == "/v2/info" ? info : snapshot.status;
     value["api_version"] = 2;
     value["capabilities"] = QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
-      "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read", "dependencies.read"};
+      "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read", "dependencies.read", "model.read", "parameters.read"};
     value["state_generation"] = QString::number(stateGeneration);
     value["server_id"] = info.value("server_id");
     value["gui_heartbeat_age_ms"] = heartbeat ? double(now() - heartbeat) : -1;

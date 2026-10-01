@@ -3,6 +3,7 @@
 #include "gui/annotations/AnnotationController.h"
 #include "gui/annotations/AnnotationBridge.h"
 #include "gui/annotations/AgentSyntax.h"
+#include "gui/annotations/AgentModel.h"
 #include "core/parsersettings.h"
 #include "core/ParserInspection.h"
 #include "core/SourceFile.h"
@@ -49,6 +50,50 @@ QJsonObject agentRequest(const QJsonObject& info, const QString& route, const QJ
   result["http_status"] = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
   return result;
 }
+}
+
+void TestAnnotations::modelInspection()
+{
+  window->designActionAutoReload->setChecked(false);
+  window->tabManager->actionNew();
+  auto editor = window->activeEditor;
+  editor->setPlainText("module part(s) { translate([s,0,0]) cube(s); }\n"
+    "!difference() { for (s=[2:4]) part(s); #sphere(1); %cube(8); } *cube(99);\n");
+  window->actionRenderPreview();
+  auto bridge = AgentAnnotations::Bridge::instance();
+  bridge->startAgent(false);
+  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  const auto info = bridge->connection();
+  const auto result = window->annotationController->status().value("result").toObject();
+  const auto treeId = result.value("tree_id").toString();
+  QVERIFY(!treeId.isEmpty());
+  auto tree = agentRequest(info, "/v2/trees/" + treeId);
+  QCOMPARE(tree.value("kind").toString(), QString("evaluated"));
+  QVERIFY(tree.value("complete").toBool());
+  QVERIFY(tree.value("effective_root_ids") != tree.value("root_ids"));
+  auto detached = AgentAnnotations::inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), result);
+  int cubes = 0;
+  QSet<QString> spans;
+  for (const auto& node : detached.nodes) {
+    if (node.value("kind") != "cube") continue;
+    ++cubes;
+    auto size = node.value("attributes").toObject().value("size").toArray();
+    QVERIFY(size[0].toInt() != 99);
+    if (size[0].toInt() <= 4) spans.insert(QString::fromUtf8(QJsonDocument(node.value("location").toObject()).toJson()));
+  }
+  QCOMPARE(cubes, 4);
+  QCOMPARE(spans.size(), 1); // Loop expansions share a source call, never a public node ID.
+  const auto oldNode = agentRequest(info, "/v2/trees/" + treeId + "/nodes/1");
+  editor->setPlainText("cube(7);");
+  QVERIFY(agentRequest(info, "/v2/documents/" + editor->annotations->sessionId + "/parameters").value("stale_source").toBool());
+  window->actionRenderPreview();
+  QVERIFY(window->annotationController->status().value("result").toObject().value("tree_id") != treeId);
+  QCOMPARE(agentRequest(info, "/v2/trees/" + treeId + "/nodes/1"), oldNode);
+  editor->setPlainText("");
+  window->actionRenderPreview();
+  auto empty = window->annotationController->status().value("result").toObject();
+  QVERIFY(agentRequest(info, "/v2/trees/" + empty.value("tree_id").toString()).value("empty").toBool());
+  bridge->stop();
 }
 
 void TestAnnotations::sourceInspection()

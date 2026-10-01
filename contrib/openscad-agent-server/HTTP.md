@@ -134,3 +134,41 @@ incomplete nodes explicitly. Strings cap at 4,096 UTF-16 units. At most eight tr
 an estimated 32 MiB retention budget coexist; source pages use their separate 32 MiB budget. Every tree response
 is capped at 1 MiB. Expiry is enforced on the HTTP worker even while the GUI is busy. No native AST pointers cross
 that boundary. Closing/replacing a document or restarting the service invalidates its handles.
+
+## Evaluated models and optional fields (phase 4)
+
+Successful native evaluation publishes a qualified `result_id`, and a `tree_id` when inspection fits its budgets.
+The viewport's `displayed_result_id` identifies an installed or successfully empty result; failed attempts do not
+become successful results. Legacy `result.id` remains its original numeric generation. A tree's `kind:evaluated`
+and `representation:instantiated_nodes` distinguish it from syntax and from normalized renderer CSG.
+`root_ids` describe the absolute hierarchy; `effective_root_ids` identify native `!` selection. Children retain native
+order. Expanded calls may share source locations; node IDs are unique only within that tree. Native mappings are
+copied at successful publication, before source/module lifetimes end. Reads never touch native node pointers.
+
+| Native kind | Retained typed attributes |
+| --- | --- |
+| cube, sphere, cylinder, square, circle | dimensions/radii, centering where native, sphere style |
+| transform, color | row-major 4x4 matrix, RGBA |
+| linear/rotate extrusion | height/scale/twist/centering/slices/segments; angle/start/convexity |
+| projection, offset | cut/convexity; delta/chamfer |
+| polygon, polyhedron | array counts; arrays explicitly omitted |
+| import | resolved path, scale, DPI, center |
+| Boolean/group/intersection | native kind and ordered children |
+| all mapped nodes | available source span, root/highlight/background modifiers |
+
+`property_adapter_available` describes the table above; `properties_complete:false` explicitly avoids claiming every
+native field is exported (for example tessellation settings and mesh arrays are omitted). Unknown node kinds remain
+traversable. Non-finite numeric values are tagged objects. No bounds, facets, triangle counts, volume, validity or
+geometry-summary capability is advertised: obtaining these consistently would require additional geometry work.
+
+Model admission caps at 12,000 nodes/depth 256, with incomplete children explicitly flagged. The shared tree retention
+budget may reject a larger serialization, leaving `tree_unavailable_reason` on a successful native result. Inspection
+failure never makes native compilation fail. Detached result trees are recorded even while access is disabled, so
+enabling access can inspect an existing result; they share the same eight-tree/32-MiB/five-minute bounds. Stop clears
+retained handles. Without another native evaluation, restarting access may expose a result whose tree has expired.
+Dependencies observed by native compilation are result-scoped include/use/import records; bytes/hashes remain unknown
+when not captured. They do not replace separately identified parse-only dependency manifests.
+
+GET `/v2/documents/{id}/parameters` exposes typed current Customizer `values`, `origin:current_customizer`, contextual
+`source_revision`, `defined_from_source_revision`, and `stale_source`. Definitions may predate an edit. Metadata is
+unavailable; a response exceeding 64 KiB reports unavailable instead. This read never sets parameters or evaluates.

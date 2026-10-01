@@ -3793,7 +3793,7 @@ void MainWindow::setup3DView()
   new ViewportPopup(this);
 #ifdef ENABLE_NAVIGATION_CUBE_TUNING
   auto tuning = new NavigationTuning(qglview);
-  auto tuningAction = menu_View->addAction(tr("Navigation tuning…"));
+  auto tuningAction = menuWindow->addAction(tr("Navigation tuning…"));
   tuningAction->setObjectName("navigationTuningAction");
   connect(tuningAction, &QAction::triggered, tuning, [tuning] { tuning->show(); tuning->raise(); });
 #endif

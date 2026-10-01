@@ -4,7 +4,7 @@
 #include <QVariantMap>
 #include <QWidget>
 
-// Logical pixels and milliseconds. Phase 3 binds persistent baselines and session overrides here.
+// Logical pixels and milliseconds, with persistent normal baselines and session-only dev overrides.
 class NavigationSettings : public QObject {
   Q_OBJECT
   Q_PROPERTY(double scale MEMBER scale NOTIFY changed)

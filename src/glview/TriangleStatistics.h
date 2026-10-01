@@ -21,11 +21,13 @@ inline Renderer::TriangleStatistics previewTriangleStatistics(
 {
   uint64_t count=0;
   std::unordered_set<const CSGLeaf *> seen;
+  int dimension=0;
   for (const auto& group:{root,highlights,background}) if (group) {
     for (const auto& product:group->products) {
       for (const auto* chain:{&product.intersections,&product.subtractions}) for (const auto& object:*chain) {
         const auto leaf=object.leaf.get();
         if (leaf && leaf->polyset && seen.insert(leaf).second) {
+          dimension=std::max(dimension,int(leaf->polyset->getDimension()));
           const auto triangles=preparedTriangleCount(*leaf->polyset);
           if (!triangles) return {Renderer::TriangleStatistics::Kind::Preview,std::nullopt};
           count+=*triangles;
@@ -33,5 +35,5 @@ inline Renderer::TriangleStatistics previewTriangleStatistics(
       }
     }
   }
-  return {Renderer::TriangleStatistics::Kind::Preview,count};
+  return {Renderer::TriangleStatistics::Kind::Preview,count,dimension};
 }

@@ -985,6 +985,7 @@ void MainWindow::selectPreviewViewMode()
 void MainWindow::compileEnded()
 {
   if (annotationController) annotationController->finishEvaluation(compileErrors == 0 && rootFile != nullptr);
+  if (compileErrors>0) qglview->statistics()->evaluationFailed();
   clearCurrentOutput();
   GuiLocker::unlock();
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
@@ -2440,6 +2441,7 @@ void MainWindow::updateStatusBar(ProgressWidget *progressWidget)
 void MainWindow::exceptionCleanup()
 {
   if (annotationController) annotationController->finishEvaluation(false);
+  qglview->statistics()->evaluationFailed();
   LOG("Execution aborted");
   LOG(" ");
   GuiLocker::unlock();
@@ -2449,6 +2451,7 @@ void MainWindow::exceptionCleanup()
 void MainWindow::UnknownExceptionCleanup(std::string msg)
 {
   if (annotationController) annotationController->finishEvaluation(false);
+  qglview->statistics()->evaluationFailed();
   auto guard = scopedSetCurrentOutput();  // we need to show this error
   if (msg.size() == 0) {
     LOG(message_group::Error, "Compilation aborted by unknown exception");

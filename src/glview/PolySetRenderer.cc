@@ -76,7 +76,7 @@ PolySetRenderer::PolySetRenderer(const std::shared_ptr<const class Geometry>& ge
     if (!value) return;
     count+=*value;
   }
-  triangles_={TriangleStatistics::Kind::Final,count};
+  triangles_={TriangleStatistics::Kind::Final,count,polygons_.empty() ? 3 : 2};
 }
 
 void PolySetRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)

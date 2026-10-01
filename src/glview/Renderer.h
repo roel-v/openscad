@@ -39,6 +39,7 @@ public:
   struct TriangleStatistics {
     enum class Kind { Preview, Final } kind;
     std::optional<uint64_t> count;
+    int dimension=0;
   };
   TriangleStatistics triangleStatistics() const { return triangles_; }
 

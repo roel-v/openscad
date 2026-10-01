@@ -25,6 +25,10 @@ NavigationTuning::NavigationTuning(QGLView *view) : Dock(view->window()),view(vi
   auto content=new QWidget(this);
   setWidget(content);
   auto layout=new QVBoxLayout(content);
+  auto developmentNotice=new QLabel(tr("Development only: this panel is solely for fine-tuning software parameters. "
+                                      "It will not be included in any production release."),content);
+  developmentNotice->setWordWrap(true);
+  layout->addWidget(developmentNotice);
   auto hint=new QLabel(tr("Live session overrides. Copy settings to retain an experiment."),content);
   hint->setWordWrap(true);
   layout->addWidget(hint);

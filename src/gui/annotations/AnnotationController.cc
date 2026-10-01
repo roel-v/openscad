@@ -1,4 +1,5 @@
 #include "AnnotationController.h"
+#include "AnnotationBridge.h"
 #include "gui/Animate.h"
 #include "gui/Dock.h"
 #include "gui/Editor.h"
@@ -276,6 +277,7 @@ Controller::Controller(MainWindow *mainWindow)
   });
   bindEditors();
   refresh();
+  Bridge::instance()->registerController(this);
 }
 Controller::~Controller()
 {

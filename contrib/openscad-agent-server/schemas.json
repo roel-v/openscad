@@ -88,6 +88,33 @@
         "projection": {"enum": ["orthographic", "perspective"]}
       }
     },
+    "savedView": {
+      "type": "object",
+      "required": ["id", "name", "camera"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "name": {"type": "string"},
+        "camera": {"$ref": "#/$defs/camera"}
+      }
+    },
+    "savedViewsPage": {
+      "type": "object",
+      "required": ["available", "document_id", "views", "next_cursor"],
+      "properties": {
+        "available": {"type": "boolean"},
+        "document_id": {"$ref": "#/$defs/uuid"},
+        "window_id": {"$ref": "#/$defs/uuid"},
+        "viewport_id": {"$ref": "#/$defs/uuid"},
+        "library_revision": {"type": "string"},
+        "dirty": {"type": "boolean"},
+        "problem": {"type": "string"},
+        "reason": {"type": "string"},
+        "views": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/savedView"}},
+        "next_cursor": {"type": ["string", "null"]}
+      },
+      "if": {"properties": {"available": {"const": true}}},
+      "then": {"required": ["window_id", "viewport_id", "library_revision", "dirty", "problem"]}
+    },
     "capture": {
       "type": "object",
       "required": ["document_id", "camera", "width", "height", "dpr", "png_sha256", "view_revision", "capture_policy"],

@@ -1,3 +1,4 @@
+#include "gui/NavigationCube.h"
 #include "TestAnnotations.h"
 #include "gui/ScintillaEditor.h"
 #include "gui/annotations/AnnotationController.h"
@@ -775,6 +776,24 @@ void TestAnnotations::viewportWorkflow()
   QApplication::sendEvent(window->qglview, &move);
   QTest::mouseRelease(window->qglview, Qt::LeftButton, Qt::NoModifier, end);
   QVERIFY(window->qglview->annotationCameraLock.has_value());
+  auto navigation=window->qglview->navigation();
+  navigation->settings.animate=false;
+  const auto lockedPose=navigation->current();
+  window->qglview->navigationCube()->step(Eigen::Vector3d::UnitY(),90);
+  QVERIFY(navigation->current()==lockedPose);
+  QTest::keyClick(window->qglview,Qt::Key_Z,Qt::ControlModifier);
+  QVERIFY(!window->qglview->annotationCameraLock.has_value());
+  window->qglview->navigationCube()->step(Eigen::Vector3d::UnitZ(),15);
+  QTest::qWait(50);
+  QTest::keyClick(window->qglview,Qt::Key_Y,Qt::ControlModifier);
+  QVERIFY(!window->qglview->annotationCameraLock.has_value());
+  QTest::mousePress(window->qglview,Qt::LeftButton,Qt::NoModifier,start);
+  QApplication::sendEvent(window->qglview,&move);
+  QTest::mouseRelease(window->qglview,Qt::LeftButton,Qt::NoModifier,end);
+  QVERIFY(window->qglview->annotationCameraLock.has_value());
+  const QImage directAnnotated=window->qglview->grabFrame();
+  const QImage directClean=window->qglview->grabFrame(QGLView::CaptureContent::ModelOnly);
+  QVERIFY(directAnnotated!=directClean);
   const auto camera = controller->camera();
   window->qglview->cam.setVpd(window->qglview->cam.viewer_distance * 2);
   window->qglview->update();
@@ -798,6 +817,7 @@ void TestAnnotations::viewportWorkflow()
   QVERIFY(!controller->drafting());
   const auto record = editor->annotations->records().last();
   QCOMPARE(record.metadata.value("strokes").toArray().size(), 1);
+  QCOMPARE(QImage::fromData(record.png).convertToFormat(directAnnotated.format()),directAnnotated);
   QVERIFY(!editor->isContentModified());
   QVERIFY(editor->annotations->dirty());
   const auto evidence = QFileInfo(qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG")).dir();

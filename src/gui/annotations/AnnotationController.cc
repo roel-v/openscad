@@ -223,6 +223,9 @@ Controller::Controller(MainWindow *mainWindow)
     view->setFocus();
   });
   palette->adjustSize();
+  view->composeAnnotations=[this](QImage& image) {
+    if (drafting()) { QPainter painter(&image); drawing.paint(painter,image.size(),view->devicePixelRatioF()); }
+  };
   palette->move(12, 12);
   palette->hide();
   displayedOwner = window->activeEditor;
@@ -289,6 +292,7 @@ Controller::Controller(MainWindow *mainWindow)
 }
 Controller::~Controller()
 {
+  view->composeAnnotations={};
   cancelDrawing();
   if (capturePending) finishFrame("Viewport closed.");
   delete palette;

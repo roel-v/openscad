@@ -49,7 +49,7 @@ public:
   QVariantMap values() const;
   QString description() const;
   static QString unit(const QByteArray& name);
-  double scale = 0.75;
+  double scale = 1.1;
   double cubeRight = 10, cubeTop = 26, menuRight = 8, menuTop = 5;
   double chamfer = 0.22, cubeRadius = 30, labelSize = 10, arrowSize = 20;
   double idleOpacity = 0.45, activeOpacity = 1;

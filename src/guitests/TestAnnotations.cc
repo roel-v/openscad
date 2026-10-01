@@ -22,6 +22,38 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
+#include <QSettings>
+
+void TestAnnotations::agentAccessLifecycle()
+{
+  auto service = AgentAnnotations::Bridge::instance();
+  service->stop();
+  QVERIFY(!QSettings().value("agentServer/enabled", false).toBool());
+  service->start();
+  QTRY_COMPARE(service->connection().value("access_mode").toString(), QString("annotations"));
+  QVERIFY(!QSettings().value("agentServer/enabled", false).toBool());
+  const auto legacyId = service->connection().value("server_id");
+  service->showAccess(window);
+  auto dialog = window->findChild<QDialog *>("agentAccessDialog");
+  QVERIFY(dialog);
+  auto enable = dialog->findChild<QPushButton *>("enableAgentAccess");
+  auto stop = dialog->findChild<QPushButton *>("stopAgentAccess");
+  QVERIFY(enable && stop);
+  enable->click();
+  QTRY_COMPARE(service->connection().value("access_mode").toString(), QString("agent"));
+  QVERIFY(service->connection().value("server_id") != legacyId);
+  QVERIFY(QSettings().value("agentServer/enabled").toBool());
+  QVERIFY(!enable->isEnabled());
+  service->stop(false);
+  QVERIFY(QSettings().value("agentServer/enabled").toBool());
+  service->startAgent(false);
+  QTRY_COMPARE(service->connection().value("access_mode").toString(), QString("agent"));
+  stop->click();
+  QVERIFY(service->connection().isEmpty());
+  QVERIFY(!QSettings().value("agentServer/enabled").toBool());
+  QVERIFY(!QSettings().value("annotations/agentAccess").toBool());
+  dialog->close();
+}
 
 void TestAnnotations::documentLifecycle()
 {

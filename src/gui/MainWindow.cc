@@ -26,6 +26,7 @@
 
 #include "gui/MainWindow.h"
 #include "gui/annotations/AnnotationController.h"
+#include "gui/annotations/AnnotationBridge.h"
 
 #include <sys/stat.h>
 
@@ -301,6 +302,9 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   setupAIDock();
   annotationController = new AgentAnnotations::Controller(this);
   setupDocks();
+  auto agentAccess = menuWindow->addAction(tr("Agent Access..."));
+  connect(agentAccess, &QAction::triggered, this,
+          [this] { AgentAnnotations::Bridge::instance()->showAccess(this); });
 
   setup3DView();
   setupViewportControl();

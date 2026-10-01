@@ -11,6 +11,7 @@
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QVBoxLayout>
+#include <QDialog>
 
 namespace AgentAnnotations {
 Bridge *Bridge::instance()
@@ -52,12 +53,66 @@ void Bridge::start(bool remember)
 }
 void Bridge::stop(bool remember)
 {
-  if (remember) QSettings().setValue("annotations/agentAccess", false);
+  if (remember) {
+    QSettings().setValue("annotations/agentAccess", false);
+    QSettings().setValue("agentServer/enabled", false);
+  }
   info = {};
   starting = false;
   heartbeat.stop();
   QMetaObject::invokeMethod(transport, [this] { transport->stop(); }, Qt::BlockingQueuedConnection);
   emit accessChanged({}, {});
+}
+void Bridge::startAgent(bool remember)
+{
+  if (remember) QSettings().setValue("agentServer/enabled", true);
+  if (info.value("access_mode") == "agent") return;
+  // Upgrading consent starts a new server identity, invalidating old queued work.
+  stop(false);
+  starting = true;
+  QMetaObject::invokeMethod(transport, [this] { transport->start(true); }, Qt::QueuedConnection);
+}
+void Bridge::showAccess(QWidget *parent)
+{
+  auto dialog = new QDialog(parent);
+  dialog->setObjectName("agentAccessDialog");
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  dialog->setWindowTitle(tr("Agent Access"));
+  auto layout = new QVBoxLayout(dialog);
+  auto explanation = new QLabel(tr("Allow local agents to inspect open documents, model structure and annotations, "
+                                   "and control and capture viewports. Access is remembered across launches."), dialog);
+  explanation->setWordWrap(true);
+  layout->addWidget(explanation);
+  auto state = new QLabel(dialog);
+  state->setTextFormat(Qt::PlainText);
+  state->setWordWrap(true);
+  layout->addWidget(state);
+  auto enable = new QPushButton(tr("Enable agent access"), dialog);
+  enable->setObjectName("enableAgentAccess");
+  auto stopButton = new QPushButton(tr("Stop agent access"), dialog);
+  stopButton->setObjectName("stopAgentAccess");
+  auto copy = new QPushButton(tr("Copy connection info"), dialog);
+  copy->setObjectName("copyAgentConnection");
+  layout->addWidget(enable);
+  layout->addWidget(stopButton);
+  layout->addWidget(copy);
+  connect(enable, &QPushButton::clicked, this, [this] { startAgent(); });
+  connect(stopButton, &QPushButton::clicked, this, [this] { stop(); });
+  connect(copy, &QPushButton::clicked, this, [this] {
+    if (!info.isEmpty()) QApplication::clipboard()->setText(QString::fromUtf8(QJsonDocument(info).toJson()));
+  });
+  auto update = [state, enable, stopButton, copy](QJsonObject value, QString error) {
+    const bool live = !value.isEmpty();
+    enable->setEnabled(value.value("access_mode") != "agent");
+    stopButton->setEnabled(live);
+    copy->setEnabled(live);
+    state->setText(!error.isEmpty() ? error : !live ? tr("Agent access is stopped.") :
+      value.value("url").toString() + "\n" + (value.value("access_mode") == "agent" ? tr("Agent access enabled") : tr("Annotations-only access")));
+  };
+  connect(this, &Bridge::accessChanged, dialog, update);
+  update(info, {});
+  dialog->resize(440, 240);
+  dialog->show();
 }
 void Bridge::registerController(Controller *controller)
 {
@@ -99,7 +154,8 @@ void Bridge::registerController(Controller *controller)
   connect(this, &Bridge::accessChanged, widget, update);
   update(info, {});
   controller->setAccessWidget(widget);
-  if (QSettings().value("annotations/agentAccess", false).toBool()) start(false);
+  if (QSettings().value("agentServer/enabled", false).toBool()) startAgent(false);
+  else if (QSettings().value("annotations/agentAccess", false).toBool()) start(false);
   publish();
 }
 void Bridge::publish()
@@ -142,7 +198,7 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
 {
   bool live = false;
   QMetaObject::invokeMethod(
-    transport, [this, &live, server, id] { live = transport->activeJob(server, id); },
+    transport, [this, &live, server, id] { live = transport->beginJob(server, id); },
     Qt::BlockingQueuedConnection);
   if (!live) return;
   auto done = [this, server, id](QJsonObject result, QByteArray png, QString error) {

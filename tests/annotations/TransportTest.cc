@@ -22,8 +22,8 @@ class TransportTest : public QObject
                                   bool post = false)
   {
     QNetworkRequest request(QUrl(info.value("url").toString() + path));
-    request.setRawHeader("X-Agent-Annotations", "1");
-    request.setRawHeader("X-Agent-Annotations-Server", info.value("server_id").toString().toUtf8());
+    request.setRawHeader(path.startsWith("/v2/") ? "X-OpenSCAD-Agent" : "X-Agent-Annotations", "1");
+    request.setRawHeader(path.startsWith("/v2/") ? "X-OpenSCAD-Agent-Server" : "X-Agent-Annotations-Server", info.value("server_id").toString().toUtf8());
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     if (!extraName.isEmpty()) request.setRawHeader(extraName, extraValue);
     auto reply = post ? network.post(request, body) : network.get(request);
@@ -41,6 +41,82 @@ class TransportTest : public QObject
     return result;
   }
 private slots:
+  void broadConsentAndGuards()
+  {
+    Transport transport;
+    transport.start();
+    auto info = transport.connection();
+    QCOMPARE(request(info, "/v1/info").first, 200);
+    QCOMPARE(request(info, "/v2/info").first, 403);
+    transport.stop();
+    transport.start(true);
+    info = transport.connection();
+    QCOMPARE(request(info, "/v2/info").second.value("api_version").toInt(), 2);
+    QCOMPARE(request(info, "/v2/info", {}, "X-OpenSCAD-Agent-Server", "").first, 200);
+    QCOMPARE(request(info, "/v2/status", {}, "X-OpenSCAD-Agent-Server", uuid().toUtf8()).first, 403);
+    QCOMPARE(request(info, "/v2/info", {}, "Sec-Fetch-Site", "none").first, 403);
+    QCOMPARE(request(info, "/v1/info", {}, "Sec-Fetch-Mode", "cors").first, 403);
+    QCOMPARE(request(info, "/v2/info", {}, "Origin", "null").first, 403);
+    QCOMPARE(request(info, "/v2/execute", "{}", {}, {}, true).first, 404);
+    QCOMPARE(request(info, "/v1/info").first, 200);
+    Transport second;
+    second.start(true);
+    QVERIFY(second.connection().value("server_id") != info.value("server_id"));
+    QVERIFY(second.connection().value("url") != info.value("url"));
+  }
+  void receiptsCancellationAndQueueDeadline()
+  {
+    qint64 time = 1000;
+    Transport transport(nullptr, [&] { return time; });
+    transport.start(true);
+    const auto info = transport.connection();
+    const auto document = uuid(), window = uuid(), viewport = uuid();
+    Snapshot snapshot;
+    snapshot.status = {{"viewports", QJsonArray{QJsonObject{{"document_id", document},
+      {"window_id", window}, {"viewport_id", viewport}, {"busy", false},
+      {"result", QJsonObject{{"id", "1"}}}}}}};
+    transport.publish(snapshot);
+    QJsonObject body{{"server_id", info.value("server_id")}, {"request_id", uuid()},
+      {"document_id", document}, {"window_id", window}, {"viewport_id", viewport}, {"expected_result_id", "1"}};
+    QSignalSpy dispatched(&transport, &Transport::operation);
+    auto submit = [&] { return request(info, "/v1/capture", QJsonDocument(body).toJson(), {}, {}, true); };
+    QCOMPARE(submit().first, 202);
+    auto id = body.value("request_id").toString();
+    QVERIFY(transport.beginJob(info.value("server_id").toString(), id));
+    QVERIFY(!transport.beginJob(info.value("server_id").toString(), id));
+    QCOMPARE(request(info, "/v1/requests/" + id).second.value("state").toString(), QString("queued"));
+    QCOMPARE(request(info, "/v2/requests/" + id).second.value("state").toString(), QString("running"));
+    QJsonObject runningCancel{{"server_id", info.value("server_id")}, {"request_id", uuid()}};
+    auto runningReply = request(info, "/v2/requests/" + id + "/cancel", QJsonDocument(runningCancel).toJson(), {}, {}, true);
+    QCOMPARE(runningReply.second.value("result").toObject().value("cancelled").toBool(), false);
+    transport.complete(info.value("server_id").toString(), id, {{"ok", true}}, {}, {});
+    time += 300001;
+    QCOMPARE(request(info, "/v2/requests/" + id).first, 410);
+    QCOMPARE(submit().second.value("state").toString(), QString("expired"));
+    QCOMPARE(dispatched.size(), 1);
+    transport.publish(snapshot);
+    body["request_id"] = uuid();
+    QCOMPARE(submit().first, 202);
+    id = body.value("request_id").toString();
+    QJsonObject cancel{{"server_id", info.value("server_id")}, {"request_id", uuid()}};
+    auto cancelBytes = QJsonDocument(cancel).toJson();
+    auto route = "/v2/requests/" + id + "/cancel";
+    QCOMPARE(request(info, route, cancelBytes, {}, {}, true).second.value("result").toObject().value("cancelled").toBool(), true);
+    QVERIFY(!transport.beginJob(info.value("server_id").toString(), id));
+    QCOMPARE(request(info, route, cancelBytes, {}, {}, true).first, 200);
+    body["request_id"] = uuid();
+    QCOMPARE(submit().first, 202);
+    id = body.value("request_id").toString();
+    time += 10001;
+    QVERIFY(!transport.beginJob(info.value("server_id").toString(), id));
+    auto receipt = request(info, "/v2/requests/" + id).second;
+    QCOMPARE(receipt.value("state").toString(), QString("cancelled"));
+    QCOMPARE(receipt.value("execution_started").toBool(), false);
+    transport.stop();
+    transport.start(true);
+    transport.complete(info.value("server_id").toString(), id, {{"wrong", true}}, {}, {});
+    QVERIFY(!transport.beginJob(info.value("server_id").toString(), id));
+  }
   void protocolAndIdempotency()
   {
     QStandardPaths::setTestModeEnabled(true);

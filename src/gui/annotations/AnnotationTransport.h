@@ -4,6 +4,7 @@
 #include <QHash>
 #include <QTcpServer>
 #include <QTimer>
+#include <functional>
 class QTcpSocket;
 
 namespace AgentAnnotations {
@@ -16,9 +17,9 @@ class Transport : public QObject
 {
   Q_OBJECT
 public:
-  explicit Transport(QObject *parent = nullptr);
+  explicit Transport(QObject *parent = nullptr, std::function<qint64()> clock = {});
   ~Transport() override { stop(); }
-  void start();
+  void start(bool broadAccess = false);
   void stop();
   void publish(Snapshot snapshot);
   void complete(const QString& serverId, const QString& requestId, QJsonObject result, QByteArray png,
@@ -29,6 +30,7 @@ public:
     return listener && info.value("server_id") == server && jobs.contains(id) &&
            jobs[id].value.value("state") == "queued";
   }
+  bool beginJob(const QString& server, const QString& id);
 signals:
   void listening(QJsonObject info, QString error);
   void operation(QString serverId, QString requestId, QString path, QJsonObject body);
@@ -39,11 +41,15 @@ private:
   QJsonObject info;
   Snapshot snapshot;
   qint64 heartbeat = 0;
+  bool broadAccess = false;
+  std::function<qint64()> clock;
+  qint64 now() const;
   struct Job {
     QByteArray input;
     QJsonObject value;
     qint64 created;
     qint64 bytes = 0;
+    qint64 deadline = 0;
   };
   QHash<QString, Job> jobs;
   int connections = 0;
@@ -53,5 +59,7 @@ private:
   void route(QTcpSocket *socket, const QByteArray& header, const QByteArray& body);
   void respond(QTcpSocket *socket, int code, QJsonObject value);
   void expire();
+  void routeV2(QTcpSocket *socket, const QByteArray& method, const QString& path,
+               const QByteArray& bytes);
 };
 }  // namespace AgentAnnotations

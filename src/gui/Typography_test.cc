@@ -22,6 +22,9 @@
 #include <QTemporaryDir>
 #include <QTextDocument>
 #include <QToolButton>
+#include <QToolTip>
+#include <QDockWidget>
+#include <QThread>
 #include <QWheelEvent>
 
 #include "gui/OpenSCADApp.h"
@@ -419,6 +422,125 @@ TEST_CASE("Load persisted typography fixture", "[.][typography-restart]")
 }
 
 // Opt-in native widget evidence; excluded from ordinary unit-test runs.
+TEST_CASE("Verify native quiet Customizer with real model and presets", "[.][customizer-visual]")
+{
+  auto& app = typographyApp();
+  const auto output = qEnvironmentVariable("OPENSCAD_TYPOGRAPHY_OUTPUT");
+  REQUIRE_FALSE(output.isEmpty());
+  REQUIRE(QDir().mkpath(output));
+  REQUIRE(QApplication::setStyle("windows11"));
+  app.setFont(QFont("Segoe UI", 10));
+  Builtins::initialize();
+  parser_init();
+  auto *window = new MainWindow(QStringList());
+  window->resize(1280, 850);
+  window->show();
+  window->activeEditor->setPlainText(R"(/* [view] */
+// Exchange the boards; keep clearance <5 mm & retain the original units.
+swap_boards = false;
+show_USB_port = true;
+view = "assembly"; // [assembly, cutaway]
+/* [View] */
+// Overall width in millimeters.
+width = 64; // [40:100]
+// A number without a slider.
+count = 3;
+// A long explanatory sentence to verify native tooltip wrapping in a narrow panel.
+label = "sample";
+direction = [1, 2, 3];
+module model() { cube([width, 10, 10]); }
+model();
+)");
+  REQUIRE(QMetaObject::invokeMethod(window, "actionRenderPreview"));
+  auto *panel = window->findChild<ParameterWidget *>();
+  REQUIRE(panel);
+  auto *dock = qobject_cast<QDockWidget *>(panel->parentWidget());
+  REQUIRE(dock);
+  dock->show();
+  window->resizeDocks({dock}, {380}, Qt::Horizontal);
+  auto settle = [] {
+    for (int i = 0; i < 12; ++i) { QApplication::processEvents(); QThread::msleep(10); }
+  };
+  settle();
+  REQUIRE(panel->findChildren<GroupWidget *>().size() == 2);
+  CHECK(panel->comboBoxDetails->currentIndex() == int(DescriptionStyle::HideDetails));
+  panel->checkBoxAutoPreview->setChecked(false);
+  int previewRequests = 0;
+  QObject::connect(panel, &ParameterWidget::parametersChanged, panel, [&] { ++previewRequests; });
+  auto groupNamed = [&](const QString& name) -> GroupWidget * {
+    for (auto *group : panel->findChildren<GroupWidget *>()) if (group->title() == name) return group;
+    return nullptr;
+  };
+  auto fieldNamed = [&](const std::string& name) -> ParameterVirtualWidget * {
+    for (auto *field : panel->findChildren<ParameterVirtualWidget *>())
+      if (field->getParameter()->name() == name) return field;
+    return nullptr;
+  };
+  REQUIRE(groupNamed("view"));
+  REQUIRE(groupNamed("View"));
+  auto *boolean = fieldNamed("swap_boards");
+  REQUIRE(boolean);
+  boolean->findChild<QCheckBox *>()->click();
+  CHECK(static_cast<BoolParameter *>(boolean->getParameter())->value);
+  REQUIRE(QMetaObject::invokeMethod(panel, "createSet", Q_ARG(QString, QString("Verification preset"))));
+  groupNamed("View")->setExpanded(false);
+  const int beforeModes = previewRequests;
+  for (int mode : {0, 1, 3, 2}) {
+    panel->comboBoxDetails->setCurrentIndex(mode);
+    settle();
+    CHECK(groupNamed("view")->isExpanded());
+    CHECK_FALSE(groupNamed("View")->isExpanded());
+    REQUIRE(fieldNamed("swap_boards"));
+    CHECK(static_cast<BoolParameter *>(fieldNamed("swap_boards")->getParameter())->value);
+    CHECK(previewRequests == beforeModes);
+    REQUIRE(panel->grab().save(output + QString("/mode-%1.png").arg(mode)));
+  }
+  REQUIRE(QMetaObject::invokeMethod(panel, "onExpandAll"));
+  for (auto *group : panel->findChildren<GroupWidget *>()) CHECK(group->isExpanded());
+  auto *help = fieldNamed("swap_boards")->findChild<QLabel *>("parameterHelpIcon");
+  REQUIRE(help);
+  CHECK(help->isVisible());
+  CHECK(help->focusPolicy() == Qt::NoFocus);
+  QToolTip::showText(help->mapToGlobal(help->rect().bottomLeft()), help->toolTip(), help);
+  settle();
+  for (auto *widget : QApplication::topLevelWidgets()) {
+    if (widget->windowType() == Qt::ToolTip && widget->isVisible())
+      REQUIRE(widget->grab().save(output + "/help-tooltip.png"));
+  }
+  QToolTip::hideText();
+  REQUIRE(QMetaObject::invokeMethod(panel, "on_comboBoxPreset_activated", Q_ARG(int, 0)));
+  CHECK_FALSE(static_cast<BoolParameter *>(fieldNamed("swap_boards")->getParameter())->value);
+  REQUIRE(QMetaObject::invokeMethod(panel, "on_comboBoxPreset_activated", Q_ARG(int, 1)));
+  CHECK(static_cast<BoolParameter *>(fieldNamed("swap_boards")->getParameter())->value);
+  settle();
+  REQUIRE(window->grab().save(output + "/main-window.png"));
+  // Exercise native geometry independent of the dock's width constraints.
+  auto *dockParent = panel->parentWidget();
+  panel->setParent(nullptr);
+  panel->resize(350, 700);
+  panel->show();
+  settle();
+  REQUIRE(panel->grab().save(output + "/customizer.png"));
+  panel->setFontFamilySize("Segoe UI", 18);
+  settle();
+  REQUIRE(panel->grab().save(output + "/enlarged-font.png"));
+  for (auto *label : panel->findChildren<QLabel *>("labelParameter")) {
+    if (label->isVisible()) CHECK(label->height() >= label->heightForWidth(label->width()));
+  }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+  const auto scheme = app.styleHints()->colorScheme();
+  const auto color = panel->palette().color(QPalette::Window);
+  app.styleHints()->setColorScheme(scheme == Qt::ColorScheme::Dark ? Qt::ColorScheme::Light : Qt::ColorScheme::Dark);
+  settle();
+  CHECK(panel->palette().color(QPalette::Window) != color);
+  app.styleHints()->setColorScheme(scheme);
+#endif
+  panel->hide();
+  panel->setParent(dockParent);
+  window->hide();
+  delete window;
+}
+
 TEST_CASE("Capture native typography reference", "[.][typography-visual]")
 {
   auto& app = typographyApp();

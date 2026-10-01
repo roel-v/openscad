@@ -60,7 +60,7 @@ public:
   bool visible = true, animate = true, freeOrbit = true;
   int duration = 200;
   int easing = QEasingCurve::InOutCubic;
-  double rollStep = 90, arrowStep = 15, dragThreshold = 10, orbitSensitivity = 1;
+  double rollStep = 15, arrowStep = 15, dragThreshold = 10, orbitSensitivity = 1;
   bool showInformation=false, triangles=true, fps=true, frameTime=false;
   int statsRefresh=250, statsWindow=30, statsIdle=1000;
 signals:

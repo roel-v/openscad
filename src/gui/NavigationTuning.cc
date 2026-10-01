@@ -63,7 +63,7 @@ NavigationTuning::NavigationTuning(QGLView *view) : Dock(view->window()),view(vi
     {"freeOrbit",tr("Allow dragging the cube to orbit the camera freely. When off, cube target clicks and the arrow buttons still work.")},
     {"duration",tr("Camera transition duration in milliseconds when Animate is on. Higher values make transitions slower; 0 makes them immediate.")},
     {"easing",tr("Speed profile for animated camera transitions. Linear uses constant progress; Ease in/out and Smooth sine start and finish gently.")},
-    {"rollStep",tr("Rotation around the viewing direction, in degrees per curved-arrow click or Q/E key press while the cube has focus. Default: 90 degrees.")},
+    {"rollStep",tr("Rotation around the viewing direction, in degrees per curved-arrow click or Q/E key press while the cube has focus. Default: 15 degrees.")},
     {"arrowStep",tr("Rotation in degrees per direction-arrow click or arrow-key press while the cube has focus. Default: 15 degrees.")},
     {"dragThreshold",tr("Pointer movement required before a cube press becomes a drag, in logical pixels (horizontal plus vertical movement). Higher values tolerate more hand movement during a click. Initially follows the system drag threshold.")},
     {"orbitSensitivity",tr("Multiplier for camera rotation when dragging the cube with Free orbit enabled. 1 is normal; lower values rotate less, higher values rotate more.")},

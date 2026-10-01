@@ -755,7 +755,6 @@ void MainWindow::updateRecentFiles(const QString& FileSavedOrOpened)
  */
 void MainWindow::compile(bool reload, bool forcedone)
 {
-  qglview->navigation()->cancel();
   OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
   OpenSCAD::traceDepth = GlobalPreferences::inst()->getValue("advanced/traceDepth").toUInt();
   OpenSCAD::traceUsermoduleParameters =
@@ -920,6 +919,9 @@ void MainWindow::compileDone(bool didchange)
   try {
     const char *callslot;
     if (didchange) {
+      // Automatic reload also calls compile() for unchanged files every 200 ms.
+      // Only an actual evaluation may supersede an in-flight camera transition.
+      qglview->navigation()->cancel();
       if (annotationController) annotationController->beginEvaluation(lastCompiledDoc);
       instantiateRoot();
       updateCompileResult();

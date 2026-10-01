@@ -327,6 +327,47 @@ void TestNavigation::cubeTargetsAndGestures()
   for (int i=0;i<4;++i) cube->step(Eigen::Vector3d::UnitY(),90);
   QVERIFY(CameraPose::matrix(view->cam.object_rot).isApprox(CameraPose::matrix(original.rotation),1e-10));
   const auto position=cube->pos();
+  // Exercise actual pointer clicks: direct snap() calls do not cover click/drag arbitration.
+  for (const int hold : {1,250}) {
+    nav->apply(original,false);
+    nav->settings.animate=true;
+    nav->settings.duration=200;
+    window->activeEditor->setFocus();
+    QTest::mouseMove(window->windowHandle(),QPoint(20,100));
+    QTest::qWait(450);
+    const auto visible=cube->projected();
+    const auto front=std::find_if(visible.begin(),visible.end(),[](const auto& face){return face.label=="FRONT";});
+    QVERIFY(front!=visible.end());
+    const auto click=cube->mapTo(window,front->center.toPoint());
+    QTest::mouseMove(window->windowHandle(),click,1);
+    QTest::mousePress(window->windowHandle(),Qt::LeftButton,Qt::NoModifier,click,1);
+    QTest::qWait(hold);
+    QTest::mouseRelease(window->windowHandle(),Qt::LeftButton,Qt::NoModifier,click,1);
+    QTest::qWait(350);
+    QVERIFY2(CameraPose::matrix(nav->current().rotation).isApprox(Eigen::Matrix3d::Identity(),1e-10),
+             qPrintable(QString("Window-routed Front click held %1 ms stopped at %2,%3,%4")
+               .arg(hold).arg(nav->current().rotation.x()).arg(nav->current().rotation.y()).arg(nav->current().rotation.z())));
+  }
+  for (const QPoint jitter : {QPoint(0,0),QPoint(3,3)}) {
+    nav->apply(original,false);
+    nav->settings.animate=true;
+    nav->settings.duration=100;
+    const auto visible=cube->projected();
+    const auto front=std::find_if(visible.begin(),visible.end(),[](const auto& face){return face.label=="FRONT";});
+    QVERIFY(front!=visible.end());
+    const QPoint click=front->center.toPoint();
+    QTest::mousePress(cube,Qt::LeftButton,Qt::NoModifier,click);
+    QTest::mouseMove(cube,click+jitter,20);
+    QTest::mouseRelease(cube,Qt::LeftButton,Qt::NoModifier,click+jitter);
+    QTest::qWait(180);
+    QVERIFY2(CameraPose::matrix(nav->current().rotation).isApprox(Eigen::Matrix3d::Identity(),1e-10),
+             qPrintable(QString("Front-face click (%1,%2 jitter) stopped at %3,%4,%5")
+               .arg(jitter.x()).arg(jitter.y()).arg(nav->current().rotation.x())
+               .arg(nav->current().rotation.y()).arg(nav->current().rotation.z())));
+    QVERIFY(!nav->animating());
+  }
+  nav->settings.animate=false;
+  nav->apply(original,false);
   const QPoint center(qRound(cube->width()*0.5),qRound(cube->width()*80.0/140));
   const QPoint end=center+QPoint(18,8);
   QSignalSpy selected(view,&QGLView::doLeftClick);
@@ -398,6 +439,22 @@ void TestNavigation::interruptibleTransitions()
   QTest::qWait(150);
   QVERIFY(view->cam.object_rot==Eigen::Vector3d(12,34,56));
   QVERIFY(!nav->animating());
+  // Unchanged automatic-reload polls must not interrupt an in-flight camera operation.
+  window->actionRenderPreview();
+  window->actionReloadRenderPreview();
+  nav->settings.duration=350;
+  nav->navigate(target);
+  QTest::qWait(30);
+  window->actionReloadRenderPreview();
+  QVERIFY2(nav->animating(),"An unchanged file poll cancelled the camera transition");
+  window->designActionAutoReload->setChecked(true);
+  QTest::qWait(450);
+  window->designActionAutoReload->setChecked(false);
+  QVERIFY2(nav->current()==target,"Periodic automatic reload prevented the exact camera endpoint");
+  nav->navigate(original);
+  QTest::qWait(30);
+  window->actionRenderPreview();
+  QVERIFY2(!nav->animating(),"An explicit preview must still cancel pending camera movement");
   nav->settings.animate=false;
   nav->apply(original,false);
 }

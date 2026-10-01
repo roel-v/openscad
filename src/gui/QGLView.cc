@@ -26,6 +26,7 @@
 
 #include "gui/QGLView.h"
 #include "gui/CameraNavigation.h"
+#include "gui/NavigationCube.h"
 #include <cmath>
 #include <memory>
 #include <QtCore/qpoint.h>
@@ -94,6 +95,7 @@ QGLView::QGLView(QWidget *parent) : QOpenGLWidget(parent)
   init();
   cameraNavigation = new CameraNavigation(this);
   connect(this, &QGLView::cameraChanged, cameraNavigation, &CameraNavigation::observe);
+  cube = new NavigationCube(this);
 }
 
 QGLView::~QGLView()

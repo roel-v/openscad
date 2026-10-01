@@ -1377,6 +1377,11 @@ set(GUI_SOURCES
   src/gui/QGLView.cc
   src/gui/CameraNavigation.cc
   src/gui/CameraNavigation.h
+  src/gui/NavigationSettings.h
+  src/gui/NavigationCubeGeometry.cc
+  src/gui/NavigationCubeGeometry.h
+  src/gui/NavigationCube.cc
+  src/gui/NavigationCube.h
   src/gui/QGLView2.cc
   src/gui/QSettingsCached.cc
   src/gui/QWordSearchField.cc

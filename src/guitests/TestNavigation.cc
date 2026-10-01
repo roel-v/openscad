@@ -1,6 +1,7 @@
 #include "TestNavigation.h"
 #include "gui/QGLView.h"
 #include "gui/CameraNavigation.h"
+#include "gui/NavigationCube.h"
 #include <QFrame>
 #include <QLabel>
 #include <QSizeGrip>
@@ -11,12 +12,14 @@
 #include <QTemporaryDir>
 #include <QFile>
 #include <QDoubleSpinBox>
+#include <QPainter>
 #include "gui/TabManager.h"
 
 void TestNavigation::cameraOperationBoundary()
 {
   auto view = window->qglview;
   auto navigation = view->navigation();
+  navigation->settings.animate = false;
   const auto original = navigation->current();
   QSignalSpy display(navigation, &CameraNavigation::displayChanged);
   QSignalSpy operation(view, &QGLView::cameraChanged);
@@ -136,4 +139,103 @@ void TestNavigation::documentMetadataLifetimeProbe()
   QVERIFY(editor->toPlainText().contains("sphere"));
   editor->setContentModified(false);
   window->tabManager->closeCurrentTab();
+}
+
+void TestNavigation::cubeTargetsAndGestures()
+{
+  window->designActionAutoReload->setChecked(false);
+  auto view=window->qglview;
+  auto nav=view->navigation();
+  auto cube=view->navigationCube();
+  nav->settings.animate=false;
+  const auto original=nav->current();
+  QImage targetGrid(cube->width()*6,cube->height()*5,QImage::Format_ARGB32_Premultiplied);
+  targetGrid.fill(window->palette().color(QPalette::Window));
+  QPainter gridPainter(&targetGrid);
+  for (const auto& face : NavigationCubeGeometry::facets(0.22)) {
+    cube->snap(face.id);
+    QVERIFY((CameraPose::matrix(view->cam.object_rot)*face.normal).isApprox(Eigen::Vector3d(0,-1,0),1e-10));
+    QCOMPARE(view->cam.projection,original.projection);
+    QCOMPARE(view->cam.fov,original.fov);
+    QCOMPARE(view->cam.viewer_distance,original.distance);
+    QVERIFY(view->cam.object_trans==original.translation);
+    gridPainter.drawPixmap((face.id%6)*cube->width(),(face.id/6)*cube->height(),cube->grab());
+  }
+  nav->apply(original,false);
+  for (int i=0;i<4;++i) cube->step(Eigen::Vector3d::UnitY(),90);
+  QVERIFY(CameraPose::matrix(view->cam.object_rot).isApprox(CameraPose::matrix(original.rotation),1e-10));
+  const auto position=cube->pos();
+  const QPoint center(qRound(cube->width()*0.5),qRound(cube->width()*80.0/140));
+  const QPoint end=center+QPoint(18,8);
+  QSignalSpy selected(view,&QGLView::doLeftClick);
+  nav->settings.freeOrbit=true;
+  QTest::mousePress(cube,Qt::LeftButton,Qt::NoModifier,center);
+  QTest::mouseMove(cube,end,20);
+  QTest::mouseRelease(cube,Qt::LeftButton,Qt::NoModifier,end);
+  QVERIFY(!CameraPose::matrix(view->cam.object_rot).isApprox(CameraPose::matrix(original.rotation),1e-8));
+  QCOMPARE(cube->pos(),position);
+  QCOMPARE(selected.count(),0);
+  nav->settings.freeOrbit=false;
+  const auto disabled=nav->current();
+  QTest::mousePress(cube,Qt::LeftButton,Qt::NoModifier,center);
+  QTest::mouseMove(cube,end,20);
+  QTest::mouseRelease(cube,Qt::LeftButton,Qt::NoModifier,end);
+  QVERIFY(nav->current()==disabled);
+  nav->settings.freeOrbit=true;
+  QTest::mousePress(cube,Qt::LeftButton,Qt::NoModifier,center);
+  QTest::mouseMove(cube,center+QPoint(12,12),20);
+  const auto beforeOutside=nav->current();
+  QTest::mouseRelease(cube,Qt::LeftButton,Qt::NoModifier,QPoint(-20,-20));
+  QVERIFY(nav->current()==beforeOutside);
+  QCOMPARE(selected.count(),0);
+  nav->apply(original,false);
+  const auto output=qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
+  gridPainter.end();
+  if (!output.isEmpty()) {
+    QVERIFY(window->grab().save(output+"/navigation-cube.png"));
+    QVERIFY(targetGrid.save(output+"/all-26-targets.png"));
+  }
+}
+
+void TestNavigation::interruptibleTransitions()
+{
+  auto view=window->qglview;
+  auto nav=view->navigation();
+  nav->settings.animate=true;
+  nav->settings.duration=100;
+  const auto original=nav->current();
+  auto target=original;
+  target.rotation={70,20,125};
+  target.translation={5,7,11};
+  target.distance=215;
+  target.fov=40;
+  target.projection=Camera::ProjectionType::ORTHOGONAL;
+  QSignalSpy operations(view,&QGLView::cameraChanged);
+  nav->navigate(target);
+  QCOMPARE(nav->current().projection,target.projection);
+  QTRY_VERIFY(!nav->animating());
+  QVERIFY(nav->current()==target);
+  QCOMPARE(operations.count(),1);
+  nav->navigate(original);
+  QTest::qWait(30);
+  auto redirected=nav->current();
+  redirected.rotation={0,0,0};
+  nav->navigate(redirected);
+  QTRY_VERIFY(!nav->animating());
+  QVERIFY(nav->current()==redirected);
+  QCOMPARE(operations.count(),2);
+  nav->navigate(target);
+  QTest::qWait(25);
+  nav->cancel();
+  const auto stopped=nav->current();
+  QTest::qWait(150);
+  QVERIFY(nav->current()==stopped);
+  QCOMPARE(operations.count(),2);
+  nav->navigate(target);
+  view->cam.object_rot={12,34,56};
+  QTest::qWait(150);
+  QVERIFY(view->cam.object_rot==Eigen::Vector3d(12,34,56));
+  QVERIFY(!nav->animating());
+  nav->settings.animate=false;
+  nav->apply(original,false);
 }

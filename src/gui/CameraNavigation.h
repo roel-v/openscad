@@ -1,7 +1,9 @@
 #pragma once
 
 #include "glview/CameraPose.h"
+#include "gui/NavigationSettings.h"
 #include <QObject>
+#include <QElapsedTimer>
 #include <functional>
 
 class QGLView;
@@ -19,6 +21,8 @@ public:
   void cancel();
   bool permitted() const;
   std::function<bool()> allowNavigation;
+  NavigationSettings settings;
+  bool animating() const { return moving; }
 
 signals:
   void displayChanged();
@@ -27,4 +31,9 @@ signals:
 private:
   QGLView *view;
   CameraPose observed;
+  CameraPose start, target;
+  QElapsedTimer clock;
+  quint64 generation = 0;
+  bool moving = false;
+  void tick(quint64 operation);
 };

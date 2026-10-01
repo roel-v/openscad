@@ -7,4 +7,6 @@ private slots:
   void cameraOperationBoundary();
   void nativeOverlayComposition();
   void documentMetadataLifetimeProbe();
+  void cubeTargetsAndGestures();
+  void interruptibleTransitions();
 };

@@ -23,6 +23,7 @@
 #include "../core/MouseConfig.h"
 
 class CameraNavigation;
+class NavigationCube;
 
 class QGLView : public QOpenGLWidget, public GLView
 {
@@ -37,6 +38,7 @@ public:
   QGLView(QWidget *parent = nullptr);
   ~QGLView() override;
   CameraNavigation *navigation() const { return cameraNavigation; }
+  NavigationCube *navigationCube() const { return cube; }
 #ifdef ENABLE_OPENCSG
   bool hasOpenCSGSupport() { return this->is_opencsg_capable; }
 #endif
@@ -82,6 +84,7 @@ public:
 
 private:
   CameraNavigation *cameraNavigation{nullptr};
+  NavigationCube *cube{nullptr};
   void init();
 
   bool mouse_drag_active;

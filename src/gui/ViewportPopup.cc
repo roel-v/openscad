@@ -102,12 +102,16 @@ ViewportPopup::ViewportPopup(MainWindow *window)
       const QSignalBlocker block(box);
       box->setChecked(settings->property(property).toBool());
     });
-    layout->addWidget(box);
     return box;
   };
   auto information=settingBox(tr("Show information"),"showInformation");
+  layout->addWidget(information);
+  auto informationItems=new QVBoxLayout;
+  informationItems->setContentsMargins(20,0,0,0);
+  layout->addLayout(informationItems);
   for (const auto& item : QList<QPair<QString,QByteArray>>{{tr("Triangles"),"triangles"},{tr("FPS"),"fps"},{tr("Frame time"),"frameTime"}}) {
     auto box=settingBox(item.first,item.second);
+    informationItems->addWidget(box);
     box->setEnabled(information->isChecked());
     connect(information,&QCheckBox::toggled,box,&QWidget::setEnabled);
     connect(settings,&NavigationSettings::changed,box,[box,settings]{box->setEnabled(settings->showInformation);});

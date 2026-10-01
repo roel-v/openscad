@@ -1375,6 +1375,8 @@ set(GUI_SOURCES
   src/gui/ProgressWidget.cc
   src/gui/RubberBandManager.cc
   src/gui/QGLView.cc
+  src/gui/CameraNavigation.cc
+  src/gui/CameraNavigation.h
   src/gui/QGLView2.cc
   src/gui/QSettingsCached.cc
   src/gui/QWordSearchField.cc
@@ -1589,6 +1591,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
     src/guitests/TestMainWindow.h
+    src/guitests/TestNavigation.h
     src/guitests/UXTest.h
   )
 
@@ -1597,6 +1600,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
     src/guitests/TestMainWindow.cc
+    src/guitests/TestNavigation.cc
     src/guitests/UXTest.cc
   )
 

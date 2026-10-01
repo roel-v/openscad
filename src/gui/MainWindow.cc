@@ -69,6 +69,7 @@
 #include <QTime>
 #include <QTimer>
 #include <QToolBar>
+#include "gui/CameraNavigation.h"
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -739,6 +740,7 @@ void MainWindow::updateRecentFiles(const QString& FileSavedOrOpened)
  */
 void MainWindow::compile(bool reload, bool forcedone)
 {
+  qglview->navigation()->cancel();
   OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
   OpenSCAD::traceDepth = GlobalPreferences::inst()->getValue("advanced/traceDepth").toUInt();
   OpenSCAD::traceUsermoduleParameters =
@@ -1874,6 +1876,7 @@ void MainWindow::csgReloadRender()
 
 void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents, bool preview)
 {
+  qglview->navigation()->cancel();
   setCurrentOutput();
   autoReloadTimer->stop();
   LOG(" ");
@@ -2820,50 +2823,44 @@ void MainWindow::editorContentChanged()
 
 void MainWindow::on_viewActionTop_triggered()
 {
-  qglview->cam.object_rot << 90, 0, 0;
-  this->qglview->update();
+  qglview->navigation()->orient({90, 0, 0});
 }
 
 void MainWindow::on_viewActionBottom_triggered()
 {
-  qglview->cam.object_rot << 270, 0, 0;
-  this->qglview->update();
+  qglview->navigation()->orient({270, 0, 0});
 }
 
 void MainWindow::on_viewActionLeft_triggered()
 {
-  qglview->cam.object_rot << 0, 0, 90;
-  this->qglview->update();
+  qglview->navigation()->orient({0, 0, 90});
 }
 
 void MainWindow::on_viewActionRight_triggered()
 {
-  qglview->cam.object_rot << 0, 0, 270;
-  this->qglview->update();
+  qglview->navigation()->orient({0, 0, 270});
 }
 
 void MainWindow::on_viewActionFront_triggered()
 {
-  qglview->cam.object_rot << 0, 0, 0;
-  this->qglview->update();
+  qglview->navigation()->orient({0, 0, 0});
 }
 
 void MainWindow::on_viewActionBack_triggered()
 {
-  qglview->cam.object_rot << 0, 0, 180;
-  this->qglview->update();
+  qglview->navigation()->orient({0, 0, 180});
 }
 
 void MainWindow::on_viewActionDiagonal_triggered()
 {
-  qglview->cam.object_rot << 35, 0, -25;
-  this->qglview->update();
+  qglview->navigation()->orient({35, 0, -25});
 }
 
 void MainWindow::on_viewActionCenter_triggered()
 {
-  qglview->cam.object_trans << 0, 0, 0;
-  this->qglview->update();
+  auto pose = qglview->navigation()->current();
+  pose.translation.setZero();
+  qglview->navigation()->navigate(pose);
 }
 
 void MainWindow::setProjectionType(ProjectionType mode)
@@ -3168,6 +3165,7 @@ void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
   // This slots is in charge of closing properly the preview when the
   // associated editor is about to close.
   if (closingEditor == renderedEditor) {
+    qglview->navigation()->cancel();
     renderedEditor = nullptr;
 
     // Invalidate renderers before we kill the CSG tree
@@ -3768,7 +3766,7 @@ void MainWindow::setup3DView()
   loadDesignSettings();
 
   connect(this->qglview, &QGLView::cameraChanged, animateWidget, &Animate::cameraChanged);
-  connect(this->qglview, &QGLView::cameraChanged, viewportControlWidget,
+  connect(this->qglview->navigation(), &CameraNavigation::displayChanged, viewportControlWidget,
           &ViewportControl::cameraChanged);
   connect(this->qglview, &QGLView::resized, viewportControlWidget, &ViewportControl::viewResized);
   connect(this->qglview, &QGLView::doRightClick, this, &MainWindow::rightClick);

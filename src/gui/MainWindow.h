@@ -101,6 +101,7 @@ public:
 #endif
   Tree tree;
   EditorInterface *activeEditor = nullptr;
+  EditorInterface *displayedDocument() const { return renderedEditor; }
   TabManager *tabManager;
   AIDock *aiDock;
 
@@ -462,7 +463,7 @@ private:
   ProgressWidget *progresswidget{nullptr};
   GeometryWorker *geometryWorker;
   QMutex consolemutex;
-  EditorInterface *renderedEditor;  // stores pointer to editor which has been most recently rendered
+  EditorInterface *renderedEditor = nullptr;  // document owning the displayed result
   time_t includesMTime{0};          // latest include mod time
   time_t depsMTime{0};              // latest dependency mod time
   std::unordered_map<QString, QString> exportPaths;  // for each file type, where it was exported to last

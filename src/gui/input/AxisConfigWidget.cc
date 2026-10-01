@@ -29,6 +29,8 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFont>
+#include <QHBoxLayout>
+#include <QLabel>
 #include <QProgressBar>
 #include <QWidget>
 #include <cmath>
@@ -66,13 +68,13 @@ void AxisConfigWidget::AxesChanged(int nr, double val) const
   auto *deadzone = this->findChild<QDoubleSpinBox *>(QString("doubleSpinBoxDeadzone%1").arg(nr));
   if (deadzone) {
     bool active = deadzone->value() < std::abs(val);
-    QString style;
-    if (this->darkModeDetected) {
-      style = active ? ProgressbarStyleDarkActive : ProgressbarStyleDark;
-    } else {
-      style = active ? ProgressbarStyleLightActive : ProgressbarStyleLight;
+    if (auto *reading = progressBar->findChild<QLabel *>("axisReading")) {
+      reading->setText(s);
+      reading->setBackgroundRole(active ? QPalette::Highlight : QPalette::Base);
+      reading->setForegroundRole(active ? QPalette::HighlightedText : QPalette::Text);
+      reading->setToolTip(active ? tr("Outside dead zone") : tr("Within dead zone"));
+      progressBar->setAccessibleDescription(reading->toolTip() + ": " + s);
     }
-    progressBar->setStyleSheet(style);
   }
 }
 
@@ -154,17 +156,24 @@ void AxisConfigWidget::init()
   initUpdateDoubleSpinBox(this->doubleSpinBoxRotateVPRelGain, Settings::Settings::inputRotateVPRelGain);
   initUpdateDoubleSpinBox(this->doubleSpinBoxZoomGain, Settings::Settings::inputZoomGain);
 
-  // use a custom style for the axis indicators,
-  // to prevent getting operating system specific
-  //(potentially animated) ProgressBars
-  int textLightness = this->progressBarAxis0->palette().text().color().lightness();
-  this->darkModeDetected = textLightness > 165;
-  QString style = (this->darkModeDetected) ? ProgressbarStyleDark : ProgressbarStyleLight;
-
+  // Native progress styles may omit text. Keep a readable numeric badge on every platform.
   auto progressbars = this->findChildren<QProgressBar *>();
   for (auto progressbar : progressbars) {
-    progressbar->setStyleSheet(style);
-    progressbar->setAlignment(Qt::AlignCenter);
+    progressbar->setTextVisible(false);
+    if (!progressbar->layout()) {
+      auto *layout = new QHBoxLayout(progressbar);
+      layout->setContentsMargins(0, 0, 0, 0);
+      auto *reading = new QLabel(QString::number(progressbar->value() / 100.0, 'f', 2), progressbar);
+      reading->setObjectName("axisReading");
+      reading->setAutoFillBackground(true);
+      reading->setBackgroundRole(QPalette::Base);
+      reading->setForegroundRole(QPalette::Text);
+      reading->setMargin(2);
+      layout->addStretch();
+      layout->addWidget(reading);
+      layout->addStretch();
+      progressbar->setMinimumHeight(reading->sizeHint().height());
+    }
   }
 
   initialized = true;

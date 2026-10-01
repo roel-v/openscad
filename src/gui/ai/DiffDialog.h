@@ -52,15 +52,9 @@ public:
     QDialogButtonBox *buttonBox = new QDialogButtonBox(this);
 
     QPushButton *applyBtn = new QPushButton(tr("Apply Changes"), buttonBox);
-    applyBtn->setStyleSheet(
-      "background-color: #2563eb; color: white; font-weight: bold; border-radius: 4px; padding: 6px "
-      "12px;");
     buttonBox->addButton(applyBtn, QDialogButtonBox::AcceptRole);
 
     QPushButton *discardBtn = new QPushButton(tr("Discard Changes"), buttonBox);
-    discardBtn->setStyleSheet(
-      "background-color: #ef4444; color: white; font-weight: bold; border-radius: 4px; padding: 6px "
-      "12px;");
     buttonBox->addButton(discardBtn, QDialogButtonBox::DestructiveRole);
 
     connect(buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);

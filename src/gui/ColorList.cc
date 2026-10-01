@@ -27,6 +27,10 @@
 #include <QPalette>
 #include <QString>
 #include <QWidget>
+#include <QEvent>
+#include <QLineEdit>
+#include <QStyle>
+#include <QStyleOptionFrame>
 #include <cmath>
 #include <functional>
 #include <optional>
@@ -90,6 +94,7 @@ float get_lightness_sort_value(const QColor& color)
 ColorList::ColorList(QWidget *parent) : QWidget(parent), ui(new Ui_ColorListWidget)
 {
   ui->setupUi(this);
+  updateChannelWidths();
   ui->lineEditColorNameSelected->addAction(ui->actionCopyColorName, QLineEdit::TrailingPosition);
   ui->lineEditColorRgbSelected->addAction(ui->actionCopyColorRGB, QLineEdit::TrailingPosition);
   ui->lineEditAsForeground->addAction(ui->actionResetSampleTextForeground, QLineEdit::TrailingPosition);
@@ -142,6 +147,25 @@ ColorList::ColorList(QWidget *parent) : QWidget(parent), ui(new Ui_ColorListWidg
 ColorList::~ColorList()
 {
   delete ui;
+}
+
+void ColorList::updateChannelWidths()
+{
+  for (auto *field : findChildren<QLineEdit *>()) {
+    if (!QStringList{"lineEditColorRgbSelectedR", "lineEditColorRgbSelectedG", "lineEditColorRgbSelectedB"}
+           .contains(field->objectName())) continue;
+    QStyleOptionFrame option;
+    option.initFrom(field);
+    option.lineWidth = field->style()->pixelMetric(QStyle::PM_DefaultFrameWidth, &option, field);
+    const auto content = QSize(field->fontMetrics().horizontalAdvance("255") + 4, field->fontMetrics().height());
+    field->setMaximumWidth(field->style()->sizeFromContents(QStyle::CT_LineEdit, &option, content, field).width());
+  }
+}
+
+void ColorList::changeEvent(QEvent *event)
+{
+  QWidget::changeEvent(event);
+  if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange) updateChannelWidths();
 }
 
 void ColorList::updateSort()

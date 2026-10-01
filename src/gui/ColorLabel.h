@@ -46,10 +46,9 @@ public:
   const QColor& backgroundColor() const { return bgColor; }
 
 protected:
-  void updateStyleSheet();
+  void updateAppearance();
   bool isValidButton(QMouseEvent *event);
   bool isValidButtonState(QMouseEvent *event);
-  QString calculateBorderColor(const QColor& ref, const bool selected);
 
 signals:
   void clicked();

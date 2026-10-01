@@ -31,6 +31,22 @@
 #include "gui/OpenSCADApp.h"
 #include "gui/Console.h"
 #include "gui/ExportPdfDialog.h"
+#include "gui/Export3mfDialog.h"
+#include "gui/ExportSvgDialog.h"
+#include "gui/LibraryInfoDialog.h"
+#include "gui/LaunchingScreen.h"
+#include "gui/AboutDialog.h"
+#include "gui/PrintInitDialog.h"
+#include "gui/OctoPrintApiKeyDialog.h"
+#include "gui/OpenCSGWarningDialog.h"
+#include "gui/ColorList.h"
+#include "gui/ColorLabel.h"
+#include "gui/QWordSearchField.h"
+#include "gui/FontList.h"
+#include "gui/ViewportControl.h"
+#include "gui/ai/DiffDialog.h"
+#include "gui/ai/ChatWidget.h"
+#include "gui/ai/CollapsibleBubble.h"
 #include "gui/MainWindow.h"
 #include "core/Builtins.h"
 #include "core/parsersettings.h"
@@ -158,6 +174,43 @@ TEST_CASE("Preferences group spacing follows native metrics without changing set
   CHECK(prefs->labelAIHeader->font().weight() == QFont::Medium);
   CHECK(prefs->labelAIHeader->font().pointSize() == 18);
   prefs->setFont(originalFont);
+}
+
+TEST_CASE("Native auxiliary controls retain data and state without stylesheets", "[ui-dialogs]")
+{
+  typographyApp();
+  QWordSearchField search;
+  search.resize(300, 30);
+  search.setFindCount(123456);
+  CHECK(search.styleSheet().isEmpty());
+  CHECK(search.textMargins().right() >= search.fontMetrics().horizontalAdvance("123456"));
+  search.setFindCount(0);
+  CHECK(search.textMargins().right() == 0);
+  ColorLabel swatch;
+  swatch.setColorInfo("red", QColor("#ff0000"));
+  const auto size = swatch.sizeHint();
+  swatch.setSelected(true);
+  CHECK(swatch.backgroundColor() == QColor("#ff0000"));
+  CHECK(swatch.palette().color(QPalette::Window) == QColor("#ff0000"));
+  CHECK(swatch.lineWidth() == 3);
+  CHECK(swatch.sizeHint() == size);
+  CHECK(swatch.styleSheet().isEmpty());
+  auto *prefs = GlobalPreferences::inst();
+  prefs->AxisConfig->AxesChanged(0, 0.5);
+  auto *reading = prefs->AxisConfig->progressBarAxis0->findChild<QLabel *>("axisReading");
+  REQUIRE(reading);
+  CHECK(reading->text() == "0.50");
+  CHECK(reading->backgroundRole() == QPalette::Highlight);
+  prefs->AxisConfig->AxesChanged(0, 0.0);
+  CHECK(reading->text() == "0.00");
+  CHECK(reading->backgroundRole() == QPalette::Base);
+  DiffDialog diff("cube(1);", "cube(2);", false);
+  for (auto *button : diff.findChildren<QPushButton *>()) CHECK(button->styleSheet().isEmpty());
+  MessageBubble bubble("Example", true);
+  QFont enlarged;
+  enlarged.setPointSize(18);
+  bubble.setFont(enlarged);
+  CHECK(bubble.findChild<QLabel *>()->font().pointSize() == 18);
 }
 
 TEST_CASE("Customizer disclosure preserves native activation and accessible expansion", "[ui-customizer]")
@@ -470,6 +523,54 @@ TEST_CASE("Load persisted typography fixture", "[.][typography-restart]")
 }
 
 // Opt-in native widget evidence; excluded from ordinary unit-test runs.
+TEST_CASE("Capture application-owned dialogs without external services", "[.][dialogs-visual]")
+{
+  auto& app = typographyApp();
+  REQUIRE(QApplication::setStyle("windows11"));
+  app.setFont(QFont("Segoe UI", 10));
+  const auto output = qEnvironmentVariable("OPENSCAD_TYPOGRAPHY_OUTPUT");
+  REQUIRE_FALSE(output.isEmpty());
+  REQUIRE(QDir().mkpath(output));
+  auto capture = [&](QWidget& widget, const QString& name) {
+    widget.show();
+    for (int i = 0; i < 8; ++i) { QApplication::processEvents(); QThread::msleep(10); }
+    REQUIRE(widget.grab().save(output + "/" + name + ".png"));
+    widget.hide();
+  };
+  auto *prefs = GlobalPreferences::inst();
+  const bool aiVisible = prefs->prefsActionAI->isVisible();
+  prefs->prefsActionAI->setVisible(true);
+  for (int i = 0; i < prefs->categoryTabs->count(); ++i) {
+    prefs->categoryTabs->setCurrentIndex(i);
+    auto *action = prefs->categoryTabs->tabData(i).value<QAction *>();
+    capture(*prefs, action->objectName());
+  }
+  prefs->prefsActionAI->setVisible(aiVisible);
+  prefs->prefsActionAdvanced->trigger();
+  const auto original = prefs->font();
+  prefs->setFont(QFont("Segoe UI", 18));
+  capture(*prefs, "preferences-large-font");
+  prefs->setFont(original);
+  ExportPdfDialog pdf; capture(pdf, "export-pdf");
+  Export3mfDialog threeMf; capture(threeMf, "export-3mf");
+  ExportSvgDialog svg; capture(svg, "export-svg");
+  LibraryInfoDialog info("Renderer: offline audit\n"); capture(info, "library-info");
+  AboutDialog about(nullptr); capture(about, "about");
+  LaunchingScreen welcome; capture(welcome, "welcome");
+  PrintInitDialog print; capture(print, "print-init");
+  OctoPrintApiKeyDialog key; capture(key, "octoprint-key-offline");
+  OpenCSGWarningDialog warning(nullptr); capture(warning, "opencsg-warning");
+  DiffDialog diff("cube(10);", "cube(20);", app.palette().color(QPalette::Window).lightness() < 128);
+  capture(diff, "ai-diff");
+  MessageBubble user("Create a bracket with rounded corners.", true); capture(user, "ai-user");
+  MessageBubble assistant("The bracket is ready for review.", false); capture(assistant, "ai-assistant");
+  CollapsibleBubble details("Read model", "cube(10);"); capture(details, "ai-tool-call");
+  ChatWidget chat; chat.resize(500, 600); capture(chat, "ai-chat-offline");
+  ColorList colors; colors.resize(400, 650); capture(colors, "color-list");
+  FontList fonts; fonts.resize(600, 600); capture(fonts, "font-list");
+  ViewportControl viewport; capture(viewport, "viewport-control");
+}
+
 TEST_CASE("Verify native quiet Customizer with real model and presets", "[.][customizer-visual]")
 {
   auto& app = typographyApp();

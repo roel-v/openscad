@@ -356,9 +356,7 @@
             </item>
             <item>
              <widget class="QLineEdit" name="lineEditColorRgbSelectedR">
-              <property name="styleSheet">
-               <string notr="true">QLineEdit { max-width: 2em; }</string>
-              </property>
+
               <property name="alignment">
                <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
               </property>
@@ -379,9 +377,7 @@
             </item>
             <item>
              <widget class="QLineEdit" name="lineEditColorRgbSelectedG">
-              <property name="styleSheet">
-               <string notr="true">QLineEdit { max-width: 2em; }</string>
-              </property>
+
               <property name="alignment">
                <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
               </property>
@@ -402,9 +398,7 @@
             </item>
             <item>
              <widget class="QLineEdit" name="lineEditColorRgbSelectedB">
-              <property name="styleSheet">
-               <string notr="true">QLineEdit { max-width: 2em; }</string>
-              </property>
+
               <property name="alignment">
                <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
               </property>

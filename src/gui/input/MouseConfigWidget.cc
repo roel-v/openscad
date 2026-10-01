@@ -47,11 +47,14 @@ MouseConfigWidget::MouseConfigWidget(QWidget *parent) : QWidget(parent)
 
 void MouseConfigWidget::updateMouseState(int nr, bool pressed) const
 {
-  QString style = pressed ? MouseConfigWidget::ActiveStyleString : MouseConfigWidget::EmptyString;
-
   auto label = this->findChild<QLabel *>(QString("labelInputMouse%1").arg(nr));
   if (label == nullptr) return;
-  label->setStyleSheet(style);
+  label->setAutoFillBackground(pressed);
+  label->setBackgroundRole(QPalette::Highlight);
+  label->setForegroundRole(pressed ? QPalette::HighlightedText : QPalette::WindowText);
+  QFont emphasis;
+  emphasis.setWeight(pressed ? QFont::DemiBold : QFont::Normal);
+  label->setFont(emphasis);
 }
 
 void MouseConfigWidget::init()

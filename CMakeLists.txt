@@ -724,15 +724,21 @@ endif()
 if(ENABLE_CAIRO STREQUAL "AUTO")
   # AUTO: try to find, fallback gracefully if not found
   if (MSVC)
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(CAIRO REQUIRED cairo)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+      pkg_check_modules(CAIRO QUIET IMPORTED_TARGET cairo)
+    endif()
   else()
     find_package(Cairo 1.14 QUIET)
   endif()
   if(CAIRO_VERSION OR CAIRO_FOUND)
     message(STATUS "Cairo: ${CAIRO_VERSION}")
     target_include_directories(OpenSCADLibInternal SYSTEM PUBLIC ${CAIRO_INCLUDE_DIRS})
-    target_link_libraries(OpenSCADLibInternal PUBLIC ${CAIRO_LIBRARIES})
+    if(TARGET PkgConfig::CAIRO)
+      target_link_libraries(OpenSCADLibInternal PUBLIC PkgConfig::CAIRO)
+    else()
+      target_link_libraries(OpenSCADLibInternal PUBLIC ${CAIRO_LIBRARIES})
+    endif()
     target_compile_definitions(OpenSCADLibInternal PUBLIC ENABLE_CAIRO)
   else()
     message(STATUS "Cairo: disabled (not found)")
@@ -741,13 +747,17 @@ elseif(ENABLE_CAIRO)
   # Explicit ON: fail if not found
   if (MSVC)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(CAIRO REQUIRED cairo)
+    pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
   else()
     find_package(Cairo 1.14 REQUIRED)
   endif()
   message(STATUS "Cairo: ${CAIRO_VERSION}")
   target_include_directories(OpenSCADLibInternal SYSTEM PUBLIC ${CAIRO_INCLUDE_DIRS})
-  target_link_libraries(OpenSCADLibInternal PUBLIC ${CAIRO_LIBRARIES})
+  if(TARGET PkgConfig::CAIRO)
+    target_link_libraries(OpenSCADLibInternal PUBLIC PkgConfig::CAIRO)
+  else()
+    target_link_libraries(OpenSCADLibInternal PUBLIC ${CAIRO_LIBRARIES})
+  endif()
   target_compile_definitions(OpenSCADLibInternal PUBLIC ENABLE_CAIRO)
 else()
   # OFF: explicitly disabled
@@ -1335,6 +1345,11 @@ set(INPUT_DRIVER_SOURCES
   ${INPUT_DRIVER_DBUS_SOURCES})
 
 set(GUI_SOURCES
+  src/gui/annotations/AnnotationTransport.cc
+  src/gui/annotations/AnnotationBridge.cc
+  src/gui/annotations/AnnotationController.cc
+  src/gui/annotations/AnnotationDrawing.cc
+  src/gui/annotations/AnnotationStore.cc
   ${GUI_SOURCES}
   src/openscad_gui.cc
   src/gui/AutoUpdater.cc
@@ -1415,6 +1430,10 @@ set(GUI_HEADER_ONLY
 
 # To be added in Source for QtCreator to show them in project tree
 set(GUI_HEADERS
+  src/gui/annotations/AnnotationTransport.h
+  src/gui/annotations/AnnotationBridge.h
+  src/gui/annotations/AnnotationController.h
+  src/gui/annotations/AnnotationStore.h
     src/gui/Animate.h
     src/gui/AppleEvents.h
     src/gui/AutoUpdater.h
@@ -1591,6 +1610,8 @@ if(ENABLE_GUI_TESTS)
   )
 
   set(GUITESTS_SOURCES
+    src/guitests/TestAnnotations.h
+    src/guitests/TestAnnotations.cc
     src/guitests/guitests.cc
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
@@ -1614,7 +1635,11 @@ if (APPLE)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/mac.qrc)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE})
 elseif(WIN32)
-  list(APPEND RESOURCE_FILES ${WINDOWS_RESOURCE_PATH})
+  target_sources(OpenSCADExe PRIVATE ${WINDOWS_RESOURCE_PATH})
+  if(MSVC)
+    # The resource script already embeds the application manifest.
+    target_link_options(OpenSCADExe PRIVATE /MANIFEST:NO)
+  endif()
 endif()
 
 file(GLOB_RECURSE TEST_SOURCES

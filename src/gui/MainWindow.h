@@ -72,6 +72,7 @@ class AIDock;
 #include "utils/scope_guard.hpp"
 
 class UXTest;
+namespace AgentAnnotations { class Controller; }
 class MainWindow : public QMainWindow, public Ui::MainWindow, public InputEventHandler
 {
   Q_OBJECT
@@ -79,6 +80,7 @@ class MainWindow : public QMainWindow, public Ui::MainWindow, public InputEventH
   friend UXTest;
 
 public:
+  AgentAnnotations::Controller *annotationController = nullptr;
   Preferences *prefs;
 
   QTimer *consoleUpdater;

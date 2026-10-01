@@ -5,6 +5,7 @@
 #include "gui/MouseSelector.h"
 
 #include <memory>
+#include <optional>
 #include <array>
 #include <QImage>
 #include <QMouseEvent>
@@ -46,6 +47,12 @@ public:
   float getDPI() override { return this->devicePixelRatio(); }
 
   const QImage& grabFrame();
+  std::optional<Camera> annotationCameraLock;
+  void setRenderer(std::shared_ptr<Renderer> renderer) {
+    if (getRenderer() == renderer.get()) return;
+    GLView::setRenderer(std::move(renderer));
+    emit rendererReplaced();
+  }
   bool save(const char *filename) const override;
   void resetView();
   void viewAll();
@@ -113,6 +120,9 @@ private slots:
 #endif
 
 signals:
+  void rendererReplaced();
+  void frameAboutToRender();
+  void frameRendered();
   void cameraChanged();
   void resized();
   void doRightClick(QPoint screen_coordinate);

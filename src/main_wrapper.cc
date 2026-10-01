@@ -2,11 +2,23 @@
 
 #ifndef OPENSCAD_NOGUI
 #include <QtCore/qresource.h>  // Bring in Q_INIT_RESOURCE
+#ifdef ENABLE_GUI_TESTS
+#include <QSettings>
+#include <QCoreApplication>
+#endif
 #endif
 
 // Windows note:  wmain() is called first, translates from UTF-16 to UTF-8, and calls main().
 int main(int argc, char **argv)
 {
+#if defined(ENABLE_GUI_TESTS) && !defined(OPENSCAD_NOGUI)
+  const auto testSettings = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_SETTINGS");
+  if (!testSettings.isEmpty()) {
+    QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat,QSettings::UserScope,testSettings);
+  }
+#endif
   // Note: when compiled directly into an executable, the static assignment causes these to be
   // initialized. But that doesn't get called when included in a library. So we must manually add an
   // entry for every qrc added as a target library.
@@ -26,13 +38,14 @@ int main(int argc, char **argv)
 #include <boost/nowide/convert.hpp>
 #include <cstddef>
 #include <string>
+#include <vector>
 
 // wmain gets arguments as wide character strings, which is the way that Windows likes to provide
 // non-ASCII arguments.  Convert them to UTF-8 strings and call the traditional main().
 int wmain(int argc, wchar_t **argv)
 {
-  char *argv8[argc + 1];
-  std::string argvString[argc];
+  std::vector<char *> argv8(argc + 1);
+  std::vector<std::string> argvString(argc);
 
   for (int i = 0; i < argc; i++) {
     argvString[i] = boost::nowide::narrow(argv[i]);
@@ -40,6 +53,6 @@ int wmain(int argc, wchar_t **argv)
   }
   argv8[argc] = NULL;
 
-  return (main(argc, argv8));
+  return main(argc, argv8.data());
 }
 #endif

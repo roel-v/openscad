@@ -128,7 +128,7 @@
   <tabstop>pushButtonCancel</tabstop>
  </tabstops>
  <resources>
-  <include location="../../resources/icons-chokusen.qrc"/>
+  <include location="../../resources/icons-tabler.qrc"/>
  </resources>
  <connections/>
 </ui>

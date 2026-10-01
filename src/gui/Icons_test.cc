@@ -79,7 +79,7 @@ TEST_CASE("Message icon changes preserve modal buttons and results", "[ui-icons]
   RestoreAppearance restore;
   for (const auto mode : {"monochrome", "native", "colored"}) {
     Settings::Settings::statusIconAppearance.set(mode);
-    MessageBox box(QMessageBox::Warning, "Unsaved changes", "Save the document?",
+    StatusMessageBox box(QMessageBox::Warning, "Unsaved changes", "Save the document?",
                    QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
     box.setDefaultButton(QMessageBox::Save);
     box.setEscapeButton(QMessageBox::Cancel);
@@ -92,7 +92,7 @@ TEST_CASE("Message icon changes preserve modal buttons and results", "[ui-icons]
     });
     CHECK(box.exec() == QMessageBox::Cancel);
   }
-  MessageBox plain;
+  StatusMessageBox plain;
   Icons::prepareMessageBox(&plain);
   CHECK(plain.icon() == QMessageBox::NoIcon);
 }

@@ -11,6 +11,7 @@
 #include <string>
 
 #include "core/Settings.h"
+#include "gui/Icons.h"
 
 template <class WidgetPtr>
 class BlockSignals
@@ -86,7 +87,7 @@ protected:
   QListWidgetItem *createListItem(const item_type& itemType, const QString& text = "",
                                   bool editable = false)
   {
-    const auto icon = QIcon::fromTheme(QString::fromStdString(itemType.icon()));
+    const auto icon = Icons::icon(QString::fromStdString(itemType.icon()));
     std::string description = itemType.description();
     const auto itemText = description.empty() ? text : QString::fromStdString(description);
     const auto listItem = new QListWidgetItem(

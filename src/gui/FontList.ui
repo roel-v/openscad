@@ -287,7 +287,7 @@
   </layout>
   <action name="actionResetSampleText">
    <property name="icon">
-    <iconset theme="chokusen-undo"/>
+    <iconset theme="openscad-undo"/>
    </property>
    <property name="text">
     <string>Reset Sample Text</string>
@@ -295,7 +295,7 @@
   </action>
   <action name="actionOpenFolder">
    <property name="icon">
-    <iconset theme="chokusen-open"/>
+    <iconset theme="openscad-open"/>
    </property>
    <property name="text">
     <string>Open Font Folder</string>
@@ -303,7 +303,7 @@
   </action>
   <action name="actionCopyFolder">
    <property name="icon">
-    <iconset theme="chokusen-edit-copy"/>
+    <iconset theme="openscad-edit-copy"/>
    </property>
    <property name="text">
     <string>Copy Font Folder</string>
@@ -311,7 +311,7 @@
   </action>
   <action name="actionCopyFullPath">
    <property name="icon">
-    <iconset theme="chokusen-edit-copy"/>
+    <iconset theme="openscad-edit-copy"/>
    </property>
    <property name="text">
     <string>Copy Full Path to Font</string>
@@ -319,7 +319,7 @@
   </action>
   <action name="actionCopyStyle">
    <property name="icon">
-    <iconset theme="chokusen-edit-copy"/>
+    <iconset theme="openscad-edit-copy"/>
    </property>
    <property name="text">
     <string>Copy Font Style</string>
@@ -327,7 +327,7 @@
   </action>
   <action name="actionCopyFontName">
    <property name="icon">
-    <iconset theme="chokusen-edit-copy"/>
+    <iconset theme="openscad-edit-copy"/>
    </property>
    <property name="text">
     <string>Copy Font Name</string>
@@ -383,7 +383,7 @@
   </action>
   <action name="actionResetColumns">
    <property name="icon">
-    <iconset theme="chokusen-undo"/>
+    <iconset theme="openscad-undo"/>
    </property>
    <property name="text">
     <string>Reset Columns</string>

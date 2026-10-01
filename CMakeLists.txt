@@ -1576,9 +1576,7 @@ else()
   # Every qrc file added to RESOURCE_FILES must have a matching Q_INIT_RESOURCE() call in main_wrapper.cc
   list(APPEND RESOURCE_FILES
     ${RESOURCE_DIR}/common.qrc
-    ${RESOURCE_DIR}/icons-chokusen.qrc
     ${RESOURCE_DIR}/icons-tabler.qrc
-    ${RESOURCE_DIR}/icons-chokusen-dark.qrc
   )
   # GUI_UIS for .ui files to be indexed by Qt Creator despite AUTOUIC usage
   # GUI_HEADERS for .h files to be indexed by Qt Creator despite AUTOUIC usage

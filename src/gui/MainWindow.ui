@@ -102,8 +102,7 @@
              <string/>
             </property>
             <property name="icon">
-             <iconset resource="../../resources/common.qrc">
-              <normaloff>:/icons/close.png</normaloff>:/icons/close.png</iconset>
+             <iconset theme="openscad-close"/>
             </property>
             <property name="iconSize">
              <size>
@@ -120,9 +119,6 @@
            <widget class="QLabel" name="labelCompileResultIcon">
             <property name="text">
              <string/>
-            </property>
-            <property name="pixmap">
-             <pixmap resource="../../resources/common.qrc">:/icons/information-icons-error.png</pixmap>
             </property>
             <property name="scaledContents">
              <bool>true</bool>
@@ -704,7 +700,7 @@
   </widget>
   <action name="fileActionNew">
    <property name="icon">
-    <iconset theme="chokusen-new"/>
+    <iconset theme="openscad-new"/>
    </property>
    <property name="text">
     <string>&amp;New File</string>
@@ -720,7 +716,7 @@
   </action>
   <action name="fileActionOpen">
    <property name="icon">
-    <iconset theme="chokusen-open"/>
+    <iconset theme="openscad-open"/>
    </property>
    <property name="text">
     <string>&amp;Open File...</string>
@@ -736,7 +732,7 @@
   </action>
   <action name="fileActionSave">
    <property name="icon">
-    <iconset theme="chokusen-save"/>
+    <iconset theme="openscad-save"/>
    </property>
    <property name="text">
     <string>&amp;Save</string>
@@ -787,7 +783,7 @@
     <bool>false</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-undo"/>
+    <iconset theme="openscad-undo"/>
    </property>
    <property name="text">
     <string>&amp;Undo</string>
@@ -801,7 +797,7 @@
   </action>
   <action name="editActionRedo">
    <property name="icon">
-    <iconset theme="chokusen-redo"/>
+    <iconset theme="openscad-redo"/>
    </property>
    <property name="text">
     <string>&amp;Redo</string>
@@ -856,7 +852,7 @@
   </action>
   <action name="editActionIndent">
    <property name="icon">
-    <iconset theme="chokusen-indent"/>
+    <iconset theme="openscad-indent"/>
    </property>
    <property name="text">
     <string>&amp;Indent</string>
@@ -946,7 +942,7 @@
   </action>
   <action name="editActionZoomTextIn">
    <property name="icon">
-    <iconset theme="chokusen-zoom-text-in"/>
+    <iconset theme="openscad-zoom-text-in"/>
    </property>
    <property name="text">
     <string>Increase Font &amp;Size</string>
@@ -957,7 +953,7 @@
   </action>
   <action name="editActionZoomTextOut">
    <property name="icon">
-    <iconset theme="chokusen-zoom-text-out"/>
+    <iconset theme="openscad-zoom-text-out"/>
    </property>
    <property name="text">
     <string>Decrease Font Si&amp;ze</string>
@@ -976,7 +972,7 @@
   </action>
   <action name="designActionPreview">
    <property name="icon">
-    <iconset theme="chokusen-preview"/>
+    <iconset theme="openscad-preview"/>
    </property>
    <property name="text">
     <string>&amp;Preview</string>
@@ -987,7 +983,7 @@
   </action>
   <action name="designActionRender">
    <property name="icon">
-    <iconset theme="chokusen-render"/>
+    <iconset theme="openscad-render"/>
    </property>
    <property name="text">
     <string>R&amp;ender</string>
@@ -998,7 +994,7 @@
   </action>
   <action name="designAction3DPrint">
    <property name="icon">
-    <iconset theme="chokusen-send"/>
+    <iconset theme="openscad-send"/>
    </property>
    <property name="text">
     <string>&amp;3D Print</string>
@@ -1012,7 +1008,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-measure-distance"/>
+    <iconset theme="openscad-measure-distance"/>
    </property>
    <property name="text">
     <string>Measure &amp;Distance</string>
@@ -1026,7 +1022,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-measure-angle"/>
+    <iconset theme="openscad-measure-angle"/>
    </property>
    <property name="text">
     <string>Measure &amp;Angle</string>
@@ -1057,7 +1053,7 @@
   </action>
   <action name="fileActionExportBinarySTL">
    <property name="icon">
-    <iconset theme="chokusen-export-stl"/>
+    <iconset theme="openscad-export-stl"/>
    </property>
    <property name="text">
     <string>Export as &amp;STL (binary)...</string>
@@ -1065,7 +1061,7 @@
   </action>
   <action name="fileActionExportAsciiSTL">
    <property name="icon">
-    <iconset theme="chokusen-export-stl"/>
+    <iconset theme="openscad-export-stl"/>
    </property>
    <property name="text">
     <string>Export as &amp;STL (ascii)...</string>
@@ -1073,7 +1069,7 @@
   </action>
   <action name="fileActionExportOBJ">
    <property name="icon">
-    <iconset theme="chokusen-export-obj"/>
+    <iconset theme="openscad-export-obj"/>
    </property>
    <property name="text">
     <string>Export as &amp;OBJ...</string>
@@ -1081,7 +1077,7 @@
   </action>
   <action name="fileActionExportPOV">
    <property name="icon">
-    <iconset theme="chokusen-export-pov"/>
+    <iconset theme="openscad-export-pov"/>
    </property>
    <property name="text">
     <string>Export as &amp;POV...</string>
@@ -1089,7 +1085,7 @@
   </action>
   <action name="fileActionExportOFF">
    <property name="icon">
-    <iconset theme="chokusen-export-off"/>
+    <iconset theme="openscad-export-off"/>
    </property>
    <property name="text">
     <string>Export as &amp;OFF...</string>
@@ -1097,7 +1093,7 @@
   </action>
   <action name="fileActionExportWRL">
    <property name="icon">
-    <iconset theme="chokusen-export-wrl"/>
+    <iconset theme="openscad-export-wrl"/>
    </property>
    <property name="text">
     <string>Export as &amp;WRL...</string>
@@ -1108,7 +1104,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-surface"/>
+    <iconset theme="openscad-surface"/>
    </property>
    <property name="text">
     <string>P&amp;review</string>
@@ -1122,7 +1118,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-throwntogether"/>
+    <iconset theme="openscad-throwntogether"/>
    </property>
    <property name="text">
     <string>T&amp;hrown Together</string>
@@ -1136,7 +1132,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-show-edges"/>
+    <iconset theme="openscad-show-edges"/>
    </property>
    <property name="text">
     <string>&amp;Show Edges</string>
@@ -1150,7 +1146,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-axes"/>
+    <iconset theme="openscad-axes"/>
    </property>
    <property name="text">
     <string>Show A&amp;xes</string>
@@ -1164,7 +1160,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-crosshairs"/>
+    <iconset theme="openscad-crosshairs"/>
    </property>
    <property name="text">
     <string>Show &amp;Crosshairs</string>
@@ -1178,7 +1174,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-scalemarkers"/>
+    <iconset theme="openscad-scalemarkers"/>
    </property>
    <property name="text">
     <string>Show Scale &amp;Markers</string>
@@ -1186,7 +1182,7 @@
   </action>
   <action name="viewActionTop">
    <property name="icon">
-    <iconset theme="chokusen-view-top"/>
+    <iconset theme="openscad-view-top"/>
    </property>
    <property name="text">
     <string>&amp;Top</string>
@@ -1197,7 +1193,7 @@
   </action>
   <action name="viewActionBottom">
    <property name="icon">
-    <iconset theme="chokusen-view-bottom"/>
+    <iconset theme="openscad-view-bottom"/>
    </property>
    <property name="text">
     <string>&amp;Bottom</string>
@@ -1208,7 +1204,7 @@
   </action>
   <action name="viewActionLeft">
    <property name="icon">
-    <iconset theme="chokusen-view-left"/>
+    <iconset theme="openscad-view-left"/>
    </property>
    <property name="text">
     <string>&amp;Left</string>
@@ -1219,7 +1215,7 @@
   </action>
   <action name="viewActionRight">
    <property name="icon">
-    <iconset theme="chokusen-view-right"/>
+    <iconset theme="openscad-view-right"/>
    </property>
    <property name="text">
     <string>&amp;Right</string>
@@ -1230,7 +1226,7 @@
   </action>
   <action name="viewActionFront">
    <property name="icon">
-    <iconset theme="chokusen-view-front"/>
+    <iconset theme="openscad-view-front"/>
    </property>
    <property name="text">
     <string>&amp;Front</string>
@@ -1241,7 +1237,7 @@
   </action>
   <action name="viewActionBack">
    <property name="icon">
-    <iconset theme="chokusen-view-back"/>
+    <iconset theme="openscad-view-back"/>
    </property>
    <property name="text">
     <string>Bac&amp;k</string>
@@ -1271,7 +1267,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-perspective"/>
+    <iconset theme="openscad-perspective"/>
    </property>
    <property name="text">
     <string>&amp;Perspective</string>
@@ -1282,7 +1278,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset theme="chokusen-orthogonal"/>
+    <iconset theme="openscad-orthogonal"/>
    </property>
    <property name="text">
     <string>&amp;Orthogonal</string>
@@ -1321,7 +1317,7 @@
   </action>
   <action name="fileActionExportDXF">
    <property name="icon">
-    <iconset theme="chokusen-export-dxf"/>
+    <iconset theme="openscad-export-dxf"/>
    </property>
    <property name="text">
     <string>Export as &amp;DXF...</string>
@@ -1419,7 +1415,7 @@
   </action>
   <action name="fileActionExportImage">
    <property name="icon">
-    <iconset theme="chokusen-export-png"/>
+    <iconset theme="openscad-export-png"/>
    </property>
    <property name="text">
     <string>Export as &amp;Image...</string>
@@ -1427,7 +1423,7 @@
   </action>
   <action name="fileActionExportCSG">
    <property name="icon">
-    <iconset theme="chokusen-export-csg"/>
+    <iconset theme="openscad-export-csg"/>
    </property>
    <property name="text">
     <string>Export as &amp;CSG...</string>
@@ -1445,7 +1441,7 @@
   </action>
   <action name="viewActionResetView">
    <property name="icon">
-    <iconset theme="chokusen-reset-view"/>
+    <iconset theme="openscad-reset-view"/>
    </property>
    <property name="text">
     <string>Reset &amp;View</string>
@@ -1453,7 +1449,7 @@
   </action>
   <action name="fileActionExportSVG">
    <property name="icon">
-    <iconset theme="chokusen-export-svg"/>
+    <iconset theme="openscad-export-svg"/>
    </property>
    <property name="text">
     <string>Export as S&amp;VG...</string>
@@ -1461,7 +1457,7 @@
   </action>
   <action name="fileActionExport3MF">
    <property name="icon">
-    <iconset theme="chokusen-export-3mf"/>
+    <iconset theme="openscad-export-3mf"/>
    </property>
    <property name="text">
     <string>Export as &amp;3MF...</string>
@@ -1469,7 +1465,7 @@
   </action>
   <action name="viewActionZoomIn">
    <property name="icon">
-    <iconset theme="chokusen-zoom-in"/>
+    <iconset theme="openscad-zoom-in"/>
    </property>
    <property name="text">
     <string>Zoom &amp;In</string>
@@ -1480,7 +1476,7 @@
   </action>
   <action name="viewActionZoomOut">
    <property name="icon">
-    <iconset theme="chokusen-zoom-out"/>
+    <iconset theme="openscad-zoom-out"/>
    </property>
    <property name="text">
     <string>&amp;Zoom Out</string>
@@ -1491,7 +1487,7 @@
   </action>
   <action name="viewActionViewAll">
    <property name="icon">
-    <iconset theme="chokusen-zoom-all"/>
+    <iconset theme="openscad-zoom-all"/>
    </property>
    <property name="text">
     <string>View &amp;All</string>
@@ -1539,7 +1535,7 @@
   </action>
   <action name="editActionUnindent">
    <property name="icon">
-    <iconset theme="chokusen-unindent"/>
+    <iconset theme="openscad-unindent"/>
    </property>
    <property name="text">
     <string>U&amp;nindent</string>
@@ -1555,7 +1551,7 @@
   </action>
   <action name="fileActionExportPDF">
    <property name="icon">
-    <iconset theme="chokusen-export-pdf"/>
+    <iconset theme="openscad-export-pdf"/>
    </property>
    <property name="text">
     <string>Export as PDF...</string>

@@ -1,3 +1,4 @@
+#include "gui/Icons.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -49,7 +50,7 @@
 #include <QList>
 #include <QMenu>
 #include <QMenuBar>
-#include <QMessageBox>
+#include "gui/MessageBox.h"
 #include <QMetaObject>
 #include <QMimeData>
 #include <QMutexLocker>
@@ -872,17 +873,18 @@ void MainWindow::updateCompileResult()
       const QFileInfo fileInfo(activeEditor->filepath);
       msg = QString(_("Error while compiling '%1'.")).arg(fileInfo.fileName());
     }
-    labelCompileResultIcon->setPixmap(QPixmap(QString(":/icons/information-icons-error.png")));
   } else {
     const char *fmt = ngettext("Compilation generated %1 warning.", "Compilation generated %1 warnings.",
                                compileWarnings);
     msg = QString(fmt).arg(compileWarnings);
-    labelCompileResultIcon->setPixmap(QPixmap(QString(":/icons/information-icons-warning.png")));
   }
   const QFontMetrics fm(labelCompileResultMessage->font());
   const int sizeIcon = std::max(12, std::min(32, fm.height()));
   const int sizeClose = std::max(10, std::min(32, fm.height()) - 4);
   labelCompileResultIcon->setFixedSize(QSize(sizeIcon, sizeIcon));
+  Icons::setLabelIcon(labelCompileResultIcon,
+                      compileErrors > 0 ? "information-icons-error" : "information-icons-warning",
+                      sizeIcon);
   toolButtonCompileResultClose->setIconSize(QSize(sizeClose, sizeClose));
 
   msg += _(
@@ -1338,8 +1340,7 @@ void MainWindow::on_fileActionPythonRevoke_triggered()
   this->trusted_edit_document_name = "";
 #endif
   settings.remove("python_hash");
-  QMessageBox::information(this, _("Trusted Files"), "All trusted python files revoked",
-                           QMessageBox::Ok);
+  StatusMessageBox::information(this, _("Trusted Files"), "All trusted python files revoked", QMessageBox::Ok);
 }
 
 void MainWindow::on_fileActionPythonCreateVenv_triggered()
@@ -1353,15 +1354,14 @@ void MainWindow::on_fileActionPythonCreateVenv_triggered()
   const QDir venvDir{selectedDir};
   if (!venvDir.exists()) {
     // Should not happen, but just in case double check...
-    QMessageBox::critical(this, _("Create Virtual Environment"),
-                          "Directory does not exist. Can't create virtual environment.",
-                          QMessageBox::Ok);
+    StatusMessageBox::critical(this, _("Create Virtual Environment"),
+                         "Directory does not exist. Can't create virtual environment.", QMessageBox::Ok);
     return;
   }
 
   if (!venvDir.isEmpty()) {
-    QMessageBox::critical(this, _("Create Virtual Environment"),
-                          "Directory is not empty. Can't create virtual environment.", QMessageBox::Ok);
+    StatusMessageBox::critical(this, _("Create Virtual Environment"),
+                         "Directory is not empty. Can't create virtual environment.", QMessageBox::Ok);
     return;
   }
 
@@ -1373,13 +1373,13 @@ void MainWindow::on_fileActionPythonCreateVenv_triggered()
     Settings::SettingsPython::pythonVirtualEnv.setValue(path);
     Settings::Settings::visit(SettingsWriter());
     LOG("Python virtual environment creation successfull.");
-    QMessageBox::information(this, _("Create Virtual Environment"),
-                             "Virtual environment created, please restart OpenSCAD to activate.",
-                             QMessageBox::Ok);
+    StatusMessageBox::information(this, _("Create Virtual Environment"),
+                            "Virtual environment created, please restart OpenSCAD to activate.",
+                            QMessageBox::Ok);
   } else {
     LOG("Python virtual environment creation failed.");
-    QMessageBox::critical(this, _("Create Virtual Environment"), "Virtual environment creation failed.",
-                          QMessageBox::Ok);
+    StatusMessageBox::critical(this, _("Create Virtual Environment"), "Virtual environment creation failed.",
+                         QMessageBox::Ok);
   }
 #endif  // ifdef ENABLE_PYTHON
 }
@@ -1395,9 +1395,9 @@ void MainWindow::on_fileActionPythonSelectVenv_triggered()
   if (fileInfo.exists()) {
     Settings::SettingsPython::pythonVirtualEnv.setValue(venvDir.toStdString());
     Settings::Settings::visit(SettingsWriter());
-    QMessageBox::information(this, _("Select Virtual Environment"),
-                             "Virtual environment selected, please restart OpenSCAD to activate.",
-                             QMessageBox::Ok);
+    StatusMessageBox::information(this, _("Select Virtual Environment"),
+                            "Virtual environment selected, please restart OpenSCAD to activate.",
+                            QMessageBox::Ok);
   }
 #endif  // ifdef ENABLE_PYTHON
 }
@@ -1721,10 +1721,10 @@ bool MainWindow::trust_python_file(const std::string& file, const std::string& c
     return true;
   }
 
-  auto ret = QMessageBox::warning(this, "Application",
-                                  _("Python files can potentially contain harmful stuff.\n"
-                                    "Do you trust this file ?\n"),
-                                  QMessageBox::Yes | QMessageBox::YesAll | QMessageBox::No);
+  auto ret = StatusMessageBox::warning(this, "Application",
+                                 _("Python files can potentially contain harmful stuff.\n"
+                                   "Do you trust this file ?\n"),
+                                 QMessageBox::Yes | QMessageBox::YesAll | QMessageBox::No);
   if (ret == QMessageBox::YesAll) {
     python_trusted = true;
     return true;
@@ -1828,10 +1828,10 @@ void MainWindow::on_designActionAutoReload_toggled(bool on)
 bool MainWindow::checkEditorModified()
 {
   if (activeEditor->isContentModified()) {
-    auto ret = QMessageBox::warning(this, _("Application"),
-                                    _("The document has been modified.\n"
-                                      "Do you really want to reload the file?"),
-                                    QMessageBox::Yes | QMessageBox::No);
+    auto ret = StatusMessageBox::warning(this, _("Application"),
+                                   _("The document has been modified.\n"
+                                     "Do you really want to reload the file?"),
+                                   QMessageBox::Yes | QMessageBox::No);
     if (ret != QMessageBox::Yes) {
       return false;
     }
@@ -2479,10 +2479,10 @@ bool MainWindow::canExport(unsigned int dim)
 
   // editor has changed since last render
   if (!activeEditor->contentsRendered) {
-    auto ret = QMessageBox::warning(this, "Application",
-                                    "The current tab has been modified since its last render (F6).\n"
-                                    "Do you really want to export the previous content?",
-                                    QMessageBox::Yes | QMessageBox::No);
+    auto ret = StatusMessageBox::warning(this, "Application",
+                                   "The current tab has been modified since its last render (F6).\n"
+                                   "Do you really want to export the previous content?",
+                                   QMessageBox::Yes | QMessageBox::No);
     if (ret != QMessageBox::Yes) {
       return false;
     }
@@ -2490,10 +2490,10 @@ bool MainWindow::canExport(unsigned int dim)
 
   // other tab contents most recently rendered
   if (renderedEditor != activeEditor) {
-    auto ret = QMessageBox::warning(this, "Application",
-                                    "The rendered data is of different tab.\n"
-                                    "Do you really want to export the another tab's content?",
-                                    QMessageBox::Yes | QMessageBox::No);
+    auto ret = StatusMessageBox::warning(this, "Application",
+                                   "The rendered data is of different tab.\n"
+                                   "Do you really want to export the another tab's content?",
+                                   QMessageBox::Yes | QMessageBox::No);
     if (ret != QMessageBox::Yes) {
       return false;
     }
@@ -3474,6 +3474,7 @@ void MainWindow::setupWindow()
 {
   installEventFilter(this);
   setupUi(this);
+  for (auto *toolbar : findChildren<QToolBar *>()) toolbar->setIconSize(QSize(24, 24));
   this->setAttribute(Qt::WA_DeleteOnClose);
   scadApp->windowManager.add(this);
   setAcceptDrops(true);

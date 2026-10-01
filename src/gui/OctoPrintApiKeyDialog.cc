@@ -1,3 +1,4 @@
+#include "gui/Icons.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2025 Clifford Wolf <clifford@clifford.at> and
@@ -45,9 +46,9 @@ OctoPrintApiKeyDialog::OctoPrintApiKeyDialog()
   QObject::connect(&networkTimer, &QTimer::timeout, this, &OctoPrintApiKeyDialog::timeout);
   QObject::connect(&animationTimer, &QTimer::timeout, this, &OctoPrintApiKeyDialog::animationUpdate);
 
-  this->iconOk = QIcon::fromTheme("chokusen-circle-checkmark");
-  this->iconError = QIcon::fromTheme("chokusen-circle-error");
-  this->iconWaiting = QIcon::fromTheme("chokusen-loading");
+  this->iconOk = Icons::icon("circle-checkmark", this);
+  this->iconError = Icons::icon("circle-error", this);
+  this->iconWaiting = Icons::icon("loading", this);
 }
 
 void OctoPrintApiKeyDialog::startRequest()
@@ -66,16 +67,7 @@ void OctoPrintApiKeyDialog::startRequest()
 
 void OctoPrintApiKeyDialog::paintIcon(const QIcon& icon, const qreal rotation)
 {
-  QPalette palette;
-  QImage image(this->labelIcon->width(), this->labelIcon->width(), QImage::Format_ARGB32);
-  image.fill(0x000000ff);
-  QPainter painter(&image);
-  painter.translate(QPoint{this->labelIcon->width() / 2, this->labelIcon->width() / 2});
-  painter.rotate(rotation);
-  painter.translate(QPoint{-this->labelIcon->width() / 2, -this->labelIcon->width() / 2});
-  icon.paint(&painter, image.rect());
-  QPixmap pixmap = QPixmap::fromImage(image);
-  this->labelIcon->setPixmap(QPixmap::fromImage(image));
+  Icons::setLabelIcon(labelIcon, icon.name(), labelIcon->width(), rotation);
 }
 
 void OctoPrintApiKeyDialog::timeout()

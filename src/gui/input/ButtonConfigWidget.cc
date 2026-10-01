@@ -1,3 +1,4 @@
+#include "gui/Icons.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2014 Clifford Wolf <clifford@clifford.at> and
@@ -225,7 +226,8 @@ void ButtonConfigWidget::updateComboBox(QComboBox *comboBox, const Settings::Set
   if (index >= 0) {
     comboBox->setCurrentIndex(index);
   } else {
-    comboBox->addItem(QIcon::fromTheme("emblem-unreadable"), value + " " + ("(not supported)"), value);
+    comboBox->addItem(Icons::icon("emblem-unreadable", comboBox), value + " " + ("(not supported)"),
+                      value);
     comboBox->setCurrentIndex(comboBox->count() - 1);
   }
 }

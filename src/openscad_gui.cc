@@ -1,3 +1,4 @@
+#include "gui/Icons.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -129,7 +130,9 @@ void configureOpenGLContext()
 
 void setGlobalTheme()
 {
-  QIcon::setThemeName(isDarkMode() ? "chokusen-dark" : "chokusen");
+  QIcon::setThemeName("openscad");
+  Icons::install();
+  Icons::refresh();
 }
 
 namespace {

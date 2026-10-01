@@ -4,7 +4,7 @@
 #include "gui/Icons.h"
 
 // Keep QMessageBox behavior while applying the application's status artwork before exec().
-class MessageBox : public QMessageBox
+class StatusMessageBox : public QMessageBox
 {
 public:
   using QMessageBox::QMessageBox;
@@ -40,7 +40,7 @@ private:
   static StandardButton message(Icon icon, QWidget *parent, const QString& title, const QString& text,
                                 StandardButtons buttons, StandardButton defaultButton)
   {
-    MessageBox box(icon, title, text, buttons, parent);
+    StatusMessageBox box(icon, title, text, buttons, parent);
     box.setDefaultButton(defaultButton);
     return static_cast<StandardButton>(box.exec());
   }

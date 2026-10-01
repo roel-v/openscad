@@ -91,12 +91,18 @@ QColor nativeTint(const QIcon& native, const QColor& fallback)
   return QColor::fromRgba(best);
 }
 
+double luminance(QColor c)
+{
+  auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
+  return .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
+}
+double contrastRatio(QColor a, QColor b)
+{
+  const double first = luminance(a), second = luminance(b);
+  return (std::max(first, second) + .05) / (std::min(first, second) + .05);
+}
 QColor readableTint(QColor color, const QColor& background)
 {
-  const auto luminance = [](QColor c) {
-    auto linear = [](double v) { return v <= .04045 ? v / 12.92 : std::pow((v + .055) / 1.055, 2.4); };
-    return .2126 * linear(c.redF()) + .7152 * linear(c.greenF()) + .0722 * linear(c.blueF());
-  };
   const double bg = luminance(background);
   for (int i = 0; i < 32; ++i) {
     const double fg = luminance(color);
@@ -149,11 +155,24 @@ public:
                          ? QPalette::Disabled
                          : (widget && !widget->isActiveWindow() ? QPalette::Inactive : QPalette::Active);
     // Windows11 gives checked tool buttons an accent background. Other styles keep ButtonText.
-    const bool selected =
-      mode == QIcon::Selected ||
-      (state == QIcon::On && style->objectName().compare("windows11", Qt::CaseInsensitive) == 0);
-    const auto foreground =
-      palette.color(group, selected ? QPalette::HighlightedText : QPalette::ButtonText);
+    const bool checkedAccent = state == QIcon::On && mode != QIcon::Disabled &&
+                               style->objectName().compare("windows11", Qt::CaseInsensitive) == 0;
+    const bool selected = mode == QIcon::Selected || checkedAccent;
+    auto foreground = palette.color(group, selected ? QPalette::HighlightedText : QPalette::ButtonText);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+    if (checkedAccent) {
+      const auto background = palette.color(group, QPalette::Accent);
+      // HighlightedText belongs to Highlight, not necessarily to the checked-button Accent fill.
+      if (contrastRatio(foreground, background) < 4.5) {
+        for (const auto role :
+             {QPalette::WindowText, QPalette::Light, QPalette::Dark, QPalette::Shadow}) {
+          const auto candidate = palette.color(group, role);
+          if (contrastRatio(candidate, background) > contrastRatio(foreground, background))
+            foreground = candidate;
+        }
+      }
+    }
+#endif
     const bool contrast = highContrast();
     const auto treatment = Icons::appearance();
     const auto status = statusSymbol(name);

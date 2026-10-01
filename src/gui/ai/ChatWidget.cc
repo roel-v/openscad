@@ -16,7 +16,7 @@
 #include <QFileDialog>
 #include <QClipboard>
 #include <QDateTime>
-#include <QMessageBox>
+#include "gui/MessageBox.h"
 #include <fstream>
 #include "json/json.hpp"
 #include "gui/MainWindow.h"
@@ -478,14 +478,14 @@ void ChatWidget::onAnalyzeScreenPressed()
   }
 
   if (!mw || !mw->qglview) {
-    QMessageBox::warning(this, _("Viewport Error"),
+    StatusMessageBox::warning(this, _("Viewport Error"),
                          _("Could not find active 3D Viewport to grab screen."));
     return;
   }
 
   std::string base64_img = ViewportGrabber::captureViewportBase64(mw->qglview, 1024);
   if (base64_img.empty()) {
-    QMessageBox::warning(this, _("Viewport Error"), _("Failed to capture 3D viewport frame."));
+    StatusMessageBox::warning(this, _("Viewport Error"), _("Failed to capture 3D viewport frame."));
     return;
   }
 
@@ -514,7 +514,7 @@ void ChatWidget::onAttachImagePressed()
 
   QFile file(filePath);
   if (!file.open(QIODevice::ReadOnly)) {
-    QMessageBox::warning(this, _("File Error"), _("Could not open the selected image file."));
+    StatusMessageBox::warning(this, _("File Error"), _("Could not open the selected image file."));
     return;
   }
 
@@ -935,12 +935,12 @@ void ChatWidget::exportChat()
 
   std::ofstream file(fileName.toStdString());
   if (!file.is_open()) {
-    QMessageBox::warning(this, _("Export Warning"), _("Could not write to the chosen file."));
+    StatusMessageBox::warning(this, _("Export Warning"), _("Could not write to the chosen file."));
     return;
   }
 
   file << j.dump(2);
-  QMessageBox::information(this, _("Export Successful"), _("Chat history exported successfully."));
+  StatusMessageBox::information(this, _("Export Successful"), _("Chat history exported successfully."));
 }
 
 void ChatWidget::importChat()
@@ -954,7 +954,7 @@ void ChatWidget::importChat()
 
   std::ifstream file(fileName.toStdString());
   if (!file.is_open()) {
-    QMessageBox::warning(this, _("Import Warning"), _("Could not open the selected file."));
+    StatusMessageBox::warning(this, _("Import Warning"), _("Could not open the selected file."));
     return;
   }
 
@@ -962,12 +962,12 @@ void ChatWidget::importChat()
   try {
     file >> j;
   } catch (const std::exception& e) {
-    QMessageBox::warning(this, _("Import Warning"), tr("Failed to parse JSON file: %1").arg(e.what()));
+    StatusMessageBox::warning(this, _("Import Warning"), tr("Failed to parse JSON file: %1").arg(e.what()));
     return;
   }
 
   if (!j.is_object() || !j.contains("history") || !j["history"].is_array()) {
-    QMessageBox::warning(this, _("Import Warning"),
+    StatusMessageBox::warning(this, _("Import Warning"),
                          _("Selected file does not contain a valid chat history array."));
     return;
   }
@@ -1009,11 +1009,11 @@ void ChatWidget::importChat()
   rebuildChatUI();
 
   if (skipped_count > 0) {
-    QMessageBox::warning(
+    StatusMessageBox::warning(
       this, _("Import Warning"),
       tr("Imported chat history with warnings: %1 invalid entries were skipped.").arg(skipped_count));
   } else {
-    QMessageBox::information(this, _("Import Successful"), _("Chat history imported successfully."));
+    StatusMessageBox::information(this, _("Import Successful"), _("Chat history imported successfully."));
   }
 }
 
@@ -1048,7 +1048,7 @@ void ChatWidget::copyAsMarkdown()
   }
 
   QApplication::clipboard()->setText(QString::fromStdString(markdown));
-  QMessageBox::information(this, _("Chat Copied"),
+  StatusMessageBox::information(this, _("Chat Copied"),
                            _("Chat conversation copied to clipboard as Markdown."));
 }
 

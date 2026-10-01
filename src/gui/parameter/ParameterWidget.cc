@@ -30,7 +30,7 @@
 #include <QInputDialog>
 #include <QLayoutItem>
 #include <QMenu>
-#include <QMessageBox>
+#include "gui/MessageBox.h"
 #include <QString>
 #include <QToolButton>
 #include <QWidget>
@@ -131,7 +131,7 @@ void ParameterWidget::saveFile(const QString& scadFile)
 
   QString jsonFile = getJsonFile(scadFile);
   if (jsonFile == this->invalidJsonFile) {
-    QMessageBox msgBox;
+    StatusMessageBox msgBox;
     msgBox.setWindowTitle(_("Saving presets"));
     msgBox.setText(QString(_("%1 was found, but was unreadable. Do you want to overwrite %1?"))
                      .arg(this->invalidJsonFile));

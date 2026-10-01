@@ -45,7 +45,7 @@
 #include "platform/PlatformUtils.h"
 #include <QMainWindow>
 #include <QMenu>
-#include <QMessageBox>
+#include "gui/MessageBox.h"
 #include <QObject>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
@@ -686,7 +686,7 @@ void Preferences::on_syntaxHighlight_currentTextChanged(const QString& s)
 
 void unimplemented_msg()
 {
-  QMessageBox mbox;
+  StatusMessageBox mbox;
   mbox.setText("Sorry, this feature is not implemented on your Operating System");
   mbox.exec();
 }
@@ -1404,7 +1404,7 @@ void Preferences::on_pushButtonOctoPrintCheckConnection_clicked()
     this->labelOctoPrintCheckConnection->setText(
       QString{_("Success: Server Version = %2, API Version = %1")}.arg(api_version).arg(server_version));
   } catch (const NetworkException& e) {
-    QMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
+    StatusMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
                           QMessageBox::Ok);
     this->labelOctoPrintCheckConnection->setText("");
   }
@@ -1429,7 +1429,7 @@ void Preferences::on_pushButtonOctoPrintSlicingEngine_clicked()
       this->comboBoxOctoPrintSlicingEngine->setCurrentIndex(idx);
     }
   } catch (const NetworkException& e) {
-    QMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
+    StatusMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
                           QMessageBox::Ok);
   }
 }
@@ -1468,7 +1468,7 @@ void Preferences::on_pushButtonOctoPrintSlicingProfile_clicked()
       this->comboBoxOctoPrintSlicingProfile->setCurrentIndex(idx);
     }
   } catch (const NetworkException& e) {
-    QMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
+    StatusMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
                           QMessageBox::Ok);
   }
 }
@@ -1524,7 +1524,7 @@ void Preferences::on_pushButtonAINewProfile_clicked()
 
   const QString trimmed = name.trimmed();
   if (this->comboBoxAIProfile->findText(trimmed) >= 0) {
-    QMessageBox::warning(this, _("Duplicate Profile"), _("A profile with that name already exists."));
+    StatusMessageBox::warning(this, _("Duplicate Profile"), _("A profile with that name already exists."));
     return;
   }
 
@@ -1586,7 +1586,7 @@ void Preferences::on_pushButtonAIDeleteProfile_clicked()
   if (idx < 0) return;
 
   const QString profileName = this->comboBoxAIProfile->currentText();
-  const auto result = QMessageBox::question(this, _("Delete AI Profile"),
+  const auto result = StatusMessageBox::question(this, _("Delete AI Profile"),
                                             QString(_("Delete profile \"%1\"?")).arg(profileName),
                                             QMessageBox::Yes | QMessageBox::No);
   if (result != QMessageBox::Yes) return;

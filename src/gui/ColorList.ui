@@ -288,7 +288,7 @@
                <string>...</string>
               </property>
               <property name="icon">
-               <iconset theme="chokusen-undo">
+               <iconset theme="openscad-undo">
                 <normaloff>../../../../../.designer/backup</normaloff>../../../../../.designer/backup</iconset>
               </property>
              </widget>
@@ -465,7 +465,7 @@
                <string>...</string>
               </property>
               <property name="icon">
-               <iconset theme="chokusen-undo">
+               <iconset theme="openscad-undo">
                 <normaloff>../../../../../.designer/backup</normaloff>../../../../../.designer/backup</iconset>
               </property>
              </widget>
@@ -492,7 +492,7 @@
   </layout>
   <action name="actionResetSampleTextForeground">
    <property name="icon">
-    <iconset theme="chokusen-undo">
+    <iconset theme="openscad-undo">
      <normaloff>../../../../../.designer/backup</normaloff>../../../../../.designer/backup</iconset>
    </property>
    <property name="text">
@@ -504,7 +504,7 @@
   </action>
   <action name="actionResetSampleTextBackground">
    <property name="icon">
-    <iconset theme="chokusen-undo">
+    <iconset theme="openscad-undo">
      <normaloff>../../../../../.designer/backup</normaloff>../../../../../.designer/backup</iconset>
    </property>
    <property name="text">
@@ -516,7 +516,7 @@
   </action>
   <action name="actionCopyColorName">
    <property name="icon">
-    <iconset theme="chokusen-edit-copy"/>
+    <iconset theme="openscad-edit-copy"/>
    </property>
    <property name="text">
     <string>Copy Color Name</string>
@@ -527,7 +527,7 @@
   </action>
   <action name="actionCopyColorRGB">
    <property name="icon">
-    <iconset theme="chokusen-edit-copy"/>
+    <iconset theme="openscad-edit-copy"/>
    </property>
    <property name="text">
     <string>Copy Color RGB</string>

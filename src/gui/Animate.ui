@@ -288,24 +288,12 @@
              <string/>
             </property>
             <property name="icon">
-             <iconset theme="chokusen-vcr-control-start"/>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
-            </property>
-            <property name="minimumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
+             <iconset theme="openscad-vcr-control-start"/>
             </property>
             <property name="iconSize">
              <size>
-              <width>32</width>
-              <height>32</height>
+              <width>24</width>
+              <height>24</height>
              </size>
             </property>
            </widget>
@@ -316,24 +304,12 @@
              <string/>
             </property>
             <property name="icon">
-             <iconset theme="chokusen-vcr-control-step-back"/>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
-            </property>
-            <property name="minimumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
+             <iconset theme="openscad-vcr-control-step-back"/>
             </property>
             <property name="iconSize">
              <size>
-              <width>32</width>
-              <height>32</height>
+              <width>24</width>
+              <height>24</height>
              </size>
             </property>
            </widget>
@@ -344,24 +320,12 @@
              <string/>
             </property>
             <property name="icon">
-             <iconset theme="chokusen-vcr-control-play"/>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
-            </property>
-            <property name="minimumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
+             <iconset theme="openscad-vcr-control-play"/>
             </property>
             <property name="iconSize">
              <size>
-              <width>32</width>
-              <height>32</height>
+              <width>24</width>
+              <height>24</height>
              </size>
             </property>
            </widget>
@@ -372,24 +336,12 @@
              <string/>
             </property>
             <property name="icon">
-             <iconset theme="chokusen-vcr-control-step-forward"/>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
-            </property>
-            <property name="minimumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
+             <iconset theme="openscad-vcr-control-step-forward"/>
             </property>
             <property name="iconSize">
              <size>
-              <width>32</width>
-              <height>32</height>
+              <width>24</width>
+              <height>24</height>
              </size>
             </property>
            </widget>
@@ -400,24 +352,12 @@
              <string/>
             </property>
             <property name="icon">
-             <iconset theme="chokusen-vcr-control-end"/>
-            </property>
-            <property name="maximumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
-            </property>
-            <property name="minimumSize">
-             <size>
-              <width>48</width>
-              <height>48</height>
-             </size>
+             <iconset theme="openscad-vcr-control-end"/>
             </property>
             <property name="iconSize">
              <size>
-              <width>32</width>
-              <height>32</height>
+              <width>24</width>
+              <height>24</height>
              </size>
             </property>
             <property name="flat">
@@ -448,7 +388,7 @@
   </layout>
   <action name="actionAnimationPauseUnpause">
    <property name="icon">
-    <iconset theme="chokusen-vcr-control-play"/>
+    <iconset theme="openscad-vcr-control-play"/>
    </property>
    <property name="text">
     <string>Toggle animation pause/unpause</string>
@@ -459,7 +399,7 @@
   </action>
   <action name="actionAnimationStart">
    <property name="icon">
-    <iconset theme="chokusen-vcr-control-start"/>
+    <iconset theme="openscad-vcr-control-start"/>
    </property>
    <property name="text">
     <string>Move to beginning (first frame)</string>
@@ -470,7 +410,7 @@
   </action>
   <action name="actionAnimationStepBack">
    <property name="icon">
-    <iconset theme="chokusen-vcr-control-step-back"/>
+    <iconset theme="openscad-vcr-control-step-back"/>
    </property>
    <property name="text">
     <string>Step one frame back</string>
@@ -481,7 +421,7 @@
   </action>
   <action name="actionAnimationStepForward">
    <property name="icon">
-    <iconset theme="chokusen-vcr-control-step-forward"/>
+    <iconset theme="openscad-vcr-control-step-forward"/>
    </property>
    <property name="text">
     <string>Step one frame forward</string>
@@ -492,7 +432,7 @@
   </action>
   <action name="actionAnimationEnd">
    <property name="icon">
-    <iconset theme="chokusen-vcr-control-end"/>
+    <iconset theme="openscad-vcr-control-end"/>
    </property>
    <property name="text">
     <string>Move to end (last frame)</string>

@@ -33,6 +33,7 @@
 #include "gui/Preferences.h"
 #include "gui/QSettingsCached.h"
 #include "gui/UIUtils.h"
+#include "gui/Icons.h"
 #include "gui/parameter/GroupWidget.h"
 #include "gui/parameter/ParameterCheckBox.h"
 #include "gui/parameter/ParameterComboBox.h"
@@ -47,8 +48,9 @@
 static void initTypographyResources()
 {
   Q_INIT_RESOURCE(common);
-  Q_INIT_RESOURCE(icons_chokusen);
-  Q_INIT_RESOURCE(icons_chokusen_dark);
+  Q_INIT_RESOURCE(icons_tabler);
+  QIcon::setThemeName("openscad");
+  Icons::install();
 }
 
 namespace {
@@ -417,8 +419,7 @@ TEST_CASE("Capture native typography reference", "[.][typography-visual]")
   CHECK(panel.palette().color(QPalette::Window) == windowColor);
 #endif
   if (panel.devicePixelRatioF() == 1) {
-    QIcon::setThemeName(qEnvironmentVariable("OPENSCAD_TYPOGRAPHY_THEME") == "dark" ? "chokusen-dark"
-                                                                                    : "chokusen");
+    QIcon::setThemeName("openscad");
     Builtins::initialize();
     parser_init();
     auto *window = new MainWindow(QStringList());

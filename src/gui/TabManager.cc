@@ -37,6 +37,36 @@
 #include "gui/ScintillaEditor.h"
 #include "utils/printutils.h"
 
+namespace {
+bool prepareAnnotationSave(EditorInterface *editor, const QString& sourcePath, QWidget *parent,
+                           bool& replace)
+{
+  replace = false;
+  const QString companion = sourcePath + ".annotations";
+  if (sourcePath != editor->filepath && QFileInfo::exists(companion)) {
+    replace = QMessageBox::question(parent, "Replace annotations?",
+      "The destination has an annotation companion. Replace its evidence with this document's annotations?",
+      QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
+    if (!replace) return false;
+  }
+  QString error;
+  if (!editor->annotations->canSave(companion, &error, replace)) {
+    QMessageBox::warning(parent, "Annotations not saved", error);
+    return false;
+  }
+  return true;
+}
+bool writeAnnotations(EditorInterface *editor, const QString& path, bool adopt, bool replace, QWidget *parent)
+{
+  QString error;
+  if (editor->annotations->save(path + ".annotations", adopt, &error, replace)) return true;
+  if (adopt) editor->annotations->markUnsaved();
+  QMessageBox::warning(parent, "Annotations not saved",
+    "The source file may already be saved. Annotation evidence remains in memory.\n" + error);
+  return false;
+}
+}
+
 TabManager::TabManager(MainWindow *o, const QString& filename)
 {
   parent = o;
@@ -158,7 +188,7 @@ void TabManager::open(const QString& filename)
   }
 
   if (editor->filepath.isEmpty() && !editor->isContentModified() &&
-      !editor->parameterWidget->isModified()) {
+      !editor->parameterWidget->isModified() && editor->annotations->records().isEmpty() && !editor->annotations->dirty()) {
     openTabFile(filename);
   } else {
     createTab(filename);
@@ -206,6 +236,7 @@ void TabManager::createTab(const QString& filename)
   editor->addTemplate();
 
   connect(editor, &EditorInterface::contentsChanged, this, &TabManager::updateActionUndoState);
+  connect(editor->annotations, &AgentAnnotations::Store::commandAdded, this, &TabManager::updateActionUndoState);
   connect(editor, &EditorInterface::contentsChanged, parent, &MainWindow::editorContentChanged);
   connect(editor, &EditorInterface::contentsChanged, this, &TabManager::setContentRenderState);
   connect(editor, &EditorInterface::modificationChanged, this, &TabManager::onTabModified);
@@ -506,6 +537,7 @@ void TabManager::onTabModified(EditorInterface *edt)
 
 void TabManager::openTabFile(const QString& filename)
 {
+  editor->annotations->renewSession();
 #ifdef ENABLE_PYTHON
   if (boost::algorithm::ends_with(filename, ".py")) {
     std::string templ = "from openscad import *\n";
@@ -522,6 +554,9 @@ void TabManager::openTabFile(const QString& filename)
   if (cmd.isEmpty()) {
     editor->filepath = fileinfo.absoluteFilePath();
     editor->parameterWidget->readFile(fileinfo.absoluteFilePath());
+    QString error;
+    if (!editor->annotations->load(editor->filepath + ".annotations", &error))
+      LOG(message_group::UI_Warning, "Annotations: %1$s", error.toStdString());
     parent->updateRecentFiles(filename);
   } else {
     editor->filepath = "";
@@ -556,7 +591,7 @@ std::tuple<QString, QString> TabManager::getEditorTabNameWithModifier(EditorInte
   auto [fname, fpath] = getEditorTabName(edt);
 
   // Add the "modification" star if it was changed.
-  bool isDirty = edt->isContentModified() || edt->parameterWidget->isModified();
+  bool isDirty = edt->isContentModified() || edt->parameterWidget->isModified() || edt->annotations->dirty();
 
   if (isDirty) fname += "*";
 
@@ -602,7 +637,7 @@ bool TabManager::refreshDocument()
 bool TabManager::maybeSave(int x)
 {
   auto *edt = (EditorInterface *)tabWidget->widget(x);
-  if (edt->isContentModified() || edt->parameterWidget->isModified()) {
+  if (edt->isContentModified() || edt->parameterWidget->isModified() || edt->annotations->dirty()) {
     QMessageBox box(parent);
     box.setText(_("The document has been modified."));
     box.setInformativeText(_("Do you want to save your changes?"));
@@ -633,7 +668,7 @@ bool TabManager::maybeSave(int x)
 bool TabManager::shouldClose()
 {
   foreach (EditorInterface *edt, editorList) {
-    if (!(edt->isContentModified() || edt->parameterWidget->isModified())) continue;
+    if (!(edt->isContentModified() || edt->parameterWidget->isModified() || edt->annotations->dirty())) continue;
 
     QMessageBox box(parent);
     box.setText(_("Some tabs have unsaved changes."));
@@ -689,6 +724,11 @@ bool TabManager::save(EditorInterface *edt)
 
 bool TabManager::save(EditorInterface *edt, const QString& path)
 {
+  const bool annotationSave = edt->annotations->dirty() || path != edt->filepath;
+  bool replace = false;
+  if (annotationSave && !prepareAnnotationSave(edt, path, parent, replace)) return false;
+  if (path == edt->filepath && QFileInfo::exists(path) && !edt->isContentModified() && !edt->parameterWidget->isModified() &&
+      edt->annotations->dirty()) return writeAnnotations(edt, path, true, replace, parent);
   // If available (>= Qt 5.1), use QSaveFile to ensure the file is not
   // destroyed if the device is full. Unfortunately this is not working
   // as advertised (at least in Qt 5.3) as it does not detect the device
@@ -722,6 +762,7 @@ bool TabManager::save(EditorInterface *edt, const QString& path)
     edt->parameterWidget->setModified(false);
     parent->updateRecentFiles(path);
     edt->filepath = path;
+    if (annotationSave && !writeAnnotations(edt, path, true, replace, parent)) return false;
   } else {
     saveError(file, _("Error saving design"), path);
   }
@@ -810,6 +851,9 @@ bool TabManager::saveACopy(EditorInterface *edt)
 
   if (savefile.isEmpty()) return false;
 
+  bool replace = false;
+  if (!prepareAnnotationSave(edt, savefile, parent, replace)) return false;
+
   QSaveFile file(savefile);
   if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
     saveError(file, _("Failed to open file for writing"), path);
@@ -827,7 +871,10 @@ bool TabManager::saveACopy(EditorInterface *edt)
   else {
     saveOk = file.commit();
     if (!saveOk) saveError(file, _("Error saving design"), savefile);
-    else LOG("Saved design '%1$s'.", savefile.toLocal8Bit().constData());
+    else {
+      LOG("Saved design '%1$s'.", savefile.toLocal8Bit().constData());
+      saveOk = writeAnnotations(edt, savefile, false, replace, parent);
+    }
   }
   return saveOk;
 }
@@ -835,7 +882,7 @@ bool TabManager::saveACopy(EditorInterface *edt)
 bool TabManager::saveAll()
 {
   foreach (EditorInterface *edt, editorList) {
-    if (edt->isContentModified() || edt->parameterWidget->isModified()) {
+    if (edt->isContentModified() || edt->parameterWidget->isModified() || edt->annotations->dirty()) {
       if (!save(edt)) {
         return false;
       }

@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "core/IndicatorData.h"
+#include "gui/annotations/AnnotationStore.h"
 #include "gui/parameter/ParameterWidget.h"
 
 enum class EditorSelectionIndicatorStatus { SELECTED, IMPACTED };
@@ -18,7 +19,11 @@ class EditorInterface : public QWidget
 {
   Q_OBJECT
 public:
-  EditorInterface(QWidget *parent) : QWidget(parent) {}
+  EditorInterface(QWidget *parent);
+  AgentAnnotations::Store *annotations;
+  QString sourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash({}));
+  virtual void appendAnnotationUndo(int token) = 0;
+  virtual void undoFromAnnotations(bool redo) = 0;
   QSize sizeHint() const override
   {
     QSize size;

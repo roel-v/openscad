@@ -1288,6 +1288,9 @@ void MainWindow::writeBackup(QFile *file)
 #endif
   writer << activeEditor->toPlainText();
   this->activeEditor->parameterWidget->saveBackupFile(file->fileName());
+  QString annotationError;
+  if (!activeEditor->annotations->save(file->fileName() + ".annotations", false, &annotationError, true))
+    LOG(message_group::UI_Warning, "Annotation backup failed: %1$s", annotationError.toStdString());
 
   LOG("Saved backup file: %1$s", file->fileName().toUtf8().constData());
 }

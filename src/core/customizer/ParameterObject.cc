@@ -629,6 +629,7 @@ ParameterObjects ParameterObjects::fromSourceFile(const SourceFile *sourceFile, 
   for (const auto& assignment : sourceFile->scope->assignments) {
     auto parameter = ParameterObject::fromAssignment(assignment.get(), docPath, context);
     if (parameter) {
+      parameter->setLocation(assignment->getExpr()->location());
       output.push_back(std::move(parameter));
     }
   }

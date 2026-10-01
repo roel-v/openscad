@@ -43,6 +43,8 @@ public:
   [[nodiscard]] const std::string& name() const { return name_; }
   [[nodiscard]] const std::string& description() const { return description_; }
   [[nodiscard]] const std::string& group() const { return group_; }
+  [[nodiscard]] const Location& location() const { return location_; }
+  void setLocation(const Location& location) { location_ = location; }
 
   virtual void reset() = 0;
   virtual bool importValue(boost::property_tree::ptree encodedValue, bool store) = 0;
@@ -75,6 +77,7 @@ protected:
   std::string name_;
   std::string description_;
   std::string group_;
+  Location location_ = Location::NONE;
   bool locked_ = false;
   bool hidden_ = false;
   std::shared_ptr<Expression> lockedExpr;

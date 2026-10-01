@@ -562,6 +562,17 @@ void TestNavigation::popupAndTuning()
   QVERIFY(!window->menu_View->actions().contains(tuning->toggleViewAction()));
   tuning->toggleViewAction()->trigger();
   QTRY_VERIFY(tuning->isVisible());
+  const auto tuningValues=settings->values();
+  for (auto it=tuningValues.cbegin();it!=tuningValues.cend();++it) {
+    auto help=tuning->findChild<QToolButton *>("help_"+it.key());
+    QVERIFY2(help,qPrintable("Missing help icon for "+it.key()));
+    QVERIFY(!help->icon().isNull());
+    QVERIFY2(!help->toolTip().isEmpty(),qPrintable("Missing help text for "+it.key()));
+    auto control=tuning->findChild<QWidget *>("tune_"+it.key());
+    QVERIFY(control);
+    QCOMPARE(control->whatsThis(),help->toolTip());
+    QCOMPARE(control->accessibleDescription(),help->toolTip());
+  }
   tuning->setFloating(false);
   QCOMPARE(window->dockWidgetArea(tuning),Qt::RightDockWidgetArea);
   QVERIFY(!tuning->isFloating());

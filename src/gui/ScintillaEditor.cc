@@ -218,7 +218,17 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
 
   initMargin();
 
-  connect(qsci, &QsciScintilla::textChanged, this, &ScintillaEditor::contentsChanged);
+  connect(qsci, &QsciScintilla::textChanged, this, [this] {
+    sourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash(qsci->text().toUtf8()));
+    emit contentsChanged();
+    emit modificationChanged(this);
+  });
+  connect(qsci, &QsciScintillaBase::SCN_MODIFIED, this,
+          [this](int, int type, const char *, int, int, int, int, int, int token, int) {
+    if (type & QsciScintillaBase::SC_MOD_CONTAINER) {
+      annotations->applyHistory(token, (type & QsciScintillaBase::SC_PERFORMED_UNDO) != 0);
+    }
+  });
   connect(qsci, &QsciScintilla::modificationChanged, this, &ScintillaEditor::fireModificationChanged);
   connect(qsci, &QsciScintilla::userListActivated, this, &ScintillaEditor::onUserListSelected);
   qsci->installEventFilter(this);
@@ -370,8 +380,25 @@ void ScintillaEditor::fireModificationChanged()
 
 void ScintillaEditor::setPlainText(const QString& text)
 {
+  annotations->clearHistory();
   qsci->setText(text);
   setContentModified(false);
+}
+
+void ScintillaEditor::appendAnnotationUndo(int token)
+{
+  const bool readOnly = qsci->isReadOnly();
+  qsci->setReadOnly(false);
+  qsci->SendScintilla(QsciScintillaBase::SCI_ADDUNDOACTION, static_cast<unsigned long>(token), 0L);
+  qsci->setReadOnly(readOnly);
+}
+
+void ScintillaEditor::undoFromAnnotations(bool redo)
+{
+  const bool readOnly = qsci->isReadOnly();
+  qsci->setReadOnly(false);
+  if (redo) qsci->redo(); else qsci->undo();
+  qsci->setReadOnly(readOnly);
 }
 
 QString ScintillaEditor::toPlainText()
@@ -381,6 +408,8 @@ QString ScintillaEditor::toPlainText()
 
 void ScintillaEditor::setContentModified(bool modified)
 {
+  sourceForcedModified = modified;
+  if (!modified) savedSourceFingerprint = sourceFingerprint;
   // FIXME: Due to an issue with QScintilla, we need to do this on the document itself.
   qsci->SCN_SAVEPOINTLEFT();
   qsci->setModified(modified);
@@ -388,7 +417,8 @@ void ScintillaEditor::setContentModified(bool modified)
 
 bool ScintillaEditor::isContentModified()
 {
-  return qsci->isModified();
+  // Container actions can move Scintilla's save point without changing source bytes.
+  return sourceForcedModified || sourceFingerprint != savedSourceFingerprint;
 }
 
 void ScintillaEditor::highlightError(int error_pos)

@@ -1,0 +1,96 @@
+#pragma once
+#include "AnnotationStore.h"
+#include "AnnotationDrawing.h"
+#include "glview/Camera.h"
+#include <QPointer>
+#include <QTimer>
+#include <functional>
+#include <memory>
+#include <map>
+
+class MainWindow;
+class EditorInterface;
+class Dock;
+class QGLView;
+class QLabel;
+class QListWidget;
+class QLineEdit;
+class QDialog;
+class Renderer;
+
+namespace AgentAnnotations {
+class Controller : public QObject
+{
+  Q_OBJECT
+public:
+  explicit Controller(MainWindow *window);
+  ~Controller() override;
+  Dock *dock;
+  const QString windowId, viewportId;
+  EditorInterface *owner() const;
+  QVector<EditorInterface *> editors() const;
+  EditorInterface *actionOwner() const;
+  bool busy() const;
+  bool drafting() const { return state != Idle; }
+  void beginEvaluation(const QString& source);
+  void finishEvaluation(bool success);
+  void rendererChanged();
+  void startDrawing();
+  void cancelDrawing();
+  void refresh();
+  QJsonObject status() const;
+  QJsonObject camera() const;
+  bool setCamera(const QJsonObject& camera, QString *error);
+  void capture(const QString& expectedResult,
+               std::function<void(QJsonObject, QByteArray, QString)> done);
+  void setAccessWidget(QWidget *widget);
+signals:
+  void changed();
+
+private:
+  enum State { Idle, DrawingState, Capturing, Comment } state = Idle;
+  MainWindow *window;
+  QGLView *view;
+  QWidget *overlay, *palette, *panel;
+  QLabel *ownerLabel, *imageLabel, *commentLabel;
+  QListWidget *list;
+  QLineEdit *search;
+  QPointer<EditorInterface> displayedOwner, evaluationOwner, draftOwner;
+  QPointer<QDialog> commentDialog;
+  QJsonObject result, evaluation, lastAttempt, draftResult;
+  struct Installed {
+    std::weak_ptr<Renderer> renderer;
+    QPointer<EditorInterface> owner;
+    QJsonObject result;
+  };
+  std::map<Renderer *, Installed> installed;
+  quint64 generation = 0, draftToken = 0, captureToken = 0;
+  Drawing drawing;
+  QColor color = QColor("#ffcf33");
+  Camera lockedCamera;
+  QSize draftSize;
+  qreal draftDpr = 1;
+  QString draftSourceHash;
+  bool reloadWasActive = false, animationWasActive = false;
+  int animationInterval = 0;
+  bool capturePending = false;
+  QMetaObject::Connection frameConnection;
+  QTimer captureTimeout;
+  QTimer draftWatch;
+  QJsonObject draftDisplay;
+  QByteArray draftFiles;
+  QString originalSaveText, originalUndoText;
+  std::function<void(QJsonObject, QByteArray, QString)> captureDone;
+  void bindEditors();
+  void showSelected();
+  void acceptDrawing();
+  void requestFrame(bool annotation, const QString& expectedResult,
+                    std::function<void(QJsonObject, QByteArray, QString)> done);
+  void finishFrame(const QString& error = {});
+  void updateLock();
+  void updateActions();
+  QJsonObject display() const;
+  QByteArray fileState() const;
+  bool eventFilter(QObject *object, QEvent *event) override;
+};
+}  // namespace AgentAnnotations

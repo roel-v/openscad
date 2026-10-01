@@ -1,3 +1,5 @@
+#include "gui/SavedViews.h"
+#include "gui/ViewportStatistics.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -71,6 +73,11 @@
 #include <QTime>
 #include <QTimer>
 #include <QToolBar>
+#include "gui/CameraNavigation.h"
+#include "gui/ViewportPopup.h"
+#ifdef ENABLE_NAVIGATION_CUBE_TUNING
+#include "gui/NavigationTuning.h"
+#endif
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -752,6 +759,7 @@ void MainWindow::updateRecentFiles(const QString& FileSavedOrOpened)
  */
 void MainWindow::compile(bool reload, bool forcedone)
 {
+  qglview->navigation()->cancel();
   OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
   OpenSCAD::traceDepth = GlobalPreferences::inst()->getValue("advanced/traceDepth").toUInt();
   OpenSCAD::traceUsermoduleParameters =
@@ -810,7 +818,7 @@ void MainWindow::compile(bool reload, bool forcedone)
       if (GlobalPreferences::inst()->getValue("advanced/consoleAutoClear").toBool()) {
         this->console->clear();
       }
-      if (activeEditor->isContentModified()) saveBackup();
+      if (activeEditor->isContentModified() || activeEditor->hasViewChanges()) saveBackup();
       parseTopLevelDocument();
       didcompile = true;
     }
@@ -981,6 +989,7 @@ void MainWindow::selectPreviewViewMode()
 void MainWindow::compileEnded()
 {
   if (annotationController) annotationController->finishEvaluation(compileErrors == 0 && rootFile != nullptr);
+  if (compileErrors>0) qglview->statistics()->evaluationFailed();
   clearCurrentOutput();
   GuiLocker::unlock();
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
@@ -1028,6 +1037,7 @@ void MainWindow::instantiateRoot()
   this->tree.setDocumentPath(doc.parent_path().string());
 
   renderedEditor = activeEditor;
+  emit displayedDocumentChanged();
 
   if (this->rootFile) {
     // Evaluate CSG tree
@@ -1308,6 +1318,9 @@ void MainWindow::writeBackup(QFile *file)
   QString annotationError;
   if (!activeEditor->annotations->save(file->fileName() + ".annotations", false, &annotationError, true))
     LOG(message_group::UI_Warning, "Annotation backup failed: %1$s", annotationError.toStdString());
+  QString viewError;
+  if (!SavedViews::forEditor(activeEditor)->backup(file->fileName(),viewError))
+    LOG(message_group::UI_Warning, "%1$s", viewError.toStdString());
 
   LOG("Saved backup file: %1$s", file->fileName().toUtf8().constData());
 }
@@ -1898,6 +1911,8 @@ void MainWindow::csgReloadRender()
 
 void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents, bool preview)
 {
+  qglview->statistics()->setStale(true);
+  qglview->navigation()->cancel();
   setCurrentOutput();
   autoReloadTimer->stop();
   LOG(" ");
@@ -2107,6 +2122,7 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const Geometry>& root_ge
   }
 
   renderedEditor = activeEditor;
+  emit displayedDocumentChanged();
   activeEditor->contentsRendered = true;
   compileEnded();
 }
@@ -2431,6 +2447,7 @@ void MainWindow::updateStatusBar(ProgressWidget *progressWidget)
 void MainWindow::exceptionCleanup()
 {
   if (annotationController) annotationController->finishEvaluation(false);
+  qglview->statistics()->evaluationFailed();
   LOG("Execution aborted");
   LOG(" ");
   GuiLocker::unlock();
@@ -2440,6 +2457,7 @@ void MainWindow::exceptionCleanup()
 void MainWindow::UnknownExceptionCleanup(std::string msg)
 {
   if (annotationController) annotationController->finishEvaluation(false);
+  qglview->statistics()->evaluationFailed();
   auto guard = scopedSetCurrentOutput();  // we need to show this error
   if (msg.size() == 0) {
     LOG(message_group::Error, "Compilation aborted by unknown exception");
@@ -2846,50 +2864,44 @@ void MainWindow::editorContentChanged()
 
 void MainWindow::on_viewActionTop_triggered()
 {
-  qglview->cam.object_rot << 90, 0, 0;
-  this->qglview->update();
+  qglview->navigation()->orient({90, 0, 0});
 }
 
 void MainWindow::on_viewActionBottom_triggered()
 {
-  qglview->cam.object_rot << 270, 0, 0;
-  this->qglview->update();
+  qglview->navigation()->orient({270, 0, 0});
 }
 
 void MainWindow::on_viewActionLeft_triggered()
 {
-  qglview->cam.object_rot << 0, 0, 90;
-  this->qglview->update();
+  qglview->navigation()->orient({0, 0, 90});
 }
 
 void MainWindow::on_viewActionRight_triggered()
 {
-  qglview->cam.object_rot << 0, 0, 270;
-  this->qglview->update();
+  qglview->navigation()->orient({0, 0, 270});
 }
 
 void MainWindow::on_viewActionFront_triggered()
 {
-  qglview->cam.object_rot << 0, 0, 0;
-  this->qglview->update();
+  qglview->navigation()->orient({0, 0, 0});
 }
 
 void MainWindow::on_viewActionBack_triggered()
 {
-  qglview->cam.object_rot << 0, 0, 180;
-  this->qglview->update();
+  qglview->navigation()->orient({0, 0, 180});
 }
 
 void MainWindow::on_viewActionDiagonal_triggered()
 {
-  qglview->cam.object_rot << 35, 0, -25;
-  this->qglview->update();
+  qglview->navigation()->orient({35, 0, -25});
 }
 
 void MainWindow::on_viewActionCenter_triggered()
 {
-  qglview->cam.object_trans << 0, 0, 0;
-  this->qglview->update();
+  auto pose = qglview->navigation()->current();
+  pose.translation.setZero();
+  qglview->navigation()->navigate(pose);
 }
 
 void MainWindow::setProjectionType(ProjectionType mode)
@@ -3194,7 +3206,9 @@ void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
   // This slots is in charge of closing properly the preview when the
   // associated editor is about to close.
   if (closingEditor == renderedEditor) {
+    qglview->navigation()->cancel();
     renderedEditor = nullptr;
+    emit displayedDocumentChanged();
 
     // Invalidate renderers before we kill the CSG tree
     this->qglview->setRenderer(nullptr);
@@ -3798,12 +3812,19 @@ void MainWindow::setup3DView()
   loadDesignSettings();
 
   connect(this->qglview, &QGLView::cameraChanged, animateWidget, &Animate::cameraChanged);
-  connect(this->qglview, &QGLView::cameraChanged, viewportControlWidget,
+  connect(this->qglview->navigation(), &CameraNavigation::displayChanged, viewportControlWidget,
           &ViewportControl::cameraChanged);
   connect(this->qglview, &QGLView::resized, viewportControlWidget, &ViewportControl::viewResized);
   connect(this->qglview, &QGLView::doRightClick, this, &MainWindow::rightClick);
   connect(this->qglview, &QGLView::doLeftClick, this, &MainWindow::leftClick);
   connect(this->qglview, &QGLView::initialized, this, &MainWindow::updateViewModeAfterGLInit);
+  new ViewportPopup(this);
+#ifdef ENABLE_NAVIGATION_CUBE_TUNING
+  auto tuning = new NavigationTuning(qglview);
+  auto tuningAction = menu_View->addAction(tr("Navigation tuning…"));
+  tuningAction->setObjectName("navigationTuningAction");
+  connect(tuningAction, &QAction::triggered, tuning, [tuning] { tuning->show(); tuning->raise(); });
+#endif
 }
 
 /**

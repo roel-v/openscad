@@ -38,6 +38,7 @@ configure_file(
 option(INFO "Display build configuration info at end of cmake config" ON)
 option(ENABLE_TESTS "Run testsuite after building." ON)
 option(ENABLE_GUI_TESTS "Compile a special version of the openscad gui with feature for testing." OFF)
+option(ENABLE_NAVIGATION_CUBE_TUNING "Build session-only navigation tuning controls" OFF)
 option(EXPERIMENTAL "Enable Experimental Features" OFF)
 option(USE_MANIFOLD_TRIANGULATOR "Use Manifold's triangulator instead of CGAL's" ON)
 option(USE_MANIFOLD_MINKOWSKI "Use Manifold's Minkowski instead of CGAL's" OFF)
@@ -1390,6 +1391,20 @@ set(GUI_SOURCES
   src/gui/ProgressWidget.cc
   src/gui/RubberBandManager.cc
   src/gui/QGLView.cc
+  src/gui/CameraNavigation.cc
+  src/gui/CameraNavigation.h
+  src/gui/NavigationSettings.h
+  src/gui/NavigationSettings.cc
+  src/gui/ViewportPopup.cc
+  src/gui/SavedViews.cc
+  src/gui/ViewportStatistics.cc
+  src/gui/ViewportStatistics.h
+  src/gui/SavedViews.h
+  src/gui/ViewportPopup.h
+  src/gui/NavigationCubeGeometry.cc
+  src/gui/NavigationCubeGeometry.h
+  src/gui/NavigationCube.cc
+  src/gui/NavigationCube.h
   src/gui/QGLView2.cc
   src/gui/QSettingsCached.cc
   src/gui/QWordSearchField.cc
@@ -1604,10 +1619,12 @@ endif()
 
 if(ENABLE_GUI_TESTS)
   set(GUITESTS_HEADERS
+    # Native viewport integration tests share the ordinary application widgets.
     src/guitests/guitests.h
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
     src/guitests/TestMainWindow.h
+    src/guitests/TestNavigation.h
     src/guitests/UXTest.h
   )
 
@@ -1618,11 +1635,18 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
     src/guitests/TestMainWindow.cc
+    src/guitests/TestNavigation.cc
     src/guitests/UXTest.cc
   )
 
   list(APPEND Sources ${GUITESTS_SOURCES} ${GUITESTS_HEADERS})
   target_compile_definitions(OpenSCADLibInternal PUBLIC ENABLE_GUI_TESTS)
+endif()
+
+if(NOT HEADLESS AND ENABLE_NAVIGATION_CUBE_TUNING)
+  list(APPEND Sources src/gui/NavigationTuning.cc src/gui/NavigationTuning.h)
+  set_property(SOURCE src/gui/MainWindow.cc src/guitests/TestNavigation.cc APPEND
+               PROPERTY COMPILE_DEFINITIONS ENABLE_NAVIGATION_CUBE_TUNING)
 endif()
 
 if (SNAPSHOT)
@@ -1702,6 +1726,8 @@ elseif(MINGW)
   set_property(TARGET OpenSCADLibInternal APPEND_STRING PROPERTY LINK_FLAGS " -municode")
   set_property(TARGET OpenSCADExe APPEND_STRING PROPERTY LINK_FLAGS " -municode")
 elseif(MSVC)
+  # The Windows resource already embeds scripts/winmanifest.xml for each executable.
+  target_link_options(OpenSCADLibInternal INTERFACE /MANIFEST:NO)
   set_target_properties(OpenSCADExe PROPERTIES
     LINK_FLAGS "-subsystem:windows -ENTRY:mainCRTStartup -stack:${STACKSIZE}"
   )

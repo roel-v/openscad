@@ -26,6 +26,7 @@
 
 #include "glview/preview/OpenCSGRenderer.h"
 #include "glview/Renderer.h"
+#include "glview/TriangleStatistics.h"
 #include "glview/ShaderUtils.h"
 #include "glview/VertexState.h"
 #include "geometry/linalg.h"
@@ -97,6 +98,7 @@ OpenCSGRenderer::OpenCSGRenderer(std::shared_ptr<CSGProducts> root_products,
     background_products_(std::move(background_products))
 {
   opencsg_vertex_shader_code_ = ShaderUtils::loadShaderSource("OpenCSG.vert");
+  triangles_=previewTriangleStatistics(root_products_,highlights_products_,background_products_);
 }
 
 void OpenCSGRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)

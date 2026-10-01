@@ -17,11 +17,16 @@
 #include <QLabel>
 #include <string>
 #include <vector>
+#include <functional>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include "glview/GLView.h"
 #include "../core/MouseConfig.h"
+
+class CameraNavigation;
+class NavigationCube;
+class ViewportStatistics;
 
 class QGLView : public QOpenGLWidget, public GLView
 {
@@ -35,6 +40,10 @@ class QGLView : public QOpenGLWidget, public GLView
 public:
   QGLView(QWidget *parent = nullptr);
   ~QGLView() override;
+  CameraNavigation *navigation() const { return cameraNavigation; }
+  NavigationCube *navigationCube() const { return cube; }
+  ViewportStatistics *statistics() const { return stats; }
+  void setRenderer(std::shared_ptr<Renderer> renderer);
 #ifdef ENABLE_OPENCSG
   bool hasOpenCSGSupport() { return this->is_opencsg_capable; }
 #endif
@@ -46,13 +55,11 @@ public:
   std::string getRendererInfo() const override;
   float getDPI() override { return this->devicePixelRatio(); }
 
-  const QImage& grabFrame();
+  enum class CaptureContent { ModelOnly, ModelAndAnnotations };
+  const QImage& grabFrame(CaptureContent content=CaptureContent::ModelAndAnnotations);
+  // Optional composition hook. Model pixels are already clean and the camera has stopped.
+  std::function<void(QImage&)> composeAnnotations;
   std::optional<Camera> annotationCameraLock;
-  void setRenderer(std::shared_ptr<Renderer> renderer) {
-    if (getRenderer() == renderer.get()) return;
-    GLView::setRenderer(std::move(renderer));
-    emit rendererReplaced();
-  }
   bool save(const char *filename) const override;
   void resetView();
   void viewAll();
@@ -85,6 +92,10 @@ public:
   void translate(double x, double y, double z, bool relative, bool viewPortRelative = true);
 
 private:
+  CameraNavigation *cameraNavigation{nullptr};
+  NavigationCube *cube{nullptr};
+  ViewportStatistics *stats{nullptr};
+  bool capturing=false;
   void init();
 
   bool mouse_drag_active;
@@ -120,6 +131,7 @@ private slots:
 #endif
 
 signals:
+  void viewportPaintCompleted();
   void rendererReplaced();
   void frameAboutToRender();
   void frameRendered();

@@ -48,6 +48,7 @@
 #include "glview/ColorMap.h"
 #include "glview/VBORenderer.h"
 #include "glview/Renderer.h"
+#include "glview/TriangleStatistics.h"
 #include "glview/ShaderUtils.h"
 #include "glview/VBOBuilder.h"
 #include "glview/VertexState.h"
@@ -64,6 +65,18 @@
 PolySetRenderer::PolySetRenderer(const std::shared_ptr<const class Geometry>& geom)
 {
   this->addGeometry(geom);
+  uint64_t count=0;
+  for (const auto& ps:polysets_) {
+    const auto value=preparedTriangleCount(*ps);
+    if (!value) return;
+    count+=*value;
+  }
+  for (const auto& pair:polygons_) {
+    const auto value=preparedTriangleCount(*pair.second);
+    if (!value) return;
+    count+=*value;
+  }
+  triangles_={TriangleStatistics::Kind::Final,count,polygons_.empty() ? 3 : 2};
 }
 
 void PolySetRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)

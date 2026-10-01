@@ -1,4 +1,5 @@
 #include "gui/ViewportControl.h"
+#include "gui/CameraNavigation.h"
 
 #include <QBoxLayout>
 #include <QDoubleSpinBox>
@@ -176,6 +177,7 @@ void ViewportControl::cameraChanged()
 void ViewportControl::updateCamera()
 {
   if (!inputMutex.try_lock()) return;
+  qglview->navigation()->cancel();
 
   // viewport translation
   qglview->cam.setVpt(doubleSpinBox_tx->value(), doubleSpinBox_ty->value(), doubleSpinBox_tz->value());

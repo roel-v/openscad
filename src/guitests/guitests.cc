@@ -5,6 +5,7 @@
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
 #include "TestAnnotations.h"
+#include "TestNavigation.h"
 
 template <typename TestClass>
 int runTests(MainWindow *window)
@@ -19,6 +20,14 @@ int runTests(MainWindow *window)
 
 int runAllTest(MainWindow *window)
 {
+  if (qEnvironmentVariableIsSet("OPENSCAD_NAVIGATION_TESTS_ONLY")) {
+    TestNavigation test;
+    test.setWindow(window);
+    QStringList arguments{"navigation-tests"};
+    const auto output = qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
+    if (!output.isEmpty()) arguments << "-o" << output + "/test-results.xml,junitxml";
+    return QTest::qExec(&test, arguments);
+  }
   int totalTestFailures = 0;
   if (qEnvironmentVariableIsSet("OPENSCAD_ANNOTATION_TESTS_ONLY")) return runTests<TestAnnotations>(window);
   std::cout << "******************************* RUN UX TESTS ********************************"
@@ -27,6 +36,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
   totalTestFailures += runTests<TestAnnotations>(window);
+  totalTestFailures += runTests<TestNavigation>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;
   std::cout << "Failures: " << totalTestFailures << std::endl;

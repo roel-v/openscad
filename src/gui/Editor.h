@@ -25,6 +25,7 @@ public:
   quint64 sourceRevision = 0;
   virtual void appendAnnotationUndo(int token) = 0;
   virtual void undoFromAnnotations(bool redo) = 0;
+  bool hasViewChanges() const;
   QSize sizeHint() const override
   {
     QSize size;

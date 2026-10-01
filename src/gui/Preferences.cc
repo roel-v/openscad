@@ -50,6 +50,7 @@
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSpacerItem>
 #include <QString>
@@ -175,15 +176,21 @@ void Preferences::init()
   this->defaultmap["editor/fontsize"] = 12;
   this->defaultmap["editor/syntaxhighlight"] = "For Light Background";
 
-  const QFont applicationFont = QTextDocument().defaultFont();
+  // Content fonts must not inherit the application's UI typography defaults.
+  const QFont platformFont = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+  QFont applicationFont = platformFont;
+#ifdef Q_OS_WIN
+  applicationFont.setFamily("Segoe UI");
+  applicationFont.setPointSize(10);
+#endif
   this->defaultmap["advanced/applicationFontFamily"] = applicationFont.family();
   this->defaultmap["advanced/applicationFontSize"] = applicationFont.pointSize();
 
   // Leave Console font with default if user has not chosen another.
-  this->defaultmap["advanced/consoleFontFamily"] = applicationFont.family();
-  this->defaultmap["advanced/consoleFontSize"] = applicationFont.pointSize();
+  this->defaultmap["advanced/consoleFontFamily"] = platformFont.family();
+  this->defaultmap["advanced/consoleFontSize"] = platformFont.pointSize();
 
-  // Leave Customizer font with default if user has not chosen another.
+  // getValue() resolves absent Customizer overrides against the current application settings.
   this->defaultmap["advanced/customizerFontFamily"] = applicationFont.family();
   this->defaultmap["advanced/customizerFontSize"] = applicationFont.pointSize();
 
@@ -568,7 +575,7 @@ void Preferences::setupFeaturesPage()
     row++;
 
     auto *cb = new QCheckBox(QString::fromStdString(feature->get_name()), pageFeatures);
-    QFont bold_font(cb->font());
+    QFont bold_font;
     bold_font.setBold(true);
     cb->setFont(bold_font);
     // synchronize Qt settings with the feature settings
@@ -917,9 +924,22 @@ void Preferences::on_consoleMaxLinesEdit_textChanged(const QString& text)
 
 void Preferences::fireApplicationFontChanged() const
 {
+  // Qt can change QFontComboBox's selection when its own inherited font changes. Do not
+  // mistake those notifications for a user selecting an independent content font.
+  const QSignalBlocker applicationBlocker(fontComboBoxApplicationFontFamily);
+  const QSignalBlocker customizerBlocker(customizerFontChooser);
+  const QSignalBlocker consoleBlocker(consoleFontChooser);
+  const QSignalBlocker editorBlocker(fontChooser);
   const auto family = getValue("advanced/applicationFontFamily").toString();
   const auto size = getValue("advanced/applicationFontSize").toUInt();
   emit applicationFontChanged(family, size);
+  emit customizerFontChanged(getValue("advanced/customizerFontFamily").toString(),
+                             getValue("advanced/customizerFontSize").toUInt());
+  updateGUIFontFamily(fontComboBoxApplicationFontFamily, "advanced/applicationFontFamily");
+  updateGUIFontFamily(customizerFontChooser, "advanced/customizerFontFamily");
+  updateGUIFontSize(customizerFontSize, "advanced/customizerFontSize");
+  updateGUIFontFamily(consoleFontChooser, "advanced/consoleFontFamily");
+  updateGUIFontFamily(fontChooser, "editor/fontfamily");
 }
 
 void Preferences::on_fontComboBoxApplicationFontFamily_currentFontChanged(const QFont& font)
@@ -1872,6 +1892,11 @@ void Preferences::removeDefaultSettings()
   QSettingsCached settings;
   for (QSettings::SettingsMap::const_iterator iter = this->defaultmap.begin();
        iter != this->defaultmap.end(); iter++) {
+    // An explicit UI font choice remains an override even if it currently equals the default.
+    if (iter.key() == "advanced/applicationFontFamily" || iter.key() == "advanced/applicationFontSize" ||
+        iter.key() == "advanced/customizerFontFamily" || iter.key() == "advanced/customizerFontSize") {
+      continue;
+    }
     if (settings.value(iter.key()) == iter.value()) {
       settings.remove(iter.key());
     }
@@ -1881,6 +1906,10 @@ void Preferences::removeDefaultSettings()
 QVariant Preferences::getValue(const QString& key) const
 {
   QSettingsCached settings;
+  if (!settings.contains(key)) {
+    if (key == "advanced/customizerFontFamily") return getValue("advanced/applicationFontFamily");
+    if (key == "advanced/customizerFontSize") return getValue("advanced/applicationFontSize");
+  }
   assert(settings.contains(key) || this->defaultmap.contains(key));
   return settings.value(key, this->defaultmap[key]);
 }
@@ -2088,13 +2117,13 @@ void Preferences::createFontSizeMenu(QComboBox *boxarg, const QString& setting)
   box->setEditText(QString("%1").arg(savedsize));
 }
 
-void Preferences::updateGUIFontFamily(QFontComboBox *ffSelector, const QString& setting)
+void Preferences::updateGUIFontFamily(QFontComboBox *ffSelector, const QString& setting) const
 {
   const auto fontfamily = getValue(setting).toString();
   BlockSignals<QFontComboBox *>(ffSelector)->setCurrentFont(QFont(fontfamily));
 }
 
-void Preferences::updateGUIFontSize(QComboBox *fsSelector, const QString& setting)
+void Preferences::updateGUIFontSize(QComboBox *fsSelector, const QString& setting) const
 {
   const auto fontsize = getValue(setting).toString();
   const auto sidx = fsSelector->findText(fontsize);

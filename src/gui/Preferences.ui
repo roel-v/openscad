@@ -1264,11 +1264,6 @@
               <property name="enabled">
                <bool>false</bool>
               </property>
-              <property name="font">
-               <font>
-                <pointsize>11</pointsize>
-               </font>
-              </property>
               <property name="text">
                <string>Last checked: </string>
               </property>

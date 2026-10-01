@@ -6,8 +6,6 @@
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QApplication>
-#include <QStylePainter>
-#include <QStyleOptionToolButton>
 #include <QPainterPath>
 #include <algorithm>
 #include <cmath>
@@ -18,16 +16,15 @@ public:
   NavigationArrow(int direction,QWidget *parent) : QToolButton(parent),direction(direction) {}
 protected:
   void paintEvent(QPaintEvent *) override {
-    QStylePainter painter(this);
-    QStyleOptionToolButton option;
-    initStyleOption(&option);
-    option.text.clear();
-    painter.drawComplexControl(QStyle::CC_ToolButton,option);
+    // Paint only the glyph: native/style-sheet button panels obscure the viewport on hover.
+    QPainter painter(this);
     painter.setRenderHint(QPainter::Antialiasing);
     const double side=std::min(width(),height());
     painter.translate((width()-side)/2,(height()-side)/2);
     painter.scale(side/20,side/20);
-    const auto color=palette().color(isEnabled() ? QPalette::Active : QPalette::Disabled,QPalette::ButtonText);
+    const auto role=isEnabled() && (underMouse() || hasFocus() || isDown())
+      ? QPalette::Highlight : QPalette::ButtonText;
+    const auto color=palette().color(isEnabled() ? QPalette::Active : QPalette::Disabled,role);
     if (direction<2) {
       if (direction==0) {painter.translate(20,0);painter.scale(-1,1);}
       painter.setPen(QPen(color,1.6,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
@@ -82,8 +79,7 @@ NavigationCube::NavigationCube(QGLView *view)
     button->setToolTip(names[i]);
     button->setAccessibleName(names[i]);
     button->setAutoRaise(true);
-    button->setStyleSheet("QToolButton { border: 0; padding: 0; background: transparent; }"
-                         "QToolButton:hover { background: palette(midlight); }");
+    button->setStyleSheet("QToolButton { border: 0; padding: 0; background: transparent; }");
     button->setAutoRepeat(false);
     button->installEventFilter(this);
     connect(button, &QToolButton::clicked, this, [this,i] {

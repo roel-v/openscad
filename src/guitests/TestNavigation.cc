@@ -514,6 +514,24 @@ void TestNavigation::popupAndTuning()
   settings->setTemporary("menuRight",17.0);
   QCOMPARE(view->navigationCube()->width(),168);
   QCOMPARE(view->navigationCube()->menuTriangle()->x(),view->width()-qRound(24*1.2)-17);
+  settings->setTemporary("idleOpacity",1.0);
+  settings->setTemporary("activeOpacity",1.0);
+  for (auto arrow : arrows) {
+    arrow->clearFocus();
+    // Render both hover states deterministically without competing with the user's desktop pointer.
+    arrow->setAttribute(Qt::WA_UnderMouse,false);
+    const auto normal=arrow->grab().toImage();
+    arrow->setAttribute(Qt::WA_UnderMouse,true);
+    const auto hover=arrow->grab().toImage();
+    QVERIFY2(hover!=normal,"Hover must visibly highlight the arrow glyph");
+    for (const auto point : {QPoint(0,0),QPoint(normal.width()-1,0),
+                            QPoint(0,normal.height()-1),QPoint(normal.width()-1,normal.height()-1)})
+      QCOMPARE(hover.pixelColor(point),normal.pixelColor(point));
+    arrow->setAttribute(Qt::WA_UnderMouse,false);
+  }
+  arrows.last()->setAttribute(Qt::WA_UnderMouse,true);
+  if (!output.isEmpty()) QVERIFY(window->grab().save(output+"/arrow-hover.png"));
+  arrows.last()->setAttribute(Qt::WA_UnderMouse,false);
   const auto originalDuration=NavigationSettings::persistent("duration",200).toInt();
   settings->setTemporary("duration",480);
   NavigationSettings::setPersistent("duration",320);

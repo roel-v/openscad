@@ -453,8 +453,7 @@ void QGLView::mouseReleaseEvent(QMouseEvent *event)
 
 const QImage& QGLView::grabFrame()
 {
-  // Force reading from front buffer. Some configurations will read from the back buffer here.
-  glReadBuffer(GL_FRONT);
+  // QOpenGLWidget owns an FBO, not a window-system front buffer. Qt selects its read target.
   this->frame = grabFramebuffer();
   return this->frame;
 }

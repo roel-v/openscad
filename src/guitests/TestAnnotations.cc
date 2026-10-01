@@ -100,6 +100,13 @@ void TestAnnotations::packagedAgentClient()
       QFile file(evidence.filePath("agent-f6-capture.png"));
       if (file.open(QIODevice::WriteOnly)) file.write(png);
       QCOMPARE(metadata.value("displayed_result_id"), rendered.value("displayed_result_id"));
+      const auto image = QImage::fromData(png);
+      QVERIFY(!image.isNull());
+      int varied = 0;
+      for (int y = 0; y < image.height(); y += 4)
+        for (int x = 0; x < image.width(); x += 4)
+          if (image.pixel(x, y) != image.pixel(0, 0)) ++varied;
+      QVERIFY(varied > 500); // A plausible receipt with a blank framebuffer is not evidence.
     });
   QTRY_VERIFY_WITH_TIMEOUT(captured, 6000);
   QVERIFY2(captureError.isEmpty(), qPrintable(captureError));

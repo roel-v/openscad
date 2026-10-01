@@ -463,7 +463,7 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     value["schema_version"] = 2;
     value["capabilities"] = QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
       "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read", "dependencies.read", "model.read", "parameters.read",
-      "annotations.read", "camera.set", "camera.restore", "viewport.capture"};
+      "annotations.read", "camera.set", "camera.restore", "viewport.capture", "saved_views.read", "saved_views.write"};
     value["state_generation"] = QString::number(stateGeneration);
     value["server_id"] = info.value("server_id");
     value["gui_heartbeat_age_ms"] = heartbeat ? double(now() - heartbeat) : -1;
@@ -538,7 +538,7 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     }
     enqueueV2(socket, path, body); return;
   }
-  if (method == "GET" && (path.startsWith("/v2/source-snapshots/") || path.startsWith("/v2/trees/"))) {
+  if (method == "GET" && (path.startsWith("/v2/source-snapshots/") || path.startsWith("/v2/trees/") || path.contains("/saved-views/pages/"))) {
     respond(socket, 410, {{"code", "expired"}, {"message", "Snapshot/page unavailable; capture explicitly again."}});
     return;
   }
@@ -556,6 +556,21 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     }
     enqueueV2(socket, path, body);
     return;
+  }
+  if (method == "POST" && QRegularExpression("^/v2/documents/[a-fA-F0-9-]{36}/saved-views(/[a-fA-F0-9-]{36}/(rename|remove|recall))?$").match(path).hasMatch()) {
+    QJsonParseError parse;
+    const auto doc = QJsonDocument::fromJson(bytes, &parse);
+    const auto body = doc.object();
+    const bool camera = path.endsWith("/saved-views") || path.endsWith("/recall");
+    if (parse.error != QJsonParseError::NoError || !doc.isObject() || !validId(body.value("request_id").toString()) ||
+        body.value("server_id") != info.value("server_id") || body.value("document_id") != path.section('/', 3, 3) ||
+        !validId(body.value("window_id").toString()) || !validId(body.value("viewport_id").toString()) ||
+        body.value("expected_library_revision").toString().isEmpty() ||
+        (camera && (body.value("expected_result_id").toString().isEmpty() || body.value("expected_view_revision").toString().isEmpty())) ||
+        (path.endsWith("/rename") && !body.value("name").isString())) {
+      respond(socket, 400, {{"code", "invalid_request"}, {"message", "Saved views require explicit target/library guards and camera guards for add/recall."}}); return;
+    }
+    enqueueV2(socket, path, body); return;
   }
   if (method == "GET" && path.startsWith("/v2/requests/")) {
     const auto id = path.mid(13);
@@ -612,13 +627,21 @@ void Transport::enqueueV2(QTcpSocket *socket, const QString& path, const QJsonOb
     respond(socket, jobs[id].input == fingerprint ? 200 : 409, jobs[id].input == fingerprint ? jobs[id].value : QJsonObject{{"code", "request_conflict"}});
     return;
   }
-  if (body.contains("expected_view_revision")) {
+  if (path.contains("/saved-views")) {
+    const auto state = snapshot.reads.value("/v2/documents/" + body.value("document_id").toString() + "/saved-views");
+    if (!state.value("available").toBool() || state.value("window_id") != body.value("window_id") ||
+        state.value("viewport_id") != body.value("viewport_id") || state.value("library_revision") != body.value("expected_library_revision")) {
+      respond(socket, 409, {{"code", "stale_library"}, {"message", "Saved-view library or displayed owner changed."}}); return;
+    }
+  }
+  if (body.contains("expected_view_revision") || path.contains("/saved-views")) {
     bool matched = false;
     for (const auto& entry : snapshot.status.value("viewports").toArray()) {
       const auto view = entry.toObject();
       if (view.value("viewport_id") == body.value("viewport_id") && view.value("window_id") == body.value("window_id") &&
-          view.value("document_id") == body.value("document_id") && view.value("displayed_result_id") == body.value("expected_result_id") &&
-          view.value("view_revision") == body.value("expected_view_revision") && !view.value("busy").toBool()) matched = true;
+          view.value("document_id") == body.value("document_id") && !view.value("busy").toBool() &&
+          (!body.contains("expected_view_revision") || (view.value("displayed_result_id") == body.value("expected_result_id") &&
+          view.value("view_revision") == body.value("expected_view_revision")))) matched = true;
     }
     if (!matched) { respond(socket, 409, {{"code", "stale_or_busy"}, {"message", "Refresh target/result/view after resolving busy interaction."}}); return; }
   }

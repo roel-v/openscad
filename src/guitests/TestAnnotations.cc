@@ -4,6 +4,8 @@
 #include "gui/annotations/AnnotationBridge.h"
 #include "gui/annotations/AgentSyntax.h"
 #include "gui/annotations/AgentModel.h"
+#include "gui/CameraNavigation.h"
+#include "gui/SavedViews.h"
 #include "core/parsersettings.h"
 #include "core/ParserInspection.h"
 #include "core/SourceFile.h"
@@ -51,6 +53,121 @@ QJsonObject agentRequest(const QJsonObject& info, const QString& route, const QJ
   result["http_status"] = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
   return result;
 }
+}
+
+void TestAnnotations::nativeSavedViews()
+{
+  window->designActionAutoReload->setChecked(false);
+  QTemporaryDir dir;
+  QFile source(dir.filePath("views.scad"));
+  QVERIFY(source.open(QIODevice::WriteOnly)); source.write("cube([10,5,3]);"); source.close();
+  window->tabManager->open(source.fileName());
+  auto editor = window->activeEditor;
+  window->actionRenderPreview();
+  window->qglview->viewAll();
+  QTRY_VERIFY(!window->qglview->navigation()->animating());
+  auto controller = window->annotationController;
+  auto store = SavedViews::forEditor(editor);
+  auto bridge = AgentAnnotations::Bridge::instance();
+  bridge->startAgent(false);
+  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  const auto info = bridge->connection();
+  const auto route = "/v2/documents/" + editor->annotations->sessionId + "/saved-views";
+  const auto nativeId = store->add(window->qglview->navigation()->current());
+  QVERIFY(!nativeId.isEmpty());
+  QTRY_COMPARE(agentRequest(info, route).value("views").toArray().size(), 1);
+  auto body = [&] {
+    const auto state = controller->status();
+    return QJsonObject{{"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
+      {"server_id", info.value("server_id")}, {"document_id", editor->annotations->sessionId},
+      {"window_id", controller->windowId}, {"viewport_id", controller->viewportId},
+      {"expected_result_id", state.value("displayed_result_id")}, {"expected_view_revision", state.value("view_revision")},
+      {"expected_library_revision", controller->savedViews().value("library_revision")}};
+  };
+  auto added = body();
+  QCOMPARE(agentRequest(info, route, added).value("http_status").toInt(), 202);
+  QJsonObject job;
+  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + added.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  const auto id = job.value("result").toObject().value("added_id").toString();
+  QVERIFY(store->find(id));
+  QCOMPARE(store->entries().size(), 2);
+  QCOMPARE(agentRequest(info, route, added).value("http_status").toInt(), 200);
+  QCOMPARE(store->entries().size(), 2);
+  QVERIFY(store->dirty()); QVERIFY(!editor->isContentModified());
+  QVERIFY(!QFileInfo::exists(SavedViews::companion(source.fileName())));
+  const auto original = controller->camera();
+  auto rename = body(); rename["name"] = "  Agent view  ";
+  rename.remove("expected_result_id"); rename.remove("expected_view_revision");
+  QCOMPARE(agentRequest(info, route + "/" + id + "/rename", rename).value("http_status").toInt(), 202);
+  QTRY_COMPARE(store->find(id)->name, QString("Agent view"));
+  QCOMPARE(controller->camera(), original);
+  auto stale = body(); store->rename(id, "Native edit");
+  QTRY_COMPARE(agentRequest(info, route + "/" + id + "/remove", stale).value("http_status").toInt(), 409);
+  auto changed = original; changed["projection"] = "orthographic"; changed["distance"] = original.value("distance").toDouble() * 1.7;
+  QString error; QVERIFY(controller->setCamera(changed, &error));
+  auto recall = body();
+  QCOMPARE(agentRequest(info, route + "/" + id + "/recall", recall).value("http_status").toInt(), 202);
+  QTRY_COMPARE(controller->camera(), original);
+  const auto sourceTime = QFileInfo(source.fileName()).lastModified();
+  QVERIFY(window->tabManager->save(editor));
+  QCOMPARE(QFileInfo(source.fileName()).lastModified(), sourceTime);
+  QVERIFY(!store->dirty());
+  SavedViews reopened;
+  QVERIFY(reopened.load(source.fileName()));
+  QCOMPARE(reopened.entries().size(), 2);
+  QCOMPARE(reopened.find(id)->name, QString("Native edit"));
+  const auto revision = controller->savedViews().value("library_revision");
+  window->tabManager->refreshDocument();
+  QCOMPARE(controller->savedViews().value("library_revision"), revision);
+  auto remove = body();
+  QCOMPARE(agentRequest(info, route + "/" + id + "/remove", remove).value("http_status").toInt(), 202);
+  QTRY_VERIFY(!store->find(id));
+  QCOMPARE(agentRequest(info, route + "/" + id + "/remove", remove).value("http_status").toInt(), 200);
+  QCOMPARE(store->entries().size(), 1);
+  // A transition snapshot records the currently displayed pose and cancels its destination.
+  auto navigation = window->qglview->navigation();
+  auto destination = navigation->current();
+  destination.rotation += Eigen::Vector3d(30, 20, 10);
+  navigation->settings.animate = true;
+  navigation->settings.duration = 1000;
+  navigation->navigate(destination);
+  QTest::qWait(40);
+  QVERIFY(navigation->animating());
+  const auto displayed = navigation->current();
+  error.clear();
+  const auto frozen = controller->savedViewOperation("add", {}, body(), &error);
+  QVERIFY2(error.isEmpty(), qPrintable(error));
+  const auto frozenId = frozen.value("added_id").toString();
+  QVERIFY(store->find(frozenId));
+  QVERIFY(store->find(frozenId)->camera == displayed);
+  QVERIFY(!navigation->animating());
+  QTest::qWait(60);
+  QVERIFY(navigation->current() == displayed);
+  store->remove(frozenId);
+  // Orthographic poses also survive recall after the viewport aspect changes, without fitting.
+  QVERIFY(controller->setCamera(changed, &error));
+  const auto ortho = controller->savedViewOperation("add", {}, body(), &error);
+  const auto orthoId = ortho.value("added_id").toString();
+  QVERIFY(store->find(orthoId));
+  const auto windowSize = window->size();
+  window->resize(windowSize.width() + 120, windowSize.height());
+  QTest::qWait(40);
+  QVERIFY(controller->setCamera(original, &error));
+  auto orthoRecall = body();
+  QCOMPARE(agentRequest(info, route + "/" + orthoId + "/recall", orthoRecall).value("http_status").toInt(), 202);
+  QTRY_COMPARE(controller->camera(), changed);
+  store->remove(orthoId);
+  window->resize(windowSize);
+  QVERIFY(controller->setCamera(original, &error));
+  // Guards bind the displayed owner even after another editor becomes active.
+  window->tabManager->actionNew();
+  QVERIFY(window->activeEditor != editor);
+  QCOMPARE(controller->owner(), editor);
+  QCOMPARE(agentRequest(info, route).value("views").toArray().size(), 1);
+  controller->startDrawing();
+  QCOMPARE(agentRequest(info, route, body()).value("http_status").toInt(), 409);
+  controller->cancelDrawing();
+  bridge->stop();
 }
 
 void TestAnnotations::packagedAgentClient()
@@ -121,6 +238,7 @@ void TestAnnotations::guardedViewport()
   editor->setPlainText("difference(){cube(10,center=true); cylinder(h=20,r=3,center=true);}");
   window->actionRenderPreview();
   window->qglview->viewAll();
+  QTRY_VERIFY(!window->qglview->navigation()->animating());
   auto controller = window->annotationController;
   auto bridge = AgentAnnotations::Bridge::instance();
   bridge->startAgent(false);

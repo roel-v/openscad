@@ -212,3 +212,34 @@ Each document/global history has an additional 512-KiB encoded bound, dropping o
 Customizer context exceeding 64 KiB is null; model dependency manifests cap at 64 KiB and remain explicitly incomplete.
 V2 responses cap at 1 MiB except explicit PNG-bearing responses (48 MiB); excessive JSON returns `response_limit`.
 These bounds supplement record counts and shared source/tree/job retention. No read recomputes geometry.
+
+## Native navigation adapter (phase 7)
+
+When `saved_views.read`/`saved_views.write` are advertised, GET `/v2/documents/{id}/saved-views` reads the native library
+of the displayed document. Another active editor does not retarget it. Non-displayed documents report unavailable.
+The response includes document/window/viewport IDs, opaque `library_revision`, dirty/problem state and ordered
+`views:[{id,name,camera}]`. Cameras use the same public SCAD conventions as `/view`. Follow `next_cursor` for pages of
+100 entries; cursors include the library revision and expire with 410 after native changes. No read opens a companion.
+
+POST the list route to add the displayed full camera under the native default name; the result returns `added_id`.
+POST `/v2/documents/{doc}/saved-views/{id}/rename` with `name`, or `/remove`, or `/recall`. Every operation requires
+request/server/document/window/viewport and `expected_library_revision`. Add and recall additionally require expected
+result/view guards. Admission and dispatch reject changed ownership/library state; identical receipt replay never
+duplicates additions or deletions. Results return library metadata, `views_route` and `viewport` state.
+
+Add freezes a native transition at its displayed camera. Recall restores pose/distance/FOV/projection immediately
+through the native operation boundary, with one final notification, no fit, guide or viewport-size restoration.
+Core agent camera actions likewise use immediate native application and cancel queued transitions; UI animation
+preferences remain unchanged. Native animation/script-camera consumers may still reevaluate afterward.
+Rename/remove never move the camera. Names follow native trim/256-UTF-16-unit rules; a blank name leaves the old name.
+The native library caps at 1,000 entries. Native load/conflict problems reject mutations; no alternate store is created.
+
+All changes remain in native memory until ordinary Save/Save As/copy/all; source reload preserves them. No HTTP save
+endpoint exists. Metadata-only Save preserves source timestamps; copy retains original dirty state. The native
+feature owns persistence and history policy. IDs/revisions are scoped to the live owning document, not file paths.
+
+With this adapter, all agent and legacy fresh captures use native ModelOnly readback. Its scope guard excludes axes,
+scale markers, crosshairs, statistics, navigation controls, palette and historical marks, retaining model surfaces
+and edges and restoring live preferences on every exit. `capture_policy:model_only_without_guides_statistics_or_controls`
+describes this integrated policy. Original annotation images stay immutable. Capture cancels remaining native camera
+transition callbacks before binding its frame, and never starts another animation controller.

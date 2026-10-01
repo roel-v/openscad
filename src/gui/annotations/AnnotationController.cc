@@ -7,6 +7,8 @@
 #include "gui/MainWindow.h"
 #include "gui/QGLView.h"
 #include "gui/Preferences.h"
+#include "gui/CameraNavigation.h"
+#include "gui/SavedViews.h"
 #include "glview/RenderSettings.h"
 #include "core/SourceFileCache.h"
 #include <QApplication>
@@ -240,6 +242,7 @@ Controller::Controller(MainWindow *mainWindow)
     }
     emit changed();
   });
+  connect(view->navigation(), &CameraNavigation::displayChanged, this, [this] { viewRevision(); emit changed(); });
   connect(view, &QGLView::frameAboutToRender, this, [this] {
     viewRevision();
     if (drafting() && display() != draftDisplay) {
@@ -296,6 +299,7 @@ void Controller::bindEditors()
   for (auto editor : window->tabManager->editorList) {
     if (editor->property("annotationControllerBound").toBool()) continue;
     editor->setProperty("annotationControllerBound", true);
+    connect(SavedViews::forEditor(editor), &SavedViews::changed, this, &Controller::changed);
     connect(editor->annotations, &Store::sessionChanged, this, [this, editor] {
       if (draftOwner == editor) cancelDrawing();
       if (owner() == editor) {
@@ -438,14 +442,16 @@ bool Controller::setCamera(const QJsonObject& value, QString *error)
   if (!std::isfinite(distance) || distance <= 0 || distance > 1e12 || !std::isfinite(fov) || fov <= 0 ||
       fov >= 180 || (projection != "orthographic" && projection != "perspective"))
     return fail("Invalid camera distance, FOV or projection.");
-  view->cam.setVpt(translation[0].toDouble(), translation[1].toDouble(), translation[2].toDouble());
-  view->cam.setVpr(rotation[0].toDouble(), rotation[1].toDouble(), rotation[2].toDouble());
-  view->cam.setVpd(distance);
-  view->cam.setVpf(fov);
-  view->cam.setProjection(projection == "orthographic" ? Camera::ProjectionType::ORTHOGONAL
+  auto native = view->cam;
+  native.setVpt(translation[0].toDouble(), translation[1].toDouble(), translation[2].toDouble());
+  native.setVpr(rotation[0].toDouble(), rotation[1].toDouble(), rotation[2].toDouble());
+  native.setVpd(distance);
+  native.setVpf(fov);
+  native.setProjection(projection == "orthographic" ? Camera::ProjectionType::ORTHOGONAL
                                                        : Camera::ProjectionType::PERSPECTIVE);
-  view->update();
-  emit view->cameraChanged();
+  if (!view->navigation()->permitted()) return fail("Native navigation is locked.");
+  view->navigation()->cancel();
+  view->navigation()->apply(CameraPose::from(native));
   emit changed();
   return true;
 }
@@ -472,6 +478,7 @@ QString Controller::viewRevision() const
 bool Controller::cameraOperation(const QJsonObject& operation, QString *error)
 {
   if (busy() || QApplication::activeModalWidget()) { *error = "Viewport is busy."; return false; }
+  if (!view->navigation()->permitted()) { *error = "Native navigation is locked."; return false; }
   const auto kind = operation.value("operation").toString("set");
   if (kind == "set") return setCamera(operation.value("camera").toObject(), error);
   if (kind == "projection") {
@@ -479,22 +486,80 @@ bool Controller::cameraOperation(const QJsonObject& operation, QString *error)
     value["projection"] = operation.value("projection");
     return setCamera(value, error);
   }
-  if (kind == "fit") view->viewAll();
+  auto native = view->cam;
+  if (kind == "fit") {
+    if (view->getRenderer()) { native.autocenter = true; native.viewAll(view->getRenderer()->getBoundingBox()); }
+  }
   else if (kind == "standard") {
     const auto name = operation.value("view").toString();
-    if (name == "top") window->on_viewActionTop_triggered();
-    else if (name == "bottom") window->on_viewActionBottom_triggered();
-    else if (name == "left") window->on_viewActionLeft_triggered();
-    else if (name == "right") window->on_viewActionRight_triggered();
-    else if (name == "front") window->on_viewActionFront_triggered();
-    else if (name == "back") window->on_viewActionBack_triggered();
-    else if (name == "diagonal") window->on_viewActionDiagonal_triggered();
+    if (name == "top") native.object_rot << 90, 0, 0;
+    else if (name == "bottom") native.object_rot << 270, 0, 0;
+    else if (name == "left") native.object_rot << 0, 0, 90;
+    else if (name == "right") native.object_rot << 0, 0, 270;
+    else if (name == "front") native.object_rot << 0, 0, 0;
+    else if (name == "back") native.object_rot << 0, 0, 180;
+    else if (name == "diagonal") native.object_rot << 35, 0, -25;
     else { *error = "Unknown standard view."; return false; }
   } else { *error = "Unknown camera operation."; return false; }
-  view->update();
-  emit view->cameraChanged();
+  view->navigation()->cancel();
+  view->navigation()->apply(CameraPose::from(native));
   emit changed();
   return true;
+}
+QJsonObject Controller::savedViews() const
+{
+  auto editor = owner();
+  auto store = editor ? editor->findChild<SavedViews *>(QString(), Qt::FindDirectChildrenOnly) : nullptr;
+  if (!store) return {{"available", false}, {"reason", "No displayed saved-view library."}};
+  QJsonArray entries;
+  for (const auto& entry : store->entries()) {
+    Camera native = view->cam;
+    entry.camera.apply(native);
+    const auto rotation = native.getVpr(), translation = native.getVpt();
+    entries.append(QJsonObject{{"id", entry.id}, {"name", entry.name}, {"camera", QJsonObject{
+      {"rotation", QJsonArray{rotation.x(), rotation.y(), rotation.z()}},
+      {"translation", QJsonArray{translation.x(), translation.y(), translation.z()}},
+      {"distance", entry.camera.distance}, {"fov", entry.camera.fov},
+      {"projection", entry.camera.projection == Camera::ProjectionType::ORTHOGONAL ? "orthographic" : "perspective"}}}});
+  }
+  return {{"available", true}, {"document_id", editor->annotations->sessionId}, {"window_id", windowId},
+    {"viewport_id", viewportId}, {"library_revision", editor->annotations->sessionId + ":" + QString::number(store->revision())},
+    {"dirty", store->dirty()}, {"problem", store->problem()}, {"views", entries}};
+}
+QJsonObject Controller::savedViewOperation(const QString& action, const QString& id,
+                                          const QJsonObject& request, QString *error)
+{
+  const auto state = savedViews();
+  if (!owner() || !state.value("available").toBool() || state.value("library_revision") != request.value("expected_library_revision")) {
+    *error = "Saved-view library changed or is unavailable."; return {};
+  }
+  auto store = SavedViews::forEditor(owner());
+  if (!store->problem().isEmpty()) { *error = store->problem(); return {}; }
+  QString added;
+  if (action == "add") {
+    if (!view->navigation()->permitted()) { *error = "Native navigation is locked."; return {}; }
+    view->navigation()->cancel(); // Freeze the displayed transition camera, never its destination.
+    added = store->add(view->navigation()->current());
+    if (added.isEmpty()) { *error = "Native saved-view limit or invalid camera."; return {}; }
+  } else {
+    const auto entry = store->find(id);
+    if (!entry) { *error = "Saved view no longer exists."; return {}; }
+    if (action == "rename") store->rename(id, request.value("name").toString());
+    else if (action == "remove") store->remove(id);
+    else if (action == "recall") {
+      if (!view->navigation()->permitted()) { *error = "Native navigation is locked."; return {}; }
+      const auto pose = entry->camera;
+      view->navigation()->cancel();
+      view->navigation()->apply(pose);
+    } else { *error = "Unknown saved-view action."; return {}; }
+  }
+  auto response = savedViews();
+  response.remove("views");
+  response["views_route"] = "/v2/documents/" + owner()->annotations->sessionId + "/saved-views";
+  response["viewport"] = status();
+  if (!added.isEmpty()) response["added_id"] = added;
+  emit changed();
+  return response;
 }
 void Controller::beginEvaluation(const QString& source)
 {
@@ -836,6 +901,7 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
     return;
   }
   capturePending = true;
+  view->navigation()->cancel();
   captureDone = std::move(done);
   const auto token = ++captureToken;
   QPointer<EditorInterface> target = owner();
@@ -856,7 +922,7 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
         finishFrame("Capture target changed.");
         return;
       }
-      QImage image = view->grabFrame().copy();
+      QImage image = view->grabFrame(QGLView::CaptureContent::ModelOnly).copy();
       image.setDevicePixelRatio(1);
       if (image.isNull() || qint64(image.width()) * image.height() > 64000000) {
         finishFrame("Invalid/oversized viewport framebuffer.");
@@ -881,7 +947,7 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
         {"camera", boundCamera},
         {"view_revision", boundView},
         {"displayed_result_id", boundResult.value("result_id")},
-        {"capture_policy", "native_renderer_without_annotation_controls_or_historical_marks"},
+        {"capture_policy", "model_only_without_guides_statistics_or_controls"},
         {"modelview", modelview},
         {"projection_matrix", projection},
         {"result", boundResult},

@@ -47,6 +47,8 @@ public:
   bool setCamera(const QJsonObject& camera, QString *error);
   bool cameraOperation(const QJsonObject& operation, QString *error);
   QString viewRevision() const;
+  QJsonObject savedViews() const;
+  QJsonObject savedViewOperation(const QString& action, const QString& id, const QJsonObject& request, QString *error);
   void cancelCapture() { finishFrame("Agent access stopped."); }
   void capture(const QString& expectedResult,
                std::function<void(QJsonObject, QByteArray, QString)> done);

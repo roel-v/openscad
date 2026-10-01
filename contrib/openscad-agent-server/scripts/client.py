@@ -196,6 +196,22 @@ def parser():
     p = sub.add_parser("snapshot"); p.add_argument("id", type=identifier)
     p = sub.add_parser("outcome"); p.add_argument("id", type=identifier); p.add_argument("--output")
     p = sub.add_parser("get"); p.add_argument("route"); p.add_argument("--output")
+    p = sub.add_parser("saved-views"); p.add_argument("--document", required=True, type=identifier)
+    for name in ("saved-add", "saved-rename", "saved-remove", "saved-recall"):
+        p = sub.add_parser(name)
+        p.add_argument("--document", required=True, type=identifier)
+        p.add_argument("--window", required=True, type=identifier)
+        p.add_argument("--viewport", required=True, type=identifier)
+        p.add_argument("--expected-library", required=True)
+        p.add_argument("--request-id", type=identifier)
+        p.add_argument("--timeout", type=float, default=60)
+        if name in ("saved-add", "saved-recall"):
+            p.add_argument("--expected-result", required=True)
+            p.add_argument("--expected-view", required=True)
+        if name != "saved-add":
+            p.add_argument("id", type=identifier)
+        if name == "saved-rename":
+            p.add_argument("--name", required=True)
     for name in ("source", "parse", "view", "restore", "capture", "cancel", "post"):
         p = sub.add_parser(name)
         p.add_argument("--request-id", type=identifier)
@@ -236,6 +252,23 @@ def run(args):
     info = connection(json.loads(Path(args.connection).read_text(encoding="utf-8-sig")))
     live = verify(info)
     command = args.command
+    if command == "saved-views" or command.startswith("saved-"):
+        reading = command == "saved-views"
+        capability = "saved_views.read" if reading else "saved_views.write"
+        if capability not in live.get("capabilities", []):
+            raise AgentError(f"Unsupported capability: {capability}")
+        route = f"/v2/documents/{args.document}/saved-views"
+        if reading:
+            return request(info, "GET", route)
+        body = {"document_id": args.document, "window_id": args.window, "viewport_id": args.viewport,
+                "expected_library_revision": args.expected_library, "request_id": args.request_id or str(uuid.uuid4())}
+        if command in ("saved-add", "saved-recall"):
+            body.update(expected_result_id=args.expected_result, expected_view_revision=args.expected_view)
+        if command != "saved-add":
+            route += f"/{args.id}/{command[6:]}"
+        if command == "saved-rename":
+            body["name"] = args.name
+        return operation(info, route, body, args.timeout)
     if command == "info":
         return live
     if command in ("status", "documents", "viewports"):

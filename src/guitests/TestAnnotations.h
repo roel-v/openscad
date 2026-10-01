@@ -11,6 +11,7 @@ private slots:
   void modelInspection();
   void guardedViewport();
   void packagedAgentClient();
+  void nativeSavedViews();
   void documentLifecycle();
   void viewportWorkflow();
   void agentAndAutomaticReload();

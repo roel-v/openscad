@@ -44,6 +44,17 @@ def main():
     assert Path(image["result"]["image_file"]).is_file()
     assert run("outcome", image["request_id"])["state"] == "succeeded"
     run("annotations", "--document", document)
+    if "saved_views.write" in info["capabilities"]:
+        library = run("saved-views", "--document", document)
+        added = run("saved-add", *target, *guards, "--expected-library", library["library_revision"])["result"]
+        renamed = run("saved-rename", added["added_id"], *target, "--viewport", viewport,
+                      "--expected-library", added["library_revision"], "--name", "CLI view")["result"]
+        recalled = run("saved-recall", added["added_id"], *target, *guards,
+                       "--expected-library", renamed["library_revision"])["result"]
+        removed = run("saved-remove", added["added_id"], *target, "--viewport", viewport,
+                      "--expected-library", recalled["library_revision"])["result"]
+        assert removed["dirty"]
+        assert image["result"]["capture_policy"] == "model_only_without_guides_statistics_or_controls"
     Path(destination, "client-workflow.json").write_text(json.dumps(calls, indent=2), encoding="utf-8")
     print(json.dumps({"commands_passed": len(calls), "server_id": info["server_id"]}))
 

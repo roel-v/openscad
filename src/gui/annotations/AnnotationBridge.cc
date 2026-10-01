@@ -202,6 +202,18 @@ void Bridge::publish()
                     {"annotation_revision", QString::number(editor->annotations->revision())},
                     {"diagnostic", editor->annotations->diagnostic()}});
       snapshot.records.insert(id, editor->annotations->records());
+      const auto savedRoute = "/v2/documents/" + id + "/saved-views";
+      auto savedState = controller->owner() == editor ? controller->savedViews() :
+        QJsonObject{{"available", false}, {"document_id", id}, {"reason", "Document does not own this viewport."}};
+      const auto views = savedState.take("views").toArray();
+      const auto versioned = savedRoute + "/pages/" + savedState.value("library_revision").toString() + "/";
+      for (int offset = 0; offset < qMax(1, int(views.size())); offset += 100) {
+        QJsonArray page;
+        for (int n = offset; n < qMin(offset + 100, int(views.size())); ++n) page.append(views[n]);
+        auto value = savedState; value["views"] = page;
+        value["next_cursor"] = offset + 100 < views.size() ? QJsonValue(versioned + QString::number(offset / 100 + 1)) : QJsonValue(QJsonValue::Null);
+        snapshot.reads.insert(offset == 0 ? savedRoute : versioned + QString::number(offset / 100), value);
+      }
       auto parameters = editor->parameterWidget->annotationValues();
       QJsonObject parameterState{{"document_id", id}, {"source_revision", QString::number(editor->sourceRevision)},
         {"origin", "current_customizer"}, {"values", parameters}, {"metadata_available", false},
@@ -274,7 +286,8 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
       },
       Qt::QueuedConnection);
   };
-  if (path.startsWith("/v2/documents/")) {
+  const bool saved = path.startsWith("/v2/documents/") && path.contains("/saved-views");
+  if (path.startsWith("/v2/documents/") && !saved) {
     for (const auto& controller : controllers) {
       if (!controller || controller->windowId != body.value("window_id")) continue;
       for (auto editor : controller->editors()) {
@@ -323,11 +336,18 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
   }
   const auto expected = body.value("expected_result_id").toString();
   const bool v2 = path.startsWith("/v2/");
+  const bool metadataOnly = saved && (path.endsWith("/rename") || path.endsWith("/remove"));
   const auto state = target->status();
-  if ((v2 ? state.value("displayed_result_id").toString() : state.value("result").toObject().value("id").toString()) != expected ||
-      (v2 && target->viewRevision() != body.value("expected_view_revision").toString())) {
+  if (!metadataOnly && ((v2 ? state.value("displayed_result_id").toString() : state.value("result").toObject().value("id").toString()) != expected ||
+      (v2 && target->viewRevision() != body.value("expected_view_revision").toString()))) {
     done({}, {}, "Rendered result changed.");
     return;
+  }
+  if (saved) {
+    QString error;
+    const auto action = path.endsWith("/saved-views") ? QString("add") : path.section('/', 6, 6);
+    const auto result = target->savedViewOperation(action, path.section('/', 5, 5), body, &error);
+    publish(); done(result, {}, error); return;
   }
   if (path == "/v1/capture" || path == "/v2/capture") {
     target->capture(state.value("result").toObject().value("id").toString(), done);

@@ -52,3 +52,9 @@ already running noninterruptible native work can finish, but cannot publish into
 Run client regressions with `python -m unittest discover -s tests`. Native Qt tests cover GUI identity, parser/model
 lifetimes, camera locks and real captures. Platform/build evidence belongs to the distributor; these files do not
 claim clean-machine or non-Windows validation.
+
+When navigation capabilities are advertised, `saved-views --document DOC` lists its native entries. Use `saved-add`,
+`saved-rename ID --name NAME`, `saved-remove ID`, or `saved-recall ID`, each with explicit document/window/viewport
+and `--expected-library REV`. Add/recall also require `--expected-result` and `--expected-view`. These commands never
+save files. Read their help for complete arguments. Clean integrated capture excludes guides and navigation controls;
+the viewport retains its live preferences. Core-only builds do not advertise saved views.

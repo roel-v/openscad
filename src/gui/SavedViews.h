@@ -14,6 +14,7 @@ public:
   static SavedViews *forEditor(EditorInterface *editor);
   const QVector<Entry>& entries() const { return records; }
   bool dirty() const { return modified; }
+  quint64 revision() const { return generation; }
   QString problem() const { return loadError; }
   QString add(const CameraPose& pose);
   void rename(const QString& id, const QString& name);
@@ -29,6 +30,7 @@ signals:
   void changed();
 private:
   QVector<Entry> records;
+  quint64 generation = 0;
   QString identity, loadError;
   QByteArray fingerprint;
   bool modified=false, existed=false;

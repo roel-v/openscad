@@ -14,6 +14,10 @@ private:
   QToolButton toggleButton;
   QWidget contentArea;
   QVBoxLayout contentLayout;
+  void updateSpacing();
+
+protected:
+  void changeEvent(QEvent *event) override;
 
 public:
   GroupWidget(const QString& title, QWidget *parent = nullptr);

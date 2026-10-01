@@ -26,6 +26,7 @@
 #include "gui/parameter/ParameterWidget.h"
 
 #include <QAction>
+#include <QEvent>
 #include <QInputDialog>
 #include <QLayoutItem>
 #include <QMenu>
@@ -46,6 +47,7 @@
 
 #include "core/customizer/ParameterObject.h"
 #include "gui/Preferences.h"
+#include "gui/UIUtils.h"
 #include "gui/parameter/GroupWidget.h"
 #include "gui/parameter/ParameterCheckBox.h"
 #include "gui/parameter/ParameterComboBox.h"
@@ -58,6 +60,7 @@
 ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
 {
   setupUi(this);
+  updateSpacing();
   scrollAreaWidgetContents->layout()->setAlignment(Qt::AlignTop);
 
   autoPreviewTimer.setInterval(1000);
@@ -81,6 +84,22 @@ ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
 
   connect(GlobalPreferences::inst(), &Preferences::customizerFontChanged, this,
           &ParameterWidget::setFontFamilySize);
+}
+
+void ParameterWidget::updateSpacing()
+{
+  const int horizontal = UIUtils::layoutSpacing(this, Qt::Horizontal);
+  const int vertical = UIUtils::layoutSpacing(this, Qt::Vertical);
+  layout()->setContentsMargins(horizontal, vertical, horizontal, vertical);
+  layout()->setSpacing(vertical);
+  scrollAreaWidgetContents->layout()->setContentsMargins(0, 0, 0, 0);
+  scrollAreaWidgetContents->layout()->setSpacing(vertical);
+}
+
+void ParameterWidget::changeEvent(QEvent *event)
+{
+  QWidget::changeEvent(event);
+  if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange) updateSpacing();
 }
 
 // Can only be called before the initial setParameters().

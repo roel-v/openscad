@@ -1,5 +1,8 @@
 #include "gui/parameter/ParameterVirtualWidget.h"
+#include "gui/UIUtils.h"
 
+#include <QBoxLayout>
+#include <QEvent>
 #include <QRegularExpression>
 #include <QSizePolicy>
 #include <QWidget>
@@ -11,6 +14,26 @@
 ParameterDescriptionWidget::ParameterDescriptionWidget(QWidget *parent) : QWidget(parent)
 {
   setupUi(this);
+  QFont emphasis;
+  emphasis.setWeight(QFont::Medium);
+  labelParameter->setFont(emphasis);
+  labelParameter->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+  labelParameter->setWordWrap(true);
+  labelInline->setWordWrap(true);
+  setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  updateSpacing();
+}
+
+void ParameterDescriptionWidget::updateSpacing()
+{
+  verticalLayout->setSpacing(UIUtils::layoutSpacing(this, Qt::Vertical) / 2);
+  horizontalLayout->setSpacing(UIUtils::layoutSpacing(this, Qt::Horizontal) / 2);
+}
+
+void ParameterDescriptionWidget::changeEvent(QEvent *event)
+{
+  QWidget::changeEvent(event);
+  if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange) updateSpacing();
 }
 
 void ParameterDescriptionWidget::setDescription(ParameterObject *parameter,
@@ -45,12 +68,29 @@ ParameterVirtualWidget::ParameterVirtualWidget(QWidget *parent, ParameterObject 
 {
   QSizePolicy policy;
   policy.setHorizontalPolicy(QSizePolicy::Ignored);
-  policy.setVerticalPolicy(QSizePolicy::Maximum);
+  policy.setVerticalPolicy(QSizePolicy::Preferred);
   policy.setHorizontalStretch(0);
   policy.setVerticalStretch(0);
   this->setSizePolicy(policy);
 
-  setContentsMargins(4, 0, 4, 0);
+  // The group owns the content inset; individual fields must not add it again.
+  setContentsMargins(0, 0, 0, 0);
+}
+
+bool ParameterVirtualWidget::event(QEvent *event)
+{
+  const bool result = QWidget::event(event);
+  if (event->type() == QEvent::Polish || event->type() == QEvent::FontChange ||
+      event->type() == QEvent::StyleChange) {
+    // Derived widgets install their Designer layouts after our constructor.
+    for (auto *box : findChildren<QBoxLayout *>()) {
+      const auto direction = box->direction();
+      const auto orientation = direction == QBoxLayout::LeftToRight || direction == QBoxLayout::RightToLeft
+                                 ? Qt::Horizontal : Qt::Vertical;
+      box->setSpacing(UIUtils::layoutSpacing(this, orientation) / 2);
+    }
+  }
+  return result;
 }
 
 int ParameterVirtualWidget::decimalsRequired(double value)

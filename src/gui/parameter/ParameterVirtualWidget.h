@@ -17,6 +17,12 @@ class ParameterDescriptionWidget : public QWidget, public Ui::ParameterDescripti
 public:
   ParameterDescriptionWidget(QWidget *parent);
   void setDescription(ParameterObject *parameter, DescriptionStyle descriptionStyle);
+
+protected:
+  void changeEvent(QEvent *event) override;
+
+private:
+  void updateSpacing();
 };
 
 class ParameterVirtualWidget : public QWidget
@@ -41,6 +47,7 @@ private:
   ParameterObject *parameter;
 
 protected:
+  bool event(QEvent *event) override;
   static int decimalsRequired(double value);
   static int decimalsRequired(const std::vector<double>& values);
 };

@@ -51,6 +51,7 @@ private:
   QString invalidJsonFile;  // set if a json file was read that could not be parsed
   QTimer autoPreviewTimer;
   bool modified = false;
+  void updateSpacing();
 
 public:
   ParameterWidget(QWidget *parent = nullptr);
@@ -92,6 +93,7 @@ signals:
   void modificationChanged();
 
 protected:
+  void changeEvent(QEvent *event) override;
   struct ParameterGroup {
     QString name;
     std::vector<ParameterObject *> parameters;

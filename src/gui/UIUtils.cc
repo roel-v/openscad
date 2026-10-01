@@ -38,6 +38,7 @@
 #include <QRegularExpression>
 #include <QString>
 #include <QStringList>
+#include <QStyle>
 #include <QUrl>
 #include <QWidget>
 #include <algorithm>
@@ -50,6 +51,18 @@
 #include "gui/QSettingsCached.h"
 #include "platform/PlatformUtils.h"
 #include "version.h"
+
+int UIUtils::layoutSpacing(const QWidget *widget, Qt::Orientation orientation)
+{
+  const auto *style = widget->style();
+  int gap = style->pixelMetric(orientation == Qt::Horizontal ? QStyle::PM_LayoutHorizontalSpacing
+                                                           : QStyle::PM_LayoutVerticalSpacing,
+                               nullptr, widget);
+  if (gap < 0) {
+    gap = style->layoutSpacing(QSizePolicy::Label, QSizePolicy::LineEdit, orientation, nullptr, widget);
+  }
+  return gap < 0 ? std::max(1, widget->fontMetrics().height() / 3) : gap;
+}
 
 namespace {
 

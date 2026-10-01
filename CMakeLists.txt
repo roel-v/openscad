@@ -1384,6 +1384,7 @@ set(GUI_SOURCES
   src/gui/SettingsWriter.cc
   src/gui/TabManager.cc
   src/gui/UIUtils.cc
+  src/gui/Icons.cc
   src/gui/WindowManager.cc
   src/gui/IgnoreWheelWhenNotFocused.cc
   src/gui/input/AxisConfigWidget.cc
@@ -1576,6 +1577,7 @@ else()
   list(APPEND RESOURCE_FILES
     ${RESOURCE_DIR}/common.qrc
     ${RESOURCE_DIR}/icons-chokusen.qrc
+    ${RESOURCE_DIR}/icons-tabler.qrc
     ${RESOURCE_DIR}/icons-chokusen-dark.qrc
   )
   # GUI_UIS for .ui files to be indexed by Qt Creator despite AUTOUIC usage

@@ -241,6 +241,11 @@ SettingsEntryBool Settings::tlsSkipVerify("network", "tlsSkipVerify", false);
 SettingsEntryEnum<std::string> Settings::renderBackend3D(
   "advanced", "renderBackend3D",
   {{"CGAL", "cgal", "CGAL (old/slow)"}, {"Manifold", "manifold", "Manifold (new/fast)"}}, "Manifold");
+SettingsEntryEnum<StatusIconAppearance> Settings::statusIconAppearance(
+  "advanced", "statusIconAppearance",
+  {{StatusIconAppearance::Monochrome, "monochrome", "Monochrome"},
+   {StatusIconAppearance::Native, "native", "Native Qt status"},
+   {StatusIconAppearance::Colored, "colored", "Colored Tabler status"}}, StatusIconAppearance::Native);
 SettingsEntryEnum<std::string> Settings::toolbarExport3D(
   "advanced", "toolbarExport3D", createFileFormatItems(fileformat::all3D()),
   fileformat::info(FileFormat::ASCII_STL).description);

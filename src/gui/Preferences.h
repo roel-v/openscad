@@ -36,6 +36,7 @@ public:
 
   QVariant getValue(const QString& key) const;
   void init();
+  QComboBox *statusIconAppearance = nullptr;
   void update();
   void apply_win() const;
   void updateGUI();

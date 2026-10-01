@@ -383,6 +383,8 @@ private:
 
 class SettingsVisitor;
 
+enum class StatusIconAppearance { Monochrome, Native, Colored };
+
 class Settings
 {
 public:
@@ -433,6 +435,7 @@ public:
   static SettingsEntryBool manifoldEnabled;
   static SettingsEntryEnum<std::string> renderBackend3D;
   static SettingsEntryEnum<std::string> toolbarExport3D;
+  static SettingsEntryEnum<StatusIconAppearance> statusIconAppearance;
   static SettingsEntryEnum<std::string> toolbarExport2D;
 
   static SettingsEntryBool summaryCamera;

@@ -22,7 +22,8 @@ CAD distinctions:
 Status colors come from the active QStyle standard message icons, not QPalette semantic roles (none exist).
 The renderer selects the most frequent opaque saturated color in the native icon. If there is no colored
 ink, it uses the current text foreground. High-contrast mode uses system foregrounds. Normal action icons
-use the control palette; native status is the default, with monochrome and colored Tabler alternatives.
+keep their palette colors; colored status outlines adjust native tint brightness only if needed for 3:1 contrast.
+Native status is the default, with monochrome and colored Tabler alternatives.
 
 Coverage includes Designer actions/buttons, dynamic animation/export icons, input assignment errors,
 OctoPrint pixmaps, compile banners and application-owned message boxes. Branding, welcome backgrounds,

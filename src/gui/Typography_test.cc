@@ -104,6 +104,8 @@ void applyConfiguredFont()
 
 }  // namespace
 
+void initializeGuiTestApplication() { typographyApp(); }
+
 TEST_CASE("UI font inheritance preserves independent content fonts", "[ui-typography]")
 {
   auto& app = typographyApp();

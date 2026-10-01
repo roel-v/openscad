@@ -83,6 +83,7 @@
 #include "gui/PrintService.h"
 #include "gui/QSettingsCached.h"
 #include "gui/SettingsWriter.h"
+#include "gui/Icons.h"
 
 static const char *featurePropertyName = "FeatureProperty";
 
@@ -144,6 +145,20 @@ class SettingsReader : public Settings::SettingsVisitor
 Preferences::Preferences(QWidget *parent) : QMainWindow(parent)
 {
   setupUi(this);
+  auto *iconRow = new QHBoxLayout;
+  auto *iconLabel = new QLabel(_("Status icon appearance"), groupBox_UI);
+  statusIconAppearance = new QComboBox(groupBox_UI);
+  statusIconAppearance->setObjectName("statusIconAppearance");
+  iconLabel->setBuddy(statusIconAppearance);
+  iconRow->addWidget(iconLabel);
+  iconRow->addWidget(statusIconAppearance);
+  iconRow->addStretch();
+  verticalLayout_13->insertLayout(1, iconRow);
+  connect(statusIconAppearance, QOverload<int>::of(&QComboBox::activated), this, [this](int index) {
+    Settings::Settings::statusIconAppearance.setIndex(index);
+    writeSettings();
+    Icons::refresh();
+  });
 
   std::list<std::string> names = ColorMap::instance().colorSchemeNames(true);
   QStringList renderColorSchemes;
@@ -426,6 +441,10 @@ void Preferences::init()
   initComboBox(this->comboBoxLocalAppFileFormat, Settings::Settings::localAppFileFormat);
   initComboBox(this->comboBoxRenderBackend3D, Settings::Settings::renderBackend3D);
   initComboBox(this->comboBoxToolbarExport3D, Settings::Settings::toolbarExport3D);
+  initComboBox(statusIconAppearance, Settings::Settings::statusIconAppearance);
+  statusIconAppearance->setItemText(0, _("Monochrome"));
+  statusIconAppearance->setItemText(1, _("Native Qt status"));
+  statusIconAppearance->setItemText(2, _("Colored Tabler status"));
   initComboBox(this->comboBoxToolbarExport2D, Settings::Settings::toolbarExport2D);
 
   initListBox(this->listWidgetLocalAppParams, Settings::Settings::localAppParameterList);
@@ -1988,6 +2007,8 @@ void Preferences::updateGUI()
   BlockSignals<QCheckBox *>(this->enableRangeCheckBox)
     ->setChecked(getValue("advanced/enableParameterRangeCheck").toBool());
   updateComboBox(this->comboBoxToolbarExport3D, Settings::Settings::toolbarExport3D);
+  updateComboBox(statusIconAppearance, Settings::Settings::statusIconAppearance);
+  Icons::refresh();
   updateComboBox(this->comboBoxToolbarExport2D, Settings::Settings::toolbarExport2D);
 
   BlockSignals<QCheckBox *>(this->checkBoxSummaryCamera)

@@ -1844,7 +1844,15 @@ if(ENABLE_TESTS)
       add_executable(OpenSCADUnitTests ${TEST_SOURCES})
     else()
       add_executable(OpenSCADUnitTests ${TEST_SOURCES} ${GUI_TEST_SOURCES})
+      # Widget tests include the Designer-generated headers from the application library.
+      target_include_directories(OpenSCADUnitTests PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/OpenSCADLibInternal_autogen/include"
+        "${CMAKE_CURRENT_BINARY_DIR}/OpenSCADLibInternal_autogen/include_$<CONFIG>")
+      add_dependencies(OpenSCADUnitTests OpenSCADLibInternal_autogen)
     endif()
+    get_target_property(OPENSCAD_TEST_CXX_STANDARD OpenSCADLibInternal CXX_STANDARD)
+    set_target_properties(OpenSCADUnitTests PROPERTIES
+      CXX_STANDARD ${OPENSCAD_TEST_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     target_link_libraries(OpenSCADUnitTests PRIVATE Catch2::Catch2WithMain OpenSCADLibInternal svg)
     target_compile_definitions(OpenSCADUnitTests PRIVATE
       OPENSCAD_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")

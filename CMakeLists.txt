@@ -725,7 +725,8 @@ if(ENABLE_CAIRO STREQUAL "AUTO")
   # AUTO: try to find, fallback gracefully if not found
   if (MSVC)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(CAIRO REQUIRED cairo)
+    pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
+    set(CAIRO_LIBRARIES PkgConfig::CAIRO)
   else()
     find_package(Cairo 1.14 QUIET)
   endif()
@@ -741,7 +742,8 @@ elseif(ENABLE_CAIRO)
   # Explicit ON: fail if not found
   if (MSVC)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(CAIRO REQUIRED cairo)
+    pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
+    set(CAIRO_LIBRARIES PkgConfig::CAIRO)
   else()
     find_package(Cairo 1.14 REQUIRED)
   endif()
@@ -1675,6 +1677,8 @@ elseif(MINGW)
   set_property(TARGET OpenSCADLibInternal APPEND_STRING PROPERTY LINK_FLAGS " -municode")
   set_property(TARGET OpenSCADExe APPEND_STRING PROPERTY LINK_FLAGS " -municode")
 elseif(MSVC)
+  # The Windows resource already embeds scripts/winmanifest.xml for each executable.
+  target_link_options(OpenSCADLibInternal INTERFACE /MANIFEST:NO)
   set_target_properties(OpenSCADExe PROPERTIES
     LINK_FLAGS "-subsystem:windows -ENTRY:mainCRTStartup -stack:${STACKSIZE}"
   )

@@ -463,6 +463,14 @@ void Controller::beginEvaluation(const QString& source)
     {"backend", QString::fromStdString(renderBackend3DToString(RenderSettings::inst()->backend3D))},
     {"customizer", evaluationOwner->parameterWidget->annotationValues()},
     {"outcome", "evaluating"}};
+  evaluation["attempt_id"] = windowId + ":" + evaluation.value("id").toString();
+  evaluation["origin"] = "editor";
+  evaluation["source_revision"] = QString::number(evaluationOwner->sourceRevision);
+  {
+    QMutexLocker lock(&contextMutex);
+    messageContext = {{"attempt_id", evaluation.value("attempt_id")},
+      {"document_id", evaluation.value("document_id")}, {"scope", "evaluation"}};
+  }
   emit changed();
 }
 void Controller::finishEvaluation(bool success)
@@ -473,6 +481,21 @@ void Controller::finishEvaluation(bool success)
   }
   lastAttempt = evaluation;
   lastAttempt["outcome"] = success ? (view->getRenderer() ? "installed" : "empty") : "failed";
+  const auto document = lastAttempt.value("document_id").toString();
+  auto& attempts = attemptHistory[document];
+  attempts.append(lastAttempt);
+  while (attempts.size() > 64) attempts.removeFirst();
+  if (success) {
+    auto published = lastAttempt;
+    published["result_id"] = lastAttempt.value("attempt_id");
+    auto& results = resultHistory[document];
+    results.append(published);
+    while (results.size() > 32) results.removeFirst();
+  }
+  {
+    QMutexLocker lock(&contextMutex);
+    messageContext = {};
+  }
   if (success || !view->getRenderer() || installed.find(view->getRenderer()) == installed.end()) {
     displayedOwner = evaluationOwner;
     result = lastAttempt;
@@ -489,6 +512,48 @@ void Controller::finishEvaluation(bool success)
   }
   refresh();
   emit changed();
+}
+QJsonObject Controller::diagnosticContext() const
+{
+  QMutexLocker lock(&contextMutex);
+  return messageContext;
+}
+void Controller::observeDiagnostic(const Message& message, const QJsonObject& context)
+{
+  auto record = context;
+  record["scope"] = context.isEmpty() ? "global" : "evaluation";
+  record["message"] = QString::fromStdString(message.msg).left(8192);
+  const auto group = message.group;
+  record["severity"] = group == message_group::Error || group == message_group::Parser_Error || group == message_group::Export_Error || group == message_group::UI_Error ? "error" :
+    group == message_group::Warning || group == message_group::UI_Warning || group == message_group::Font_Warning || group == message_group::Export_Warning || group == message_group::Deprecated ? "warning" :
+    group == message_group::Echo ? "echo" : group == message_group::Trace ? "trace" : "info";
+  // Native columns are not yet verified for every lexer path. Never label them UTF-8 spans.
+  record["location"] = QJsonValue::Null;
+  record["native_location"] = QJsonObject{{"path", QString::fromStdString(message.loc.fileName())},
+    {"line", message.loc.firstLine()}, {"column", message.loc.firstColumn()}};
+  record["truncated"] = message.msg.size() > 8192;
+  auto& history = diagnosticHistory[context.value("document_id").toString()];
+  history.append(record);
+  while (history.size() > 128) history.removeFirst();
+  emit changed();
+}
+QJsonObject Controller::inspection(const QString& document) const
+{
+  QJsonArray attempts = attemptHistory.value(document);
+  if (evaluation.value("document_id") == document) attempts.append(evaluation);
+  QJsonObject value{{"attempts", attempts}, {"results", resultHistory.value(document)},
+    {"diagnostics", diagnosticHistory.value(document)}, {"history_complete", false},
+    {"history_policy", "observed_only_bounded"}};
+  return value;
+}
+void Controller::pruneInspection()
+{
+  QSet<QString> live{QString()}; // Empty key is the bounded global-message history.
+  for (auto editor : editors()) live.insert(editor->annotations->sessionId);
+  for (auto history : {&attemptHistory, &resultHistory, &diagnosticHistory})
+    for (auto it = history->begin(); it != history->end();)
+      if (!live.contains(it.key())) it = history->erase(it);
+      else ++it;
 }
 void Controller::rendererChanged()
 {

@@ -105,6 +105,7 @@ void Transport::stop()
 }
 void Transport::publish(Snapshot value)
 {
+  if (snapshot.status != value.status) ++stateGeneration;
   snapshot = std::move(value);
   heartbeat = now();
 }
@@ -448,13 +449,42 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
   if (method == "GET" && (path == "/v2/info" || path == "/v2/status")) {
     auto value = path == "/v2/info" ? info : snapshot.status;
     value["api_version"] = 2;
-    value["capabilities"] = QJsonArray{"status.read", "requests.read", "requests.cancel"};
+    value["capabilities"] = QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
+      "source.read", "attempts.read", "results.read", "diagnostics.read"};
+    value["state_generation"] = QString::number(stateGeneration);
     value["server_id"] = info.value("server_id");
     value["gui_heartbeat_age_ms"] = heartbeat ? double(now() - heartbeat) : -1;
     value["gui_responsive"] = heartbeat && now() - heartbeat < 5000;
     value["limits"] = QJsonObject{{"body_bytes", MaxBody}, {"queue", 32}, {"receipts", 10000},
                                   {"retained_results", 128}, {"result_ttl_seconds", 300}};
     respond(socket, 200, value);
+    return;
+  }
+  if (method == "GET" && (path == "/v2/documents" || path == "/v2/viewports")) {
+    const auto key = path.mid(4);
+    respond(socket, 200, {{key, snapshot.status.value(key)}, {"state_generation", QString::number(stateGeneration)}});
+    return;
+  }
+  if (method == "GET" && snapshot.reads.contains(path)) {
+    respond(socket, 200, snapshot.reads.value(path));
+    return;
+  }
+  if (method == "GET" && path.startsWith("/v2/source-snapshots/")) {
+    respond(socket, 410, {{"code", "expired"}, {"message", "Snapshot/page unavailable; capture explicitly again."}});
+    return;
+  }
+  if (method == "POST" && QRegularExpression("^/v2/documents/[a-fA-F0-9-]{36}/source-snapshots$").match(path).hasMatch()) {
+    QJsonParseError error;
+    auto document = QJsonDocument::fromJson(bytes, &error);
+    auto body = document.object();
+    if (error.error != QJsonParseError::NoError || !document.isObject() ||
+        !validId(body.value("request_id").toString()) || body.value("server_id") != info.value("server_id") ||
+        body.value("document_id") != path.section('/', 3, 3) || !validId(body.value("window_id").toString()) ||
+        (body.value("origin") != "disk" && body.value("origin") != "editor")) {
+      respond(socket, 400, {{"code", "invalid_request"}, {"message", "Explicit document/window, origin, server and request required."}});
+      return;
+    }
+    enqueueV2(socket, path, body);
     return;
   }
   if (method == "GET" && path.startsWith("/v2/requests/")) {
@@ -503,5 +533,33 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     return;
   }
   respond(socket, 404, {{"code", "unsupported"}, {"message", "Operation is not available."}});
+}
+void Transport::enqueueV2(QTcpSocket *socket, const QString& path, const QJsonObject& body)
+{
+  const auto id = body.value("request_id").toString();
+  const auto fingerprint = QCryptographicHash::hash(path.toUtf8() + '\n' + QJsonDocument(body).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
+  if (jobs.contains(id)) {
+    respond(socket, jobs[id].input == fingerprint ? 200 : 409, jobs[id].input == fingerprint ? jobs[id].value : QJsonObject{{"code", "request_conflict"}});
+    return;
+  }
+  if (!heartbeat || now() - heartbeat >= 5000) {
+    respond(socket, 503, {{"code", "gui_unresponsive"}, {"message", "Wait for a fresh GUI heartbeat."}});
+    return;
+  }
+  int pending = 0, retained = 0;
+  for (const auto& job : jobs) {
+    const auto state = job.value.value("state");
+    if (state == "queued" || state == "running") ++pending;
+    if (state != "expired") ++retained;
+  }
+  if (pending >= 32 || retained >= 128 || jobs.size() >= 10000 || responseBytes >= 128LL * 1024 * 1024) {
+    respond(socket, 429, {{"code", "capacity"}, {"message", "Request capacity reached."}});
+    return;
+  }
+  QJsonObject receipt{{"request_id", id}, {"server_id", info.value("server_id")},
+    {"document_id", body.value("document_id")}, {"state", "queued"}, {"execution_started", false}};
+  jobs.insert(id, {fingerprint, receipt, now(), 0, now() + 10000});
+  respond(socket, 202, receipt);
+  emit operation(info.value("server_id").toString(), id, path, body);
 }
 }  // namespace AgentAnnotations

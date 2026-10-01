@@ -22,6 +22,7 @@ public:
   EditorInterface(QWidget *parent);
   AgentAnnotations::Store *annotations;
   QString sourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash({}));
+  quint64 sourceRevision = 0;
   virtual void appendAnnotationUndo(int token) = 0;
   virtual void undoFromAnnotations(bool redo) = 0;
   QSize sizeHint() const override

@@ -12,6 +12,10 @@
 #include <QSignalBlocker>
 #include <QVBoxLayout>
 #include <QDialog>
+#include <QFile>
+#include <QFileInfo>
+#include <QDateTime>
+#include <QUuid>
 
 namespace AgentAnnotations {
 Bridge *Bridge::instance()
@@ -60,6 +64,7 @@ void Bridge::stop(bool remember)
   info = {};
   starting = false;
   heartbeat.stop();
+  sources.clear();
   QMetaObject::invokeMethod(transport, [this] { transport->stop(); }, Qt::BlockingQueuedConnection);
   emit accessChanged({}, {});
 }
@@ -163,6 +168,7 @@ void Bridge::publish()
   if (info.isEmpty()) return;
   Snapshot snapshot;
   QJsonArray documents, viewports;
+  QSet<QString> liveDocuments;
   for (auto it = controllers.begin(); it != controllers.end();) {
     if (!*it) {
       it = controllers.erase(it);
@@ -170,9 +176,11 @@ void Bridge::publish()
     }
     auto controller = it->data();
     ++it;
+    controller->pruneInspection();
     viewports.append(controller->status());
     for (auto editor : controller->editors()) {
       const auto id = editor->annotations->sessionId;
+      liveDocuments.insert(id);
       documents.append(
         QJsonObject{{"document_id", id},
                     {"window_id", controller->windowId},
@@ -181,10 +189,28 @@ void Bridge::publish()
                     {"annotation_dirty", editor->annotations->dirty()},
                     {"customizer_dirty", editor->parameterWidget->isModified()},
                     {"source_sha256", editor->sourceFingerprint},
+                    {"source_revision", QString::number(editor->sourceRevision)},
+                    {"source_hash_origin", "editor_utf8"},
                     {"annotation_revision", QString::number(editor->annotations->revision())},
                     {"diagnostic", editor->annotations->diagnostic()}});
       snapshot.records.insert(id, editor->annotations->records());
+      const auto inspection = controller->inspection(id);
+      for (const auto& kind : {"attempts", "results", "diagnostics"})
+        snapshot.reads.insert("/v2/documents/" + id + "/" + kind,
+          {{"document_id", id}, {kind, inspection.value(kind)}, {"history_complete", false}});
+      snapshot.reads.insert("/v2/documents/" + id + "/dependencies",
+        {{"document_id", id}, {"dependencies", QJsonArray{}}, {"complete", false},
+         {"reason", "Dependency bytes have not been captured for this document."}});
     }
+  }
+  for (auto it = sources.begin(); it != sources.end();) {
+    if (it->expires.hasExpired() || !liveDocuments.contains(it->metadata.value("document_id").toString())) {
+      it = sources.erase(it);
+      continue;
+    }
+    for (auto page = it->pages.cbegin(); page != it->pages.cend(); ++page)
+      snapshot.reads.insert(page.key(), page.value());
+    ++it;
   }
   snapshot.status = {{"documents", documents}, {"viewports", viewports}};
   QMetaObject::invokeMethod(
@@ -209,6 +235,21 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
       },
       Qt::QueuedConnection);
   };
+  if (path.startsWith("/v2/documents/")) {
+    for (const auto& controller : controllers) {
+      if (!controller || controller->windowId != body.value("window_id")) continue;
+      for (auto editor : controller->editors()) {
+        if (editor->annotations->sessionId != body.value("document_id")) continue;
+        QString error;
+        auto result = snapshotSource(editor, body, &error);
+        publish();
+        done(result, {}, error);
+        return;
+      }
+    }
+    done({}, {}, "Target document/window is no longer available.");
+    return;
+  }
   Controller *target = nullptr;
   for (const auto& controller : controllers)
     if (controller && controller->viewportId == body.value("viewport_id").toString() &&
@@ -253,5 +294,94 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
   QString error;
   if (!target->setCamera(camera, &error)) done({}, {}, error);
   else done(target->status(), {}, {});
+}
+QJsonObject Bridge::snapshotSource(EditorInterface *editor, const QJsonObject& request, QString *error)
+{
+  constexpr qint64 maxBytes = 4 * 1024 * 1024;
+  const auto origin = request.value("origin").toString();
+  QByteArray bytes;
+  if (origin == "editor") {
+    if (request.value("expected_source_revision").toString() != QString::number(editor->sourceRevision)) {
+      *error = "Stale or missing editor revision.";
+      return {};
+    }
+    const auto text = editor->toPlainText();
+    if (text.size() > maxBytes || (bytes = text.toUtf8()).size() > maxBytes) {
+      *error = "Source exceeds 4 MiB.";
+      return {};
+    }
+  } else if (origin == "disk") {
+    if (editor->filepath.isEmpty()) {
+      *error = "Untitled document has no disk source.";
+      return {};
+    }
+    QFile file(editor->filepath);
+    QFileInfo before(file);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > maxBytes) {
+      *error = "Disk source unavailable or exceeds 4 MiB.";
+      return {};
+    }
+    bytes = file.read(maxBytes + 1);
+    QFileInfo after(editor->filepath);
+    if (bytes.size() > maxBytes || file.error() != QFile::NoError || before.size() != after.size() ||
+        before.lastModified() != after.lastModified() || before.canonicalFilePath() != after.canonicalFilePath()) {
+      *error = "Disk source changed during read or exceeded its budget.";
+      return {};
+    }
+  } else {
+    *error = "Explicit disk or editor origin is required.";
+    return {};
+  }
+  QString text = QString::fromUtf8(bytes);
+  auto encoded = text.toUtf8();
+  auto original = bytes;
+  if (original.startsWith("\xef\xbb\xbf")) original.remove(0, 3);
+  if (encoded.startsWith("\xef\xbb\xbf")) encoded.remove(0, 3);
+  if (encoded != original) {
+    *error = "Source is not valid UTF-8.";
+    return {};
+  }
+  if (text.startsWith(QChar(0xfeff))) text.remove(0, 1);
+  text.replace("\r\n", "\n");
+  text.replace('\r', '\n');
+  const auto hash = QString::fromLatin1(Store::hash(text.toUtf8()));
+  if (request.contains("expected_source_sha256") && request.value("expected_source_sha256") != hash) {
+    *error = "Source hash changed.";
+    return {};
+  }
+  const auto id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  QJsonObject metadata{{"snapshot_id", id}, {"document_id", editor->annotations->sessionId},
+    {"origin", origin}, {"path", editor->filepath}, {"source_revision", QString::number(editor->sourceRevision)},
+    {"source_sha256", hash}, {"disk_sha256", origin == "disk" ? QJsonValue(QString::fromLatin1(Store::hash(bytes))) : QJsonValue(QJsonValue::Null)},
+    {"normalization", "utf8_lf"}, {"byte_count", bytes.size()}, {"filesystem_atomic", false},
+    {"source_dirty", editor->isContentModified()}, {"editor_utf8_sha256", editor->sourceFingerprint},
+    {"captured_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)}};
+  auto retainedBytes = [&] {
+    qint64 bytes = text.size() * 4 + 65536;
+    for (const auto& source : sources) bytes += source.text.size() * 4 + 65536;
+    return bytes;
+  };
+  while (!sources.isEmpty() && (sources.size() >= 8 || retainedBytes() > 32 * 1024 * 1024)) {
+    auto oldest = sources.begin();
+    for (auto it = sources.begin(); it != sources.end(); ++it)
+      if (it->expires.remainingTime() < oldest->expires.remainingTime()) oldest = it;
+    sources.erase(oldest);
+  }
+  Source source{metadata, text, QDeadlineTimer(300000), {}};
+  const QString route = "/v2/source-snapshots/" + id;
+  int offset = 0;
+  for (int page = 0; offset < text.size() || page == 0; ++page) {
+    int end = qMin(offset + 16384, int(text.size()));
+    if (end < text.size() && text.at(end - 1).isHighSurrogate()) --end;
+    auto value = metadata;
+    value["text"] = text.mid(offset, end - offset);
+    value["page"] = page;
+    value["next_cursor"] = end < text.size() ? QJsonValue(route + "/pages/" + QString::number(page + 1)) : QJsonValue(QJsonValue::Null);
+    source.pages.insert(route + "/pages/" + QString::number(page), value);
+    if (page == 0) source.pages.insert(route, value);
+    offset = end;
+  }
+  sources.insert(id, std::move(source));
+  return metadata;
 }
 }  // namespace AgentAnnotations

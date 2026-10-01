@@ -4,6 +4,8 @@
 #include "glview/Camera.h"
 #include <QPointer>
 #include <QTimer>
+#include <QMutex>
+#include <QJsonArray>
 #include <functional>
 #include <memory>
 #include <map>
@@ -17,6 +19,7 @@ class QListWidget;
 class QLineEdit;
 class QDialog;
 class Renderer;
+struct Message;
 
 namespace AgentAnnotations {
 class Controller : public QObject
@@ -44,6 +47,10 @@ public:
   void capture(const QString& expectedResult,
                std::function<void(QJsonObject, QByteArray, QString)> done);
   void setAccessWidget(QWidget *widget);
+  QJsonObject diagnosticContext() const;
+  void observeDiagnostic(const Message& message, const QJsonObject& context);
+  QJsonObject inspection(const QString& document) const;
+  void pruneInspection();
 signals:
   void changed();
 
@@ -58,6 +65,9 @@ private:
   QPointer<EditorInterface> displayedOwner, evaluationOwner, draftOwner;
   QPointer<QDialog> commentDialog;
   QJsonObject result, evaluation, lastAttempt, draftResult;
+  mutable QMutex contextMutex;
+  QJsonObject messageContext;
+  QHash<QString, QJsonArray> attemptHistory, resultHistory, diagnosticHistory;
   struct Installed {
     std::weak_ptr<Renderer> renderer;
     QPointer<EditorInterface> owner;

@@ -3406,7 +3406,11 @@ void MainWindow::consoleOutput(const Message& msgObj, void *userdata)
   // Invoke the method in the main thread in case the output
   // originates in a worker thread.
   auto thisp = static_cast<MainWindow *>(userdata);
-  QMetaObject::invokeMethod(thisp, "consoleOutput", Q_ARG(Message, msgObj));
+  const auto context = thisp->annotationController ? thisp->annotationController->diagnosticContext() : QJsonObject{};
+  QMetaObject::invokeMethod(thisp, [thisp, msgObj, context] {
+    if (thisp->annotationController) thisp->annotationController->observeDiagnostic(msgObj, context);
+    thisp->consoleOutput(msgObj);
+  });
 }
 
 void MainWindow::consoleOutput(const Message& msgObj)

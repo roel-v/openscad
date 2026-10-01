@@ -24,6 +24,93 @@
 #include <QUuid>
 #include <QSettings>
 
+namespace {
+QJsonObject agentRequest(const QJsonObject& info, const QString& route, const QJsonObject& body = {})
+{
+  QNetworkAccessManager network;
+  QNetworkRequest request(QUrl(info.value("url").toString() + route));
+  request.setRawHeader("X-OpenSCAD-Agent", "1");
+  request.setRawHeader("X-OpenSCAD-Agent-Server", info.value("server_id").toString().toUtf8());
+  request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+  auto reply = body.isEmpty() ? network.get(request) : network.post(request, QJsonDocument(body).toJson());
+  QEventLoop loop;
+  QTimer timeout;
+  timeout.setSingleShot(true);
+  timeout.start(6000);
+  QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+  QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+  loop.exec();
+  auto result = QJsonDocument::fromJson(reply->readAll()).object();
+  result["http_status"] = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  return result;
+}
+}
+
+void TestAnnotations::sourceInspection()
+{
+  window->designActionAutoReload->setChecked(false);
+  QTemporaryDir dir;
+  QFile file(dir.filePath(QString::fromUtf8("pi\xc3\xa8" "ce.scad")));
+  const QByteArray disk = "\xef\xbb\xbf// \xe2\x86\x92\r\necho(42); cube(2);\r\n";
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write(disk);
+  file.close();
+  window->tabManager->open(file.fileName());
+  auto editor = window->activeEditor;
+  editor->setPlainText("echo(43); cube(3);\n");
+  window->actionRenderPreview();
+  const auto camera = window->annotationController->camera();
+  const auto before = window->annotationController->status().value("result");
+  const auto dirty = editor->isContentModified(), undo = editor->canUndo();
+  const auto revision = editor->sourceRevision;
+  auto bridge = AgentAnnotations::Bridge::instance();
+  bridge->startAgent(false);
+  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  const auto info = bridge->connection();
+  const auto document = editor->annotations->sessionId;
+  const auto route = "/v2/documents/" + document;
+  QJsonObject body{{"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
+    {"server_id", info.value("server_id")}, {"document_id", document},
+    {"window_id", window->annotationController->windowId}, {"origin", "disk"}};
+  QCOMPARE(agentRequest(info, route + "/source-snapshots", body).value("http_status").toInt(), 202);
+  QJsonObject job;
+  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  const auto meta = job.value("result").toObject();
+  QCOMPARE(meta.value("disk_sha256").toString(), QString::fromLatin1(AgentAnnotations::Store::hash(disk)));
+  auto snapshot = agentRequest(info, "/v2/source-snapshots/" + meta.value("snapshot_id").toString());
+  QCOMPARE(snapshot.value("text").toString(), QString::fromUtf8("// \xe2\x86\x92\necho(42); cube(2);\n"));
+  QVERIFY(snapshot.value("source_sha256") != snapshot.value("disk_sha256"));
+  body["origin"] = "editor";
+  body["expected_source_revision"] = QString::number(revision);
+  body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  QCOMPARE(agentRequest(info, route + "/source-snapshots", body).value("http_status").toInt(), 202);
+  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  snapshot = agentRequest(info, "/v2/source-snapshots/" + job.value("result").toObject().value("snapshot_id").toString());
+  QCOMPARE(snapshot.value("text").toString(), editor->toPlainText());
+  QCOMPARE(editor->sourceRevision, revision);
+  QCOMPARE(editor->isContentModified(), dirty);
+  QCOMPARE(editor->canUndo(), undo);
+  QCOMPARE(window->annotationController->camera(), camera);
+  QCOMPARE(window->annotationController->status().value("result"), before);
+  QVERIFY(!agentRequest(info, route + "/results").value("results").toArray().isEmpty());
+  const auto results = agentRequest(info, route + "/results").value("results");
+  QVERIFY(!agentRequest(info, route + "/diagnostics").value("diagnostics").toArray().isEmpty());
+  editor->setPlainText("cube( ;");
+  body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  QCOMPARE(agentRequest(info, route + "/source-snapshots", body).value("http_status").toInt(), 202);
+  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
+  window->actionRenderPreview();
+  QCOMPARE(agentRequest(info, route + "/results").value("results"), results);
+  auto attempts = agentRequest(info, route + "/attempts").value("attempts").toArray();
+  QCOMPARE(attempts.last().toObject().value("outcome").toString(), QString("failed"));
+  // A known document source is required, even for disk origin; no arbitrary path browsing.
+  body["document_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  QCOMPARE(agentRequest(info, "/v2/documents/" + body.value("document_id").toString() + "/source-snapshots", body).value("http_status").toInt(), 202);
+  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
+  bridge->stop();
+}
+
 void TestAnnotations::agentAccessLifecycle()
 {
   auto service = AgentAnnotations::Bridge::instance();
@@ -53,6 +140,53 @@ void TestAnnotations::agentAccessLifecycle()
   QVERIFY(!QSettings().value("agentServer/enabled").toBool());
   QVERIFY(!QSettings().value("annotations/agentAccess").toBool());
   dialog->close();
+}
+
+void TestAnnotations::targetInspection()
+{
+  QTemporaryDir dir;
+  const auto path = dir.filePath("same.scad");
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write("cube(1);\n");
+  file.close();
+  window->designActionAutoReload->setChecked(false);
+  window->tabManager->open(path);
+  window->actionRenderPreview();
+  const auto first = window->activeEditor->annotations->sessionId;
+  auto second = std::make_unique<MainWindow>(QStringList{path});
+  second->designActionAutoReload->setChecked(false);
+  const auto other = second->activeEditor->annotations->sessionId;
+  QVERIFY(first != other);
+  QVERIFY(window->annotationController->windowId != second->annotationController->windowId);
+  window->tabManager->actionNew();
+  const auto untitled = window->activeEditor->annotations->sessionId;
+  QVERIFY(first != untitled);
+  QCOMPARE(window->annotationController->status().value("active_document_id").toString(), untitled);
+  QCOMPARE(window->annotationController->status().value("document_id").toString(), first);
+  QString error;
+  auto bridge = AgentAnnotations::Bridge::instance();
+  QVERIFY(bridge->snapshotSource(window->activeEditor, {{"origin", "disk"}}, &error).isEmpty());
+  QVERIFY(error.contains("Untitled"));
+  bridge->startAgent(false);
+  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  auto info = bridge->connection();
+  const auto route = "/v2/documents/" + other + "/source-snapshots";
+  QJsonObject body{{"origin", "disk"}, {"document_id", other},
+    {"window_id", second->annotationController->windowId}, {"server_id", info.value("server_id")},
+    {"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)}};
+  QCOMPARE(agentRequest(info, route, body).value("http_status").toInt(), 202);
+  QJsonObject job;
+  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  const auto snapshotRoute = "/v2/source-snapshots/" + job.value("result").toObject().value("snapshot_id").toString();
+  second.reset();
+  bridge->publish();
+  QTRY_COMPARE(agentRequest(info, snapshotRoute).value("http_status").toInt(), 410);
+  body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  QCOMPARE(agentRequest(info, route, body).value("http_status").toInt(), 202);
+  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
+  window->tabManager->closeCurrentTab();
+  bridge->stop();
 }
 
 void TestAnnotations::documentLifecycle()

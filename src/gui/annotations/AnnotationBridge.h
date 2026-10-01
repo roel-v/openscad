@@ -2,7 +2,9 @@
 #include "AnnotationTransport.h"
 #include <QPointer>
 #include <QThread>
+#include <QDeadlineTimer>
 class QWidget;
+class EditorInterface;
 namespace AgentAnnotations {
 class Controller;
 class Bridge : public QObject
@@ -19,6 +21,7 @@ public:
   void stop(bool remember = true);
   QJsonObject connection() const { return info; }
   void publish();
+  QJsonObject snapshotSource(EditorInterface *editor, const QJsonObject& request, QString *error);
 signals:
   void accessChanged(QJsonObject info, QString error);
 
@@ -29,6 +32,13 @@ private:
   QJsonObject info;
   QTimer heartbeat;
   bool starting = false;
+  struct Source {
+    QJsonObject metadata;
+    QString text;
+    QDeadlineTimer expires;
+    QHash<QString, QJsonObject> pages;
+  };
+  QMap<QString, Source> sources;
   void dispatch(QString server, QString id, QString path, QJsonObject body);
 };
 }  // namespace AgentAnnotations

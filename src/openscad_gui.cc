@@ -376,7 +376,9 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
   if (gui_test != "none") {
     QTimer::singleShot(0, [&]() {
       int failureCount = 0;
-      for (auto w : app.windowManager.getWindows()) {
+      // Tests may create/destroy secondary windows; do not iterate the live registry.
+      const auto testWindows = app.windowManager.getWindows();
+      for (auto w : testWindows) {
         failureCount += runAllTest(w);
       }
       app.exit(failureCount);

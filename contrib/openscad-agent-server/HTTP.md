@@ -49,6 +49,35 @@ keeps its established error shape. Terminal job errors retain their original req
 
 ## Subsequent-phase inventory
 
+### Document and source inspection (phase 2)
+
+GET `/v2/documents` and `/v2/viewports` expose runtime IDs and separate active/displayed owners.
+`source_revision` is a monotonic editor revision; `source_sha256` on a **document** hashes editor UTF-8.
+`state_generation` changes with state, independently of the GUI heartbeat. Neither read evaluates or opens files.
+
+POST `/v2/documents/{id}/source-snapshots` requires document/window/server/request IDs and explicit `origin`.
+Editor origin additionally requires `expected_source_revision`; disk origin always reads the document's saved path
+and fails for untitled documents. Optional `expected_source_sha256` compares normalized captured content.
+No arbitrary source path is accepted. The receipt result supplies `snapshot_id` and provenance.
+GET `/v2/source-snapshots/{id}` supplies the first text page; follow the returned `next_cursor` route verbatim
+(`/v2/source-snapshots/{id}/pages/{n}`), until null. Pages never split UTF-16 surrogate pairs.
+The snapshot's `source_sha256` hashes UTF-8 after BOM removal and CRLF/CR-to-LF normalization; `disk_sha256` hashes
+the original disk bytes and is null for editor origin. Invalid UTF-8 is rejected. A disk snapshot's editor revision
+is contextual, not a claim of filesystem versioning. `filesystem_atomic:false` records the nontransactional read;
+size/path/mtime changes observed during reading cause failure, but same-metadata external replacement is not detectable.
+
+At most eight source snapshots and an estimated 32 MiB of retained text/pages are kept, with oldest-first eviction
+and a five-minute lifetime. Each root is limited to 4 MiB. Closure, replacement or Stop invalidates handles. Missing
+snapshot/page reads return 410; recapture is an explicit new operation, never an automatic fallback to current text.
+
+GET `/v2/documents/{id}/attempts`, `/results`, `/diagnostics` returns bounded observed history (64/32/128 records).
+Attempts identify actual editor-derived evaluation inputs. Only successful publication creates a result record;
+a failure adds an attempt while the viewport continues to report its actual renderer/owner independently.
+Diagnostics are typed native messages, with context captured before worker-to-GUI delivery and unchanged console
+delivery. History is explicitly incomplete; there is no reconstruction from the console. Unverified native source
+coordinates are separate from `location:null`. Dependency reads initially report unavailable provenance rather
+than infer dependencies from editor text; parse/evaluation phases enrich these records.
+
 Later phase implementations extend this document with exact response fields and capability names. Their fixed
 route layout is below; unimplemented routes return unsupported and are absent from capability discovery.
 

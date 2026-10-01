@@ -11,6 +11,7 @@ namespace AgentAnnotations {
 struct Snapshot {
   QJsonObject status;
   QHash<QString, QVector<Record>> records;
+  QHash<QString, QJsonObject> reads;
 };
 // Owns only detached evidence and transport state; never touches widgets or OpenGL.
 class Transport : public QObject
@@ -41,6 +42,7 @@ private:
   QJsonObject info;
   Snapshot snapshot;
   qint64 heartbeat = 0;
+  quint64 stateGeneration = 0;
   bool broadAccess = false;
   std::function<qint64()> clock;
   qint64 now() const;
@@ -61,5 +63,6 @@ private:
   void expire();
   void routeV2(QTcpSocket *socket, const QByteArray& method, const QString& path,
                const QByteArray& bytes);
+  void enqueueV2(QTcpSocket *socket, const QString& path, const QJsonObject& body);
 };
 }  // namespace AgentAnnotations

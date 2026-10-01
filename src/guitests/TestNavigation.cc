@@ -37,7 +37,7 @@ void TestNavigation::settingsOnStartup()
   QCOMPARE(settings.duration,345);
   QVERIFY(settings.showInformation);
   QCOMPARE(settings.cubeRight,10);
-  QCOMPARE(settings.scale,0.75);
+  QCOMPARE(settings.scale,1.1);
 }
 
 void TestNavigation::settingsBeforeExit()
@@ -538,7 +538,7 @@ void TestNavigation::popupAndTuning()
   QCOMPARE(settings->duration,320);
   NavigationSettings fresh;
   QCOMPARE(fresh.duration,320);
-  QCOMPARE(fresh.scale,0.75);
+  QCOMPARE(fresh.scale,1.1);
 #ifdef ENABLE_NAVIGATION_CUBE_TUNING
   auto tuning=window->findChild<NavigationTuning *>();
   QVERIFY(tuning);
@@ -573,7 +573,7 @@ void TestNavigation::popupAndTuning()
   tuning->hide();
 #endif
   settings->resetOverrides();
-  QCOMPARE(settings->scale,0.75);
+  QCOMPARE(settings->scale,1.1);
   QCOMPARE(settings->duration,320);
   NavigationSettings::setPersistent("visible",false);
   QVERIFY(!view->navigationCube()->isVisible());

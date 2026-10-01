@@ -11,3 +11,10 @@ add_executable(annotation-store-tests StoreTest.cc
 target_sources(annotation-store-tests PRIVATE ../../src/gui/annotations/AnnotationDrawing.cc)
 target_link_libraries(annotation-store-tests PRIVATE Qt6::Widgets Qt6::Test libzip::zip)
 add_test(NAME annotation-store COMMAND annotation-store-tests)
+add_executable(annotation-transport-tests TransportTest.cc
+  ../../src/gui/annotations/AnnotationTransport.cc
+  ../../src/gui/annotations/AnnotationTransport.h
+  ../../src/gui/annotations/AnnotationStore.cc
+  ../../src/gui/annotations/AnnotationStore.h)
+target_link_libraries(annotation-transport-tests PRIVATE Qt6::Widgets Qt6::Test Qt6::Network libzip::zip)
+add_test(NAME annotation-transport COMMAND annotation-transport-tests)

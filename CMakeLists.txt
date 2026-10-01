@@ -1589,6 +1589,8 @@ if(ENABLE_GUI_TESTS)
   )
 
   set(GUITESTS_SOURCES
+    src/guitests/TestAnnotations.h
+    src/guitests/TestAnnotations.cc
     src/guitests/guitests.cc
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc

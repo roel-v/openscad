@@ -49,7 +49,7 @@ private:
 }
 
 NavigationCube::NavigationCube(QGLView *view)
-  : QWidget(view), view(view), navigation(view->navigation()), triangle(new QToolButton(view)),
+  : QWidget(view), view(view), navigation(view->navigation()), triangle(new NavigationArrow(3,view)),
     opacity(new QGraphicsOpacityEffect(this)), triangleOpacity(new QGraphicsOpacityEffect(triangle))
 {
   setObjectName("navigationCube");
@@ -123,9 +123,6 @@ void NavigationCube::relayout()
                            arrowSide,arrowSide);
   }
   const int side = qRound(24*scale);
-  QFont triangleFont=font();
-  triangleFont.setPixelSize(std::max(1,qRound(14*scale)));
-  triangle->setFont(triangleFont);
   triangle->setGeometry(std::clamp(qRound(view->width()-side-s.menuRight),0,std::max(0,view->width()-side)),
                         std::clamp(qRound(s.menuTop),0,std::max(0,view->height()-side)),side,side);
   setVisible(s.visible);

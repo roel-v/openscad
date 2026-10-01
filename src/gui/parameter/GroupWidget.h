@@ -14,6 +14,8 @@ private:
   QToolButton toggleButton;
   QWidget contentArea;
   QVBoxLayout contentLayout;
+  const QString groupTitle;
+  bool expanded = false;
   void updateSpacing();
 
 protected:
@@ -23,8 +25,8 @@ public:
   GroupWidget(const QString& title, QWidget *parent = nullptr);
   void addWidget(QWidget *widget);
 
-  bool isExpanded() const { return toggleButton.isChecked(); }
-  QString title() const { return toggleButton.text(); }
+  bool isExpanded() const { return expanded; }
+  QString title() const { return groupTitle; }
 
 public slots:
   void setExpanded(bool expanded);

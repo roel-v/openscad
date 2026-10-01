@@ -2,18 +2,59 @@
 #include "gui/UIUtils.h"
 
 #include <QEvent>
+#include <QAccessibleWidget>
 #include <QLineEdit>
 #include <QObject>
 #include <QSizePolicy>
 #include <QString>
 #include <QWidget>
 
-GroupWidget::GroupWidget(const QString& title, QWidget *parent) : QWidget(parent)
+namespace {
+class AccessibleDisclosure : public QAccessibleWidget
 {
+public:
+  explicit AccessibleDisclosure(QToolButton *button) : QAccessibleWidget(button, QAccessible::Button) {}
+  QAccessible::State state() const override
+  {
+    auto result = QAccessibleWidget::state();
+    const auto *group = qobject_cast<GroupWidget *>(widget()->parentWidget());
+    result.expandable = true;
+    result.expanded = group->isExpanded();
+    result.collapsed = !group->isExpanded();
+    return result;
+  }
+  QString text(QAccessible::Text type) const override
+  {
+    if (type == QAccessible::Name) return static_cast<QToolButton *>(widget())->text();
+    return QAccessibleWidget::text(type);
+  }
+  QStringList actionNames() const override { return {QAccessibleActionInterface::pressAction()}; }
+  void doAction(const QString& action) override
+  {
+    if (action == QAccessibleActionInterface::pressAction() && widget()->isEnabled())
+      static_cast<QToolButton *>(widget())->click();
+  }
+  QStringList keyBindingsForAction(const QString&) const override { return {QStringLiteral("Space")}; }
+};
+}
+
+GroupWidget::GroupWidget(const QString& title, QWidget *parent) : QWidget(parent), groupTitle(title)
+{
+  static const bool accessibleInstalled = [] {
+    QAccessible::installFactory([](const QString&, QObject *object) -> QAccessibleInterface * {
+      auto *button = qobject_cast<QToolButton *>(object);
+      if (button && button->objectName() == QStringLiteral("customizerDisclosure") &&
+          qobject_cast<GroupWidget *>(button->parentWidget())) return new AccessibleDisclosure(button);
+      return nullptr;
+    });
+    return true;
+  }();
+  Q_UNUSED(accessibleInstalled);
+  this->toggleButton.setObjectName("customizerDisclosure");
   this->toggleButton.setText(title);
   this->toggleButton.setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Maximum);
   this->toggleButton.setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-  this->toggleButton.setCheckable(true);
+  this->toggleButton.setCheckable(false);
   QFont heading;
   heading.setWeight(QFont::Medium);
   this->toggleButton.setFont(heading);
@@ -30,7 +71,7 @@ GroupWidget::GroupWidget(const QString& title, QWidget *parent) : QWidget(parent
   setLayout(&mainLayout);
   updateSpacing();
 
-  QObject::connect(&toggleButton, &QToolButton::toggled, this, &GroupWidget::setExpanded);
+  QObject::connect(&toggleButton, &QToolButton::clicked, this, [this] { setExpanded(!expanded); });
 }
 
 void GroupWidget::updateSpacing()
@@ -55,11 +96,18 @@ void GroupWidget::addWidget(QWidget *widget)
 
 void GroupWidget::setExpanded(bool expanded)
 {
-  toggleButton.setChecked(expanded);
+  const bool changed = this->expanded != expanded;
+  this->expanded = expanded;
   toggleButton.setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
   if (expanded) {
     contentArea.show();
   } else {
     contentArea.hide();
+  }
+  if (changed) {
+    QAccessible::State state;
+    state.expanded = state.collapsed = true;
+    QAccessibleStateChangeEvent event(&toggleButton, state);
+    QAccessible::updateAccessibility(&event);
   }
 }

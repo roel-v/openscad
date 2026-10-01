@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <QApplication>
+#include <QAccessible>
 #include <QComboBox>
 #include <QCheckBox>
 #include <QDoubleSpinBox>
@@ -107,6 +108,33 @@ void applyConfiguredFont()
 }  // namespace
 
 void initializeGuiTestApplication() { typographyApp(); }
+
+TEST_CASE("Customizer disclosure preserves native activation and accessible expansion", "[ui-customizer]")
+{
+  typographyApp();
+  GroupWidget group("geometry");
+  group.show();
+  auto *button = group.findChild<QToolButton *>("customizerDisclosure");
+  REQUIRE(button);
+  CHECK_FALSE(button->isCheckable());
+  auto *accessible = QAccessible::queryAccessibleInterface(button);
+  REQUIRE(accessible);
+  CHECK(accessible->state().collapsed);
+  button->click();
+  CHECK(group.isExpanded());
+  CHECK_FALSE(button->isChecked());
+  CHECK(accessible->state().expanded);
+  CHECK(button->arrowType() == Qt::DownArrow);
+  QKeyEvent press(QEvent::KeyPress, Qt::Key_Space, Qt::NoModifier);
+  QKeyEvent release(QEvent::KeyRelease, Qt::Key_Space, Qt::NoModifier);
+  QApplication::sendEvent(button, &press);
+  QApplication::sendEvent(button, &release);
+  CHECK_FALSE(group.isExpanded());
+  REQUIRE(accessible->actionInterface());
+  accessible->actionInterface()->doAction(QAccessibleActionInterface::pressAction());
+  CHECK(group.isExpanded());
+  CHECK(group.title() == "geometry");
+}
 
 TEST_CASE("UI font inheritance preserves independent content fonts", "[ui-typography]")
 {

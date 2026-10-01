@@ -962,6 +962,8 @@ void MainWindow::selectPreviewViewMode()
 
 void MainWindow::compileEnded()
 {
+  // Late render diagnostics also need to replace the previous banner.
+  updateCompileResult();
   clearCurrentOutput();
   GuiLocker::unlock();
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
@@ -2375,6 +2377,8 @@ void MainWindow::updateStatusBar(bool isProgress)
 
 void MainWindow::exceptionCleanup()
 {
+  // Aborted parsing bypasses compileDone() and compileEnded().
+  updateCompileResult();
   LOG("Execution aborted");
   LOG(" ");
   GuiLocker::unlock();

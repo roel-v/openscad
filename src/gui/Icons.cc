@@ -10,6 +10,9 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QComboBox>
+#include <QListWidget>
+#include <QToolBar>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPixmapCache>
@@ -158,7 +161,11 @@ public:
     const bool checkedAccent = state == QIcon::On && mode != QIcon::Disabled &&
                                style->objectName().compare("windows11", Qt::CaseInsensitive) == 0;
     const bool selected = mode == QIcon::Selected || checkedAccent;
-    auto foreground = palette.color(group, selected ? QPalette::HighlightedText : QPalette::ButtonText);
+    const auto role =
+      widget && !qobject_cast<const QAbstractButton *>(widget) && !qobject_cast<const QToolBar *>(widget)
+        ? widget->foregroundRole()
+        : QPalette::ButtonText;
+    auto foreground = palette.color(group, selected ? QPalette::HighlightedText : role);
 #if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
     if (checkedAccent) {
       const auto background = palette.color(group, QPalette::Accent);
@@ -203,6 +210,7 @@ public:
     result.setDevicePixelRatio(scale);
     result.fill(Qt::transparent);
     QPainter painter(&result);
+    painter.setOpacity(color.alphaF());
     renderer.render(&painter, QRectF(QPointF(), QSizeF(size)));
     painter.end();
     QPixmapCache::insert(cacheKey, result);
@@ -256,6 +264,10 @@ public:
       }
     }
     if (event->type() == QEvent::Polish || event->type() == QEvent::Show ||
+        event->type() == QEvent::ActionAdded ||
+#if QT_VERSION >= QT_VERSION_CHECK(6, 6, 0)
+        event->type() == QEvent::DevicePixelRatioChange ||
+#endif
         event->type() == QEvent::ActionChanged || event->type() == QEvent::PaletteChange ||
         event->type() == QEvent::EnabledChange || event->type() == QEvent::WindowActivate ||
         event->type() == QEvent::WindowDeactivate || event->type() == QEvent::ScreenChangeInternal) {
@@ -280,6 +292,16 @@ public:
         button->setIcon(convert(button->icon()));
     }
     if (auto *label = qobject_cast<QLabel *>(widget)) updateLabel(label);
+    if (auto *combo = qobject_cast<QComboBox *>(widget)) {
+      for (int i = 0; i < combo->count(); ++i)
+        if (mappings().contains(canonical(combo->itemIcon(i).name())))
+          combo->setItemIcon(i, convert(combo->itemIcon(i)));
+    }
+    if (auto *list = qobject_cast<QListWidget *>(widget)) {
+      for (int i = 0; i < list->count(); ++i)
+        if (mappings().contains(canonical(list->item(i)->icon().name())))
+          list->item(i)->setIcon(convert(list->item(i)->icon()));
+    }
     if (auto *box = qobject_cast<QMessageBox *>(widget)) {
       if (box->property("openscadMessageIcon").isValid()) Icons::prepareMessageBox(box);
     }

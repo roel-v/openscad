@@ -44,6 +44,9 @@
 #include "gui/QWordSearchField.h"
 #include "gui/FontList.h"
 #include "gui/ViewportControl.h"
+#include "gui/ErrorLog.h"
+#include "gui/ProgressWidget.h"
+#include "gui/Animate.h"
 #include "gui/ai/DiffDialog.h"
 #include "gui/ai/ChatWidget.h"
 #include "gui/ai/CollapsibleBubble.h"
@@ -135,6 +138,14 @@ TEST_CASE("Preferences native tabs synchronize actions and conditional pages", "
   auto *prefs = GlobalPreferences::inst();
   REQUIRE(prefs->categoryTabs);
   CHECK(prefs->toolBar->isHidden());
+  int tabIndex = 0;
+  for (auto *action : prefs->toolBar->actions()) {
+    if (action->isVisible()) {
+      REQUIRE(tabIndex < prefs->categoryTabs->count());
+      CHECK(prefs->categoryTabs->tabData(tabIndex++).value<QAction *>() == action);
+    }
+  }
+  CHECK(tabIndex == prefs->categoryTabs->count());
   prefs->prefsActionAdvanced->trigger();
   CHECK(prefs->stackedWidget->currentWidget() == prefs->pageAdvanced);
   CHECK(prefs->categoryTabs->tabData(prefs->categoryTabs->currentIndex()).value<QAction *>() == prefs->prefsActionAdvanced);
@@ -155,6 +166,10 @@ TEST_CASE("Preferences native tabs synchronize actions and conditional pages", "
   }
   prefs->prefsActionAI->setVisible(aiVisible);
   prefs->prefsAction3DView->trigger();
+  QKeyEvent next(QEvent::KeyPress, Qt::Key_Right, Qt::NoModifier);
+  QApplication::sendEvent(prefs->categoryTabs, &next);
+  CHECK(prefs->stackedWidget->currentWidget() == prefs->pageEditor);
+  prefs->prefsAction3DView->trigger();
 }
 
 TEST_CASE("Preferences group spacing follows native metrics without changing settings", "[ui-dialogs]")
@@ -171,6 +186,7 @@ TEST_CASE("Preferences group spacing follows native metrics without changing set
     if (box->layout()) CHECK(box->layout()->spacing() == UIUtils::layoutSpacing(prefs, Qt::Vertical));
   }
   CHECK(prefs->getValue("editor/fontsize") == value);
+  CHECK(prefs->pageDialogs->layout()->alignment().testFlag(Qt::AlignTop));
   CHECK(prefs->labelAIHeader->font().weight() == QFont::Medium);
   CHECK(prefs->labelAIHeader->font().pointSize() == 18);
   prefs->setFont(originalFont);
@@ -211,6 +227,29 @@ TEST_CASE("Native auxiliary controls retain data and state without stylesheets",
   enlarged.setPointSize(18);
   bubble.setFont(enlarged);
   CHECK(bubble.findChild<QLabel *>()->font().pointSize() == 18);
+  const QString renderer = "Renderer: <test> & literal\nSecond: value\n";
+  LibraryInfoDialog info(renderer);
+  CHECK(info.infoTextBox->toPlainText().endsWith(renderer));
+  auto *buttons = diff.findChild<QDialogButtonBox *>();
+  REQUIRE(buttons);
+  for (auto *button : buttons->buttons()) {
+    if (buttons->buttonRole(button) == QDialogButtonBox::AcceptRole) {
+      button->click();
+      CHECK(diff.result() == QDialog::Accepted);
+    } else if (buttons->buttonRole(button) == QDialogButtonBox::DestructiveRole) {
+      button->click();
+      CHECK(diff.result() == 2);
+    }
+  }
+  QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+  QApplication::sendEvent(&diff, &escape);
+  CHECK(diff.result() == QDialog::Rejected);
+  ErrorLog errors;
+  errors.toErrorLog(Message("Example warning", message_group::Warning));
+  auto *warning = errors.errorLogModel->item(0, errorLog_column::group);
+  REQUIRE(warning);
+  CHECK_FALSE(warning->icon().isNull());
+  CHECK_FALSE(warning->data(Qt::ForegroundRole).isValid());
 }
 
 TEST_CASE("Customizer disclosure preserves native activation and accessible expansion", "[ui-customizer]")
@@ -526,7 +565,9 @@ TEST_CASE("Load persisted typography fixture", "[.][typography-restart]")
 TEST_CASE("Capture application-owned dialogs without external services", "[.][dialogs-visual]")
 {
   auto& app = typographyApp();
+#ifdef Q_OS_WIN
   REQUIRE(QApplication::setStyle("windows11"));
+#endif
   app.setFont(QFont("Segoe UI", 10));
   const auto output = qEnvironmentVariable("OPENSCAD_TYPOGRAPHY_OUTPUT");
   REQUIRE_FALSE(output.isEmpty());
@@ -534,6 +575,8 @@ TEST_CASE("Capture application-owned dialogs without external services", "[.][di
   auto capture = [&](QWidget& widget, const QString& name) {
     widget.show();
     for (int i = 0; i < 8; ++i) { QApplication::processEvents(); QThread::msleep(10); }
+    CHECK(widget.styleSheet().isEmpty());
+    for (auto *child : widget.findChildren<QWidget *>()) CHECK(child->styleSheet().isEmpty());
     REQUIRE(widget.grab().save(output + "/" + name + ".png"));
     widget.hide();
   };
@@ -551,6 +594,14 @@ TEST_CASE("Capture application-owned dialogs without external services", "[.][di
   prefs->setFont(QFont("Segoe UI", 18));
   capture(*prefs, "preferences-large-font");
   prefs->setFont(original);
+  const auto advancedText = prefs->prefsActionAdvanced->text();
+  prefs->prefsActionAdvanced->setText("Advanced preferences with a deliberately long category label");
+  capture(*prefs, "preferences-long-category");
+  bool overflow = false;
+  for (auto *button : prefs->categoryTabs->findChildren<QToolButton *>())
+    overflow = overflow || !button->isHidden();
+  CHECK(overflow);
+  prefs->prefsActionAdvanced->setText(advancedText);
   ExportPdfDialog pdf; capture(pdf, "export-pdf");
   Export3mfDialog threeMf; capture(threeMf, "export-3mf");
   ExportSvgDialog svg; capture(svg, "export-svg");
@@ -569,6 +620,24 @@ TEST_CASE("Capture application-owned dialogs without external services", "[.][di
   ColorList colors; colors.resize(400, 650); capture(colors, "color-list");
   FontList fonts; fonts.resize(600, 600); capture(fonts, "font-list");
   ViewportControl viewport; capture(viewport, "viewport-control");
+  ProgressWidget progress; progress.setValue(450); capture(progress, "progress");
+  progress.stopButton->click(); CHECK(progress.wasCanceled());
+  ErrorLog errors;
+  errors.toErrorLog(Message("Example warning", message_group::Warning));
+  errors.toErrorLog(Message("Example error", message_group::Error));
+  errors.QWidget::resize(700, 250); capture(errors, "error-log");
+  Animate animation; capture(animation, "animation");
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+  const auto scheme = app.styleHints()->colorScheme();
+  const auto previous = prefs->palette().color(QPalette::Window);
+  app.styleHints()->setColorScheme(scheme == Qt::ColorScheme::Dark ? Qt::ColorScheme::Light
+                                                                 : Qt::ColorScheme::Dark);
+  capture(*prefs, "preferences-live-theme-switch");
+  CHECK(prefs->palette().color(QPalette::Window) != previous);
+  capture(user, "ai-user-live-theme-switch");
+  CHECK(user.palette().color(QPalette::Window) == prefs->palette().color(QPalette::Window));
+  app.styleHints()->setColorScheme(scheme);
+#endif
 }
 
 TEST_CASE("Verify native quiet Customizer with real model and presets", "[.][customizer-visual]")

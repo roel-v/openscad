@@ -1,4 +1,5 @@
 #include "gui/ErrorLog.h"
+#include "gui/Icons.h"
 
 #include <QAbstractItemView>
 #include <QColor>
@@ -6,6 +7,7 @@
 #include <QResizeEvent>
 #include <QStandardItem>
 #include <QStandardItemModel>
+#include <QStyle>
 #include <QString>
 #include <QWidget>
 #include <filesystem>
@@ -31,7 +33,10 @@ void ErrorLog::initGUI()
   logTable->verticalHeader()->hide();
   logTable->setModel(errorLogModel);
   logTable->setSelectionMode(QAbstractItemView::SelectionMode::SingleSelection);
-  logTable->setColumnWidth(errorLog_column::group, 80);
+  const int statusWidth = logTable->fontMetrics().horizontalAdvance(
+    QString::fromStdString(getGroupName(message_group::Warning))) +
+    logTable->style()->pixelMetric(QStyle::PM_SmallIconSize, nullptr, logTable) + 16;
+  logTable->setColumnWidth(errorLog_column::group, qMax(80, statusWidth));
   logTable->setColumnWidth(errorLog_column::file, 200);
   logTable->setColumnWidth(errorLog_column::lineNo, 80);
   logTable->addAction(actionRowSelected);
@@ -58,10 +63,11 @@ void ErrorLog::showtheErrorInGUI(const Message& logMsg)
   auto *groupName = new QStandardItem(QString::fromStdString(getGroupName(logMsg.group)));
   groupName->setEditable(false);
 
+  // Keep labels readable in either palette; the shared provider owns status colors.
   if (logMsg.group == message_group::Error)
-    groupName->setForeground(QColor::fromRgb(255, 0, 0));  // make this item red.
+    groupName->setIcon(Icons::icon("information-icons-error", logTable));
   else if (logMsg.group == message_group::Warning)
-    groupName->setForeground(QColor::fromRgb(252, 211, 3));  // make this item yellow
+    groupName->setIcon(Icons::icon("information-icons-warning", logTable));
 
   errorLogModel->setItem(row, errorLog_column::group, groupName);
 

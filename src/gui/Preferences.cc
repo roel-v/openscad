@@ -392,6 +392,12 @@ void Preferences::init()
 
   connect(group, &QActionGroup::triggered, this, &Preferences::actionTriggered);
 
+  // Keep the established presentation order, which differs from page registration order.
+  categoryActions.clear();
+  for (auto *action : toolBar->actions()) {
+    if (prefPages.contains(action)) categoryActions.append(action);
+  }
+
   categoryTabs = new QTabBar(centralwidget);
   categoryTabs->setObjectName("categoryTabs");
   categoryTabs->setExpanding(false);
@@ -580,6 +586,7 @@ void Preferences::updatePageMetrics()
   const int vertical = UIUtils::layoutSpacing(this, Qt::Vertical);
   gridLayout_6->setContentsMargins(horizontal, vertical, horizontal, vertical);
   gridLayout_6->setSpacing(vertical);
+  pageDialogs->layout()->setAlignment(Qt::AlignTop);
   for (auto *box : findChildren<QGroupBox *>()) {
     if (pageAdvanced->isAncestorOf(box) || pageDialogs->isAncestorOf(box)) box->setFlat(true);
     if (pageDialogs->isAncestorOf(box)) box->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);

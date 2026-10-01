@@ -54,8 +54,8 @@ void ParameterDescriptionWidget::changeEvent(QEvent *event)
 void ParameterDescriptionWidget::setDescription(ParameterObject *parameter,
                                                 DescriptionStyle descriptionStyle)
 {
-  labelParameter->setText(
-    QString::fromStdString(parameter->name()).replace(QRegularExpression("([_]+)"), " "));
+  labelParameter->setText(UIUtils::sentenceCaseLabel(
+    QString::fromStdString(parameter->name()).replace(QRegularExpression("([_]+)"), " ")));
   const auto description = QString::fromStdString(parameter->description());
   labelParameter->show();
   labelInline->show();

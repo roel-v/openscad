@@ -51,7 +51,7 @@ GroupWidget::GroupWidget(const QString& title, QWidget *parent) : QWidget(parent
   }();
   Q_UNUSED(accessibleInstalled);
   this->toggleButton.setObjectName("customizerDisclosure");
-  this->toggleButton.setText(title);
+  this->toggleButton.setText(UIUtils::sentenceCaseLabel(title));
   this->toggleButton.setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Maximum);
   this->toggleButton.setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
   this->toggleButton.setCheckable(false);

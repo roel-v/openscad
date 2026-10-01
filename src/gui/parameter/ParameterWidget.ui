@@ -34,7 +34,7 @@
      <item>
       <widget class="QCheckBox" name="checkBoxAutoPreview">
        <property name="text">
-        <string>Automatic Preview</string>
+        <string>Automatic preview</string>
        </property>
        <property name="checked">
         <bool>true</bool>
@@ -48,12 +48,12 @@
        </property>
        <item>
         <property name="text">
-         <string>Show Details</string>
+         <string>Show details</string>
         </property>
        </item>
        <item>
         <property name="text">
-         <string>Inline Details</string>
+         <string>Inline details</string>
         </property>
        </item>
        <item>
@@ -63,7 +63,7 @@
        </item>
        <item>
         <property name="text">
-         <string>Description Only</string>
+         <string>Description only</string>
         </property>
        </item>
       </widget>
@@ -84,7 +84,7 @@
         <enum>Qt::StrongFocus</enum>
        </property>
        <property name="toolTip">
-        <string>preset selection</string>
+        <string>Preset selection</string>
        </property>
        <property name="editable">
         <bool>false</bool>

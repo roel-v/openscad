@@ -506,3 +506,25 @@ void UIUtils::dumpPalette(const QPalette& p)
   }
   fflush(stdout);
 }
+
+QString UIUtils::sentenceCaseLabel(QString text)
+{
+  int start = 0;
+  while (start < text.size() && text.at(start).isSpace()) ++start;
+  int end = start;
+  while (end < text.size() && !text.at(end).isSpace()) ++end;
+  const auto word = text.mid(start, end - start);
+  for (auto character : word.toUcs4()) {
+    if (QChar::isUpper(character) || QChar::isTitleCase(character)) return text;
+  }
+  for (int i = start; i < end; ++i) {
+    const int length = text.at(i).isHighSurrogate() && i + 1 < end && text.at(i + 1).isLowSurrogate() ? 2 : 1;
+    const auto letter = text.mid(i, length);
+    if (letter.toUpper() != letter) {
+      text.replace(i, length, letter.toUpper());
+      break;
+    }
+    i += length - 1;
+  }
+  return text;
+}

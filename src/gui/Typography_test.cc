@@ -251,6 +251,26 @@ TEST_CASE("Customizer help is compact hover-only and modes can be reused", "[ui-
   CHECK(help->toolTip().isEmpty());
 }
 
+TEST_CASE("Customizer capitalization changes presentation only", "[ui-customizer]")
+{
+  typographyApp();
+  for (const auto& pair : std::vector<std::pair<QString, QString>>{
+         {"show USB port", "Show USB port"}, {"iPhone", "iPhone"}, {"showUSBPort", "showUSBPort"},
+         {"USB port", "USB port"}, {"  width", "  Width"}, {QString::fromUtf8("échelle"), QString::fromUtf8("Échelle")},
+         {QString::fromUtf8("尺寸"), QString::fromUtf8("尺寸")}, {"", ""}}) {
+    CHECK(UIUtils::sentenceCaseLabel(pair.first) == pair.second);
+  }
+  GroupWidget first("view"), second("View");
+  CHECK(first.title() != second.title());
+  CHECK(first.findChild<QToolButton *>()->text() == second.findChild<QToolButton *>()->text());
+  BoolParameter value("show_USB_port", "Do not Change THIS.", "view", false);
+  ParameterCheckBox checkbox(nullptr, &value, DescriptionStyle::ShowDetails);
+  CHECK(checkbox.findChild<QLabel *>("labelParameter")->text() == "Show USB port");
+  CHECK(checkbox.findChild<QLabel *>("labelDescription")->text() == "Do not Change THIS.");
+  CHECK(value.name() == "show_USB_port");
+  CHECK(checkbox.findChild<QCheckBox *>()->styleSheet().isEmpty());
+}
+
 TEST_CASE("Customizer hierarchy and geometry follow font and native style changes", "[ui-typography]")
 {
   typographyApp();

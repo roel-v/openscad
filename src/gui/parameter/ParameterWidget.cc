@@ -78,10 +78,10 @@ ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
   auto *customizer_menu = new QMenu(this);
   parameterMenuButton->setMenu(customizer_menu);
 
-  QAction *collapseAction = customizer_menu->addAction(_("Collapse All"));
+  QAction *collapseAction = customizer_menu->addAction(_("Collapse all"));
   connect(collapseAction, &QAction::triggered, this, &ParameterWidget::onCollapseAll);
 
-  QAction *expandAction = customizer_menu->addAction(_("Expand All"));
+  QAction *expandAction = customizer_menu->addAction(_("Expand all"));
   connect(expandAction, &QAction::triggered, this, &ParameterWidget::onExpandAll);
 
   QString fontfamily = GlobalPreferences::inst()->getValue("advanced/customizerFontFamily").toString();

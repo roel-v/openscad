@@ -10,4 +10,6 @@ private slots:
   void cubeTargetsAndGestures();
   void interruptibleTransitions();
   void popupAndTuning();
+  void savedViewTransactions();
+  void savedViewDocumentLifecycle();
 };

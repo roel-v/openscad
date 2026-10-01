@@ -486,6 +486,7 @@ private:
   QActionGroup *previewModeGroup;
 
 signals:
+  void displayedDocumentChanged();
   void highlightError(int);
   void unhighlightLastError();
 

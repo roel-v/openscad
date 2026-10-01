@@ -1,3 +1,4 @@
+#include "gui/SavedViews.h"
 #include "gui/TabManager.h"
 
 #include <QApplication>
@@ -158,7 +159,7 @@ void TabManager::open(const QString& filename)
   }
 
   if (editor->filepath.isEmpty() && !editor->isContentModified() &&
-      !editor->parameterWidget->isModified()) {
+      !editor->parameterWidget->isModified() && !editor->hasViewChanges()) {
     openTabFile(filename);
   } else {
     createTab(filename);
@@ -527,6 +528,7 @@ void TabManager::openTabFile(const QString& filename)
     editor->filepath = "";
     editor->setPlainText(cmd.arg(filename));
   }
+  SavedViews::forEditor(editor)->load(editor->filepath);
   refreshDocument();
 
   auto [fname, fpath] = getEditorTabNameWithModifier(editor);
@@ -556,7 +558,7 @@ std::tuple<QString, QString> TabManager::getEditorTabNameWithModifier(EditorInte
   auto [fname, fpath] = getEditorTabName(edt);
 
   // Add the "modification" star if it was changed.
-  bool isDirty = edt->isContentModified() || edt->parameterWidget->isModified();
+  bool isDirty = edt->isContentModified() || edt->parameterWidget->isModified() || edt->hasViewChanges();
 
   if (isDirty) fname += "*";
 
@@ -602,7 +604,7 @@ bool TabManager::refreshDocument()
 bool TabManager::maybeSave(int x)
 {
   auto *edt = (EditorInterface *)tabWidget->widget(x);
-  if (edt->isContentModified() || edt->parameterWidget->isModified()) {
+  if (edt->isContentModified() || edt->parameterWidget->isModified() || edt->hasViewChanges()) {
     QMessageBox box(parent);
     box.setText(_("The document has been modified."));
     box.setInformativeText(_("Do you want to save your changes?"));
@@ -633,7 +635,7 @@ bool TabManager::maybeSave(int x)
 bool TabManager::shouldClose()
 {
   foreach (EditorInterface *edt, editorList) {
-    if (!(edt->isContentModified() || edt->parameterWidget->isModified())) continue;
+    if (!(edt->isContentModified() || edt->parameterWidget->isModified() || edt->hasViewChanges())) continue;
 
     QMessageBox box(parent);
     box.setText(_("Some tabs have unsaved changes."));
@@ -683,11 +685,29 @@ bool TabManager::save(EditorInterface *edt)
   if (edt->filepath.isEmpty()) {
     return saveAs(edt);
   } else {
-    return save(edt, edt->filepath);
+    return saveDocument(edt, edt->filepath, false,
+      edt->isContentModified() || edt->parameterWidget->isModified() || !edt->hasViewChanges());
   }
 }
 
 bool TabManager::save(EditorInterface *edt, const QString& path)
+{
+  return saveDocument(edt,path,false,true);
+}
+
+bool TabManager::saveDocument(EditorInterface *edt,const QString& path,bool copy,bool writeSource)
+{
+  QString error;
+  const bool ok=SavedViews::forEditor(edt)->save(path,copy,[&] {
+    if (!writeSource) return true;
+    return saveSource(edt,path,copy);
+  },error);
+  onTabModified(edt);
+  if (!error.isEmpty()) QMessageBox::warning(parent,tr("Saved views were not saved"),error);
+  return ok;
+}
+
+bool TabManager::saveSource(EditorInterface *edt, const QString& path, bool copy)
 {
   // If available (>= Qt 5.1), use QSaveFile to ensure the file is not
   // destroyed if the device is full. Unfortunately this is not working
@@ -717,6 +737,7 @@ bool TabManager::save(EditorInterface *edt, const QString& path)
   }
   if (saveOk) {
     LOG("Saved design '%1$s'.", path.toStdString());
+    if (copy) return true;
     edt->parameterWidget->saveFile(path);
     edt->setContentModified(false);
     edt->parameterWidget->setModified(false);
@@ -810,32 +831,18 @@ bool TabManager::saveACopy(EditorInterface *edt)
 
   if (savefile.isEmpty()) return false;
 
-  QSaveFile file(savefile);
-  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
-    saveError(file, _("Failed to open file for writing"), path);
-    return false;
-  }
-  QTextStream writer(&file);
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-  writer.setCodec("UTF-8");
-#endif
-  writer << edt->toPlainText();
-  writer.flush();
+  return saveACopy(edt,savefile);
+}
 
-  bool saveOk = writer.status() == QTextStream::Ok;
-  if (!saveOk) file.cancelWriting();
-  else {
-    saveOk = file.commit();
-    if (!saveOk) saveError(file, _("Error saving design"), savefile);
-    else LOG("Saved design '%1$s'.", savefile.toLocal8Bit().constData());
-  }
-  return saveOk;
+bool TabManager::saveACopy(EditorInterface *edt,const QString& path)
+{
+  return saveDocument(edt,path,true,true);
 }
 
 bool TabManager::saveAll()
 {
   foreach (EditorInterface *edt, editorList) {
-    if (edt->isContentModified() || edt->parameterWidget->isModified()) {
+    if (edt->isContentModified() || edt->parameterWidget->isModified() || edt->hasViewChanges()) {
       if (!save(edt)) {
         return false;
       }

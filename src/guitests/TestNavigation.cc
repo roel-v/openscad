@@ -21,6 +21,121 @@
 #include <QDoubleSpinBox>
 #include <QPainter>
 #include "gui/TabManager.h"
+#include "gui/SavedViews.h"
+#include <QLockFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QLineEdit>
+#include <QDateTime>
+
+void TestNavigation::savedViewTransactions()
+{
+  QTemporaryDir directory;
+  const auto path=directory.filePath("store.scad");
+  SavedViews store;
+  QVERIFY(store.load(path));
+  auto pose=window->qglview->navigation()->current();
+  pose.rotation={70,22,93}; pose.translation={3,5,7}; pose.distance=123.5; pose.fov=51;
+  pose.projection=Camera::ProjectionType::ORTHOGONAL;
+  const auto first=store.add(pose);
+  store.rename(first,QString::fromUtf8("視点 café"));
+  pose.projection=Camera::ProjectionType::PERSPECTIVE;
+  const auto second=store.add(pose);
+  store.rename(second,QString::fromUtf8("視点 café"));
+  QVERIFY(!QFile::exists(SavedViews::companion(path)));
+  QString error; int sourceWrites=0;
+  auto write=[&]{++sourceWrites;return true;};
+  QVERIFY(store.save(path,false,write,error));
+  QVERIFY(!store.dirty());
+  SavedViews reopened;
+  QVERIFY(reopened.load(path));
+  QCOMPARE(reopened.entries().size(),2);
+  QVERIFY(reopened.find(second)->camera==pose);
+  QCOMPARE(reopened.find(first)->name,reopened.find(second)->name);
+  QVERIFY(reopened.find(first)->camera.projection==Camera::ProjectionType::ORTHOGONAL);
+  store.rename(first,"Changed");
+  QLockFile lock(SavedViews::companion(path)+".lock"); QVERIFY(lock.tryLock());
+  QVERIFY(!store.save(path,false,write,error)); QCOMPARE(sourceWrites,1); QVERIFY(store.dirty());
+  lock.unlock();
+  reopened.rename(second,"Other window"); QVERIFY(reopened.save(path,false,write,error));
+  QVERIFY(!store.save(path,false,write,error)); QCOMPARE(sourceWrites,2); QVERIFY(store.dirty());
+  const auto alternate=directory.filePath("alternate.scad");
+  QVERIFY(store.save(alternate,true,write,error)); QVERIFY(store.dirty());
+  QVERIFY(!store.save(alternate,false,write,error)); // destination collision
+  const auto moved=directory.filePath("moved.scad");
+  QVERIFY(store.save(moved,false,write,error)); QVERIFY(!store.dirty());
+  store.remove(first); store.remove(second);
+  QVERIFY(store.save(moved,false,write,error));
+  QVERIFY(reopened.load(moved)); QVERIFY(reopened.entries().isEmpty());
+  const auto backup=directory.filePath("backup.scad");
+  store.add(pose); QVERIFY(store.backup(backup,error));
+  QVERIFY(reopened.load(backup)); QCOMPARE(reopened.entries().size(),1);
+  auto invalid=QJsonDocument::fromJson(store.serialize()).object(); invalid["version"]=99;
+  QFile damaged(SavedViews::companion(moved)); QVERIFY(damaged.open(QIODevice::WriteOnly));
+  damaged.write(QJsonDocument(invalid).toJson()); damaged.close();
+  QVERIFY(!reopened.load(moved)); QVERIFY(!reopened.problem().isEmpty()); QVERIFY(reopened.entries().isEmpty());
+  QVERIFY(reopened.add(pose).isEmpty());
+  QVERIFY(damaged.open(QIODevice::WriteOnly|QIODevice::Truncate)); damaged.write("{ broken"); damaged.close();
+  QVERIFY(!reopened.load(moved));
+  // Failure after the source commit retains metadata and can be retried.
+  const auto partial=directory.filePath("partial.scad");
+  QVERIFY(!store.save(partial,false,[&] {
+    return QDir().mkdir(SavedViews::companion(partial));
+  },error));
+  QVERIFY(store.dirty());
+  QVERIFY(QDir().rmdir(SavedViews::companion(partial)));
+  QVERIFY(store.save(partial,false,write,error));
+  QVERIFY(!store.dirty());
+}
+
+void TestNavigation::savedViewDocumentLifecycle()
+{
+  QTemporaryDir directory;
+  window->tabManager->createTab("");
+  auto editor=window->activeEditor;
+  editor->setPlainText("cube(12);\n");
+  auto store=SavedViews::forEditor(editor);
+  const auto pose=window->qglview->navigation()->current();
+  const auto id=store->add(pose);
+  QVERIFY(editor->hasViewChanges());
+  const auto path=directory.filePath("document.scad");
+  QVERIFY(window->tabManager->saveAs(editor,path));
+  QVERIFY(!editor->hasViewChanges());
+  const auto timestamp=QFileInfo(path).lastModified();
+  QTest::qWait(20);
+  store->rename(id,"Metadata only");
+  QVERIFY(window->tabManager->save(editor));
+  QCOMPARE(QFileInfo(path).lastModified(),timestamp);
+  store->rename(id,"Unsaved copy");
+  QVERIFY(window->tabManager->saveACopy(editor,directory.filePath("copy.scad")));
+  QCOMPARE(editor->filepath,path); QVERIFY(editor->hasViewChanges());
+  QVERIFY(window->tabManager->refreshDocument()); QVERIFY(editor->hasViewChanges());
+  QCOMPARE(store->find(id)->name,QString("Unsaved copy"));
+  QVERIFY(window->tabManager->saveAll()); QVERIFY(!editor->hasViewChanges());
+  window->actionRenderPreview();
+  QTRY_COMPARE(window->displayedDocument(),editor);
+  auto popup=window->findChild<ViewportPopup *>(); popup->toggle();
+  QTRY_VERIFY(popup->addView->isEnabled());
+  QTest::mouseClick(popup->addView,Qt::LeftButton);
+  QTRY_COMPARE(store->entries().size(),2);
+  auto edit=popup->views->findChild<QLineEdit *>(); QVERIFY(edit);
+  edit->setText("Named camera"); QTest::keyClick(edit,Qt::Key_Return);
+  QTRY_COMPARE(store->entries().last().name,QString("Named camera"));
+  QTest::qWait(20);
+  auto changed=pose; changed.rotation.z()+=39;
+  window->qglview->navigation()->apply(changed,false);
+  window->qglview->navigation()->settings.animate=false;
+  popup->views->setFocus();
+  QTest::keyClick(popup->views,Qt::Key_Return);
+  QTRY_VERIFY(window->qglview->navigation()->current()==pose);
+  QVERIFY(popup->isVisible());
+  const auto output=qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
+  if (!output.isEmpty()) QVERIFY(popup->grab().save(output+"/saved-views.png"));
+  popup->hide(); QVERIFY(editor->hasViewChanges());
+  QVERIFY(window->tabManager->save(editor));
+  window->tabManager->closeCurrentTab();
+}
 
 void TestNavigation::cameraOperationBoundary()
 {

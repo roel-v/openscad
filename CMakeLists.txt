@@ -1381,6 +1381,8 @@ set(GUI_SOURCES
   src/gui/NavigationSettings.h
   src/gui/NavigationSettings.cc
   src/gui/ViewportPopup.cc
+  src/gui/SavedViews.cc
+  src/gui/SavedViews.h
   src/gui/ViewportPopup.h
   src/gui/NavigationCubeGeometry.cc
   src/gui/NavigationCubeGeometry.h

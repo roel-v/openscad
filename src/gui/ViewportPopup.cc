@@ -4,6 +4,10 @@
 #include "gui/CameraNavigation.h"
 #include "gui/NavigationCube.h"
 #include "gui/QSettingsCached.h"
+#include "gui/SavedViews.h"
+#include "gui/TabManager.h"
+#include <QLineEdit>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QGridLayout>
 #include <QRadioButton>
@@ -113,6 +117,7 @@ ViewportPopup::ViewportPopup(MainWindow *window)
   views->setObjectName("savedViews");
   views->setAccessibleName(tr("Saved camera views"));
   views->setMinimumHeight(60);
+  views->setEditTriggers(QAbstractItemView::EditKeyPressed);
   layout->addWidget(views,1);
   auto buttons=new QHBoxLayout;
   addView=new QPushButton(tr("Add"),content);
@@ -121,6 +126,34 @@ ViewportPopup::ViewportPopup(MainWindow *window)
   for (auto button : {addView,removeView,renameView}) { buttons->addWidget(button); button->setEnabled(false); }
   layout->addLayout(buttons);
   layout->addWidget(new QLabel(tr("Add stores the current camera."),content));
+  connect(addView,&QPushButton::clicked,this,[this] {
+    if (!store) return;
+    const auto id=store->add(this->window->qglview->navigation()->current());
+    for (int i=0;i<views->count();++i) if (views->item(i)->data(Qt::UserRole).toString()==id) {
+      views->setCurrentRow(i); views->editItem(views->item(i)); break;
+    }
+  });
+  connect(removeView,&QPushButton::clicked,this,[this] {
+    if (store && views->currentItem()) store->remove(views->currentItem()->data(Qt::UserRole).toString());
+  });
+  connect(renameView,&QPushButton::clicked,this,[this] {
+    if (views->currentItem()) views->editItem(views->currentItem());
+  });
+  connect(views,&QListWidget::currentRowChanged,this,[this] {
+    removeView->setEnabled(store && views->currentItem());
+    renameView->setEnabled(store && views->currentItem());
+  });
+  connect(views,&QListWidget::itemChanged,this,[this](QListWidgetItem *item) {
+    if (!store) return;
+    const QString id=item->data(Qt::UserRole).toString();
+    // Queue the refresh: the delegate must finish committing before its item is replaced.
+    const QSignalBlocker block(store);
+    store->rename(id,item->text());
+    const QPointer<SavedViews> editedStore=store;
+    QTimer::singleShot(0,this,[editedStore]{ if (editedStore) emit editedStore->changed(); });
+  });
+  connect(views,&QListWidget::itemActivated,this,[this]{recallView();});
+  connect(window,&MainWindow::displayedDocumentChanged,this,&ViewportPopup::synchronize);
   scroll->setWidget(content);
   outer->addWidget(scroll,1);
   outer->addWidget(new QSizeGrip(this),0,Qt::AlignRight);
@@ -139,6 +172,38 @@ void ViewportPopup::synchronize()
   window->viewActionOrthogonal->setChecked(ortho);
   const auto editor=window->displayedDocument();
   documentLabel->setText(editor ? (editor->filepath.isEmpty() ? tr("Untitled") : QFileInfo(editor->filepath).fileName()) : tr("No displayed document"));
+  const auto owner=editor ? SavedViews::forEditor(editor) : nullptr;
+  if (store!=owner) {
+    if (store) disconnect(store,nullptr,this,nullptr);
+    store=owner;
+    if (store) connect(store,&SavedViews::changed,this,&ViewportPopup::refreshViews);
+    refreshViews();
+  }
+  addView->setEnabled(store && store->problem().isEmpty() && store->entries().size()<1000);
+  views->setToolTip(store ? store->problem() : tr("Compile a document to associate saved views with the viewport."));
+}
+
+void ViewportPopup::refreshViews()
+{
+  const QString selected=views->currentItem() ? views->currentItem()->data(Qt::UserRole).toString() : QString();
+  const QSignalBlocker block(views);
+  views->clear();
+  if (store) for (const auto& entry:store->entries()) {
+    auto item=new QListWidgetItem(entry.name,views);
+    item->setData(Qt::UserRole,entry.id);
+    item->setFlags(item->flags()|Qt::ItemIsEditable);
+    if (entry.id==selected) views->setCurrentItem(item);
+  }
+  removeView->setEnabled(store && views->currentItem());
+  renameView->setEnabled(store && views->currentItem());
+}
+void ViewportPopup::recallView()
+{
+  if (!store || !views->currentItem()) return;
+  const auto editor=views->findChild<QLineEdit *>();
+  if (editor && editor->isVisible()) return;
+  const auto entry=store->find(views->currentItem()->data(Qt::UserRole).toString());
+  if (entry) window->qglview->navigation()->navigate(entry->camera);
 }
 
 void ViewportPopup::toggle()

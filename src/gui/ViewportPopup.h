@@ -7,6 +7,7 @@
 class MainWindow;
 class QRadioButton;
 class QLabel;
+class SavedViews;
 
 class ViewportPopup : public QFrame {
   Q_OBJECT
@@ -24,4 +25,7 @@ private:
   MainWindow *window;
   QRadioButton *perspective, *orthographic;
   QPointer<QWidget> previousFocus;
+  QPointer<SavedViews> store;
+  void refreshViews();
+  void recallView();
 };

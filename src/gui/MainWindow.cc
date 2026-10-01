@@ -1,3 +1,4 @@
+#include "gui/SavedViews.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -803,7 +804,7 @@ void MainWindow::compile(bool reload, bool forcedone)
       if (GlobalPreferences::inst()->getValue("advanced/consoleAutoClear").toBool()) {
         this->console->clear();
       }
-      if (activeEditor->isContentModified()) saveBackup();
+      if (activeEditor->isContentModified() || activeEditor->hasViewChanges()) saveBackup();
       parseTopLevelDocument();
       didcompile = true;
     }
@@ -1019,6 +1020,7 @@ void MainWindow::instantiateRoot()
   this->tree.setDocumentPath(doc.parent_path().string());
 
   renderedEditor = activeEditor;
+  emit displayedDocumentChanged();
 
   if (this->rootFile) {
     // Evaluate CSG tree
@@ -1296,6 +1298,9 @@ void MainWindow::writeBackup(QFile *file)
 #endif
   writer << activeEditor->toPlainText();
   this->activeEditor->parameterWidget->saveBackupFile(file->fileName());
+  QString viewError;
+  if (!SavedViews::forEditor(activeEditor)->backup(file->fileName(),viewError))
+    LOG(message_group::UI_Warning, "%1$s", viewError.toStdString());
 
   LOG("Saved backup file: %1$s", file->fileName().toUtf8().constData());
 }
@@ -2090,6 +2095,7 @@ void MainWindow::actionRenderDone(const std::shared_ptr<const Geometry>& root_ge
   }
 
   renderedEditor = activeEditor;
+  emit displayedDocumentChanged();
   activeEditor->contentsRendered = true;
   compileEnded();
 }
@@ -3171,6 +3177,7 @@ void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
   if (closingEditor == renderedEditor) {
     qglview->navigation()->cancel();
     renderedEditor = nullptr;
+    emit displayedDocumentChanged();
 
     // Invalidate renderers before we kill the CSG tree
     this->qglview->setRenderer(nullptr);

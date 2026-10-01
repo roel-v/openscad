@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <QMutex>
+#include <QElapsedTimer>
 #include <QJsonArray>
 #include <functional>
 #include <memory>
@@ -71,6 +72,7 @@ private:
   mutable QMutex contextMutex;
   QJsonObject messageContext;
   QHash<QString, QJsonArray> attemptHistory, resultHistory, diagnosticHistory;
+  QElapsedTimer evaluationTimer;
   struct Installed {
     std::weak_ptr<Renderer> renderer;
     QPointer<EditorInterface> owner;

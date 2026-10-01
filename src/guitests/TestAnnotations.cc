@@ -7,6 +7,7 @@
 #include "core/parsersettings.h"
 #include "core/ParserInspection.h"
 #include "core/SourceFile.h"
+#include "core/primitives.h"
 #include "utils/printutils.h"
 #include "gui/Dock.h"
 #include <QDialog>
@@ -50,6 +51,59 @@ QJsonObject agentRequest(const QJsonObject& info, const QString& route, const QJ
   result["http_status"] = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
   return result;
 }
+}
+
+void TestAnnotations::packagedAgentClient()
+{
+  const auto script = qEnvironmentVariable("OPENSCAD_AGENT_TEST_WORKFLOW");
+  if (script.isEmpty()) QSKIP("Set OPENSCAD_AGENT_TEST_WORKFLOW to a staged live_workflow.py.");
+  QTemporaryDir dir;
+  QFile source(dir.filePath("client.scad"));
+  QVERIFY(source.open(QIODevice::WriteOnly)); source.write("cube([10,5,3]);"); source.close();
+  window->designActionAutoReload->setChecked(false);
+  window->tabManager->open(source.fileName());
+  window->actionRenderPreview();
+  window->qglview->viewAll();
+  auto bridge = AgentAnnotations::Bridge::instance();
+  bridge->startAgent(false);
+  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  QFile connection(dir.filePath("connection.json"));
+  QVERIFY(connection.open(QIODevice::WriteOnly));
+  connection.write(QJsonDocument(bridge->connection()).toJson()); connection.close();
+  QTimer pump;
+  connect(&pump, &QTimer::timeout, window, [this] { window->qglview->grabFramebuffer(); }); pump.start(30);
+  QProcess client;
+  const auto evidence = QFileInfo(qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG")).dir();
+  client.setWorkingDirectory(evidence.absolutePath());
+  client.start(qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_PYTHON"),
+    {script, connection.fileName(), window->activeEditor->annotations->sessionId,
+      window->annotationController->windowId, window->annotationController->viewportId, evidence.absolutePath()});
+  QVERIFY(client.waitForStarted());
+  QTRY_COMPARE_WITH_TIMEOUT(client.state(), QProcess::NotRunning, 30000);
+  auto errors = client.readAllStandardError();
+  QVERIFY2(client.exitCode() == 0, errors.constData());
+  QFile log(evidence.filePath("client-live.txt"));
+  QVERIFY(log.open(QIODevice::WriteOnly)); log.write(client.readAllStandardOutput()); log.write(errors);
+  // A real F6 result must retain the same identity/capture guarantees as preview.
+  const auto preview = window->annotationController->status().value("displayed_result_id");
+  window->designActionRender->trigger();
+  QTRY_VERIFY_WITH_TIMEOUT(!window->annotationController->busy(), 15000);
+  const auto rendered = window->annotationController->status();
+  QVERIFY(rendered.value("displayed_result_id").isString());
+  QVERIFY(rendered.value("displayed_result_id") != preview);
+  bool captured = false;
+  QString captureError;
+  window->annotationController->capture(rendered.value("result").toObject().value("id").toString(),
+    [&](QJsonObject metadata, QByteArray png, QString error) {
+      captureError = error;
+      captured = true;
+      QFile file(evidence.filePath("agent-f6-capture.png"));
+      if (file.open(QIODevice::WriteOnly)) file.write(png);
+      QCOMPARE(metadata.value("displayed_result_id"), rendered.value("displayed_result_id"));
+    });
+  QTRY_VERIFY_WITH_TIMEOUT(captured, 6000);
+  QVERIFY2(captureError.isEmpty(), qPrintable(captureError));
+  bridge->stop();
 }
 
 void TestAnnotations::guardedViewport()
@@ -159,6 +213,14 @@ void TestAnnotations::modelInspection()
   window->actionRenderPreview();
   auto empty = window->annotationController->status().value("result").toObject();
   QVERIFY(agentRequest(info, "/v2/trees/" + empty.value("tree_id").toString()).value("empty").toBool());
+  GroupNode wide(nullptr);
+  for (int i = 0; i < 13000; ++i) wide.children.push_back(std::make_shared<CubeNode>(nullptr));
+  auto bounded = AgentAnnotations::inspectModel(&wide, &wide, nullptr, empty);
+  QCOMPARE(bounded.nodes.size(), 12000);
+  QVERIFY(!bounded.metadata.value("complete").toBool());
+  for (const auto& node : bounded.nodes)
+    for (const auto& child : node.value("children").toArray())
+      QVERIFY(bounded.nodes.contains(child.toObject().value("node_id").toString()));
   bridge->stop();
 }
 

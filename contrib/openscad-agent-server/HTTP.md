@@ -202,3 +202,13 @@ and `capture_policy:native_renderer_without_annotation_controls_or_historical_ma
 as configured; navigation integration later supplies helper-free capture. No fixed sleep proves frame freshness.
 Queued/running/terminal receipts retain their identity, including failure. `/v1` continues accepting its numeric
 result guard without requiring a view revision; its unchanged client remains supported on the same listener.
+
+## Delivery limits and state details
+
+`api_version:2` and `schema_version:2` identify v2 discovery. Viewports expose `busy_reasons`, `capture_available`,
+and the actual reload setting. Native attempts report elapsed `duration_ms`. Global messages, separate from any
+document attempt, are available at GET `/v2/windows/{window_id}/diagnostics`.
+Each document/global history has an additional 512-KiB encoded bound, dropping oldest records. Captured result
+Customizer context exceeding 64 KiB is null; model dependency manifests cap at 64 KiB and remain explicitly incomplete.
+V2 responses cap at 1 MiB except explicit PNG-bearing responses (48 MiB); excessive JSON returns `response_limit`.
+These bounds supplement record counts and shared source/tree/job retention. No read recomputes geometry.

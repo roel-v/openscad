@@ -119,7 +119,14 @@ void Transport::respond(QTcpSocket *socket, int code, QJsonObject value)
     value["code"] = code == 403 ? "transport_guard" : code == 410 ? "expired" : "invalid_request";
     value["message"] = value.value("error").toString("Request failed.");
   }
-  const QByteArray data = QJsonDocument(value).toJson(QJsonDocument::Compact);
+  QByteArray data = QJsonDocument(value).toJson(QJsonDocument::Compact);
+  if (socket->property("agentV2").toBool()) {
+    const bool image = value.contains("png_base64") || value.value("result").toObject().contains("png_base64");
+    if (data.size() > (image ? 48 * 1024 * 1024 : 1024 * 1024)) {
+      code = 413;
+      data = "{\"code\":\"response_limit\",\"message\":\"Response exceeds bounded JSON output; use narrower reads.\"}";
+    }
+  }
   QByteArray response = "HTTP/1.1 " + QByteArray::number(code) + " " + (code < 300 ? "OK" : "Error") +
                         "\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nConnection: "
                         "close\r\nContent-Length: " +
@@ -453,6 +460,7 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
   if (method == "GET" && (path == "/v2/info" || path == "/v2/status")) {
     auto value = path == "/v2/info" ? info : snapshot.status;
     value["api_version"] = 2;
+    value["schema_version"] = 2;
     value["capabilities"] = QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
       "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read", "dependencies.read", "model.read", "parameters.read",
       "annotations.read", "camera.set", "camera.restore", "viewport.capture"};

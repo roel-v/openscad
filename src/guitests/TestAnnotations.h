@@ -10,6 +10,7 @@ private slots:
   void syntaxInspection();
   void modelInspection();
   void guardedViewport();
+  void packagedAgentClient();
   void documentLifecycle();
   void viewportWorkflow();
   void agentAndAutomaticReload();

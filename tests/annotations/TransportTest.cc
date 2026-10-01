@@ -41,6 +41,55 @@ class TransportTest : public QObject
     return result;
   }
 private slots:
+  void v2EvidenceAndAdmission()
+  {
+    Transport transport;
+    transport.start(true);
+    auto info = transport.connection();
+    const auto document = uuid(), viewport = uuid(), window = uuid(), annotation = uuid();
+    Snapshot snapshot;
+    const QJsonObject view{{"document_id", document}, {"window_id", window}, {"viewport_id", viewport},
+      {"displayed_result_id", "qualified:1"}, {"view_revision", "4"}, {"busy", false}};
+    snapshot.status = {{"viewports", QJsonArray{view}}};
+    Record record{{{"id", annotation}, {"comment", "Inspect HOLE"}}, QByteArray("immutable evidence")};
+    snapshot.records.insert(document, {record});
+    transport.publish(snapshot);
+    auto found = request(info, "/v2/annotations?document_id=" + document + "&q=hole");
+    QCOMPARE(found.second.value("annotations").toArray().size(), 1);
+    QVERIFY(found.second.value("next_cursor").isNull());
+    auto detail = request(info, "/v2/annotations/" + annotation + "?document_id=" + document);
+    QCOMPARE(QByteArray::fromBase64(detail.second.value("png_base64").toString().toLatin1()), record.png);
+    QJsonObject body{{"server_id", info.value("server_id")}, {"request_id", uuid()}, {"document_id", document},
+      {"window_id", window}, {"viewport_id", viewport}, {"expected_result_id", "qualified:1"}, {"expected_view_revision", "4"}};
+    QSignalSpy dispatched(&transport, &Transport::operation);
+    auto submit = [&] { return request(info, "/v2/capture", QJsonDocument(body).toJson(), {}, {}, true); };
+    QCOMPARE(submit().first, 202);
+    auto busy = view; busy["busy"] = true; busy["view_revision"] = "5";
+    snapshot.status["viewports"] = QJsonArray{busy}; transport.publish(snapshot);
+    QCOMPARE(submit().first, 200); // Identical retry is still the original receipt.
+    QCOMPARE(dispatched.size(), 1);
+    body["request_id"] = uuid();
+    QCOMPARE(submit().first, 409);
+    QCOMPARE(request(info, "/v2/annotations/" + annotation + "?document_id=" + document).second, detail.second);
+    body.remove("expected_view_revision");
+    QCOMPARE(submit().first, 400);
+  }
+  void queueCapacity()
+  {
+    Transport transport;
+    transport.start(true);
+    auto info = transport.connection();
+    transport.publish({});
+    const auto document = uuid(), window = uuid();
+    QJsonObject body{{"server_id", info.value("server_id")}, {"request_id", uuid()},
+      {"document_id", document}, {"window_id", window}, {"origin", "disk"}};
+    for (int i = 0; i < 32; ++i) {
+      body["request_id"] = uuid();
+      QCOMPARE(request(info, "/v2/documents/" + document + "/source-snapshots", QJsonDocument(body).toJson(), {}, {}, true).first, 202);
+    }
+    body["request_id"] = uuid();
+    QCOMPARE(request(info, "/v2/documents/" + document + "/source-snapshots", QJsonDocument(body).toJson(), {}, {}, true).first, 429);
+  }
   void cachedInspectionExpiry()
   {
     Transport transport;

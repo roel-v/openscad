@@ -77,6 +77,33 @@
         "next_cursor": {"type": ["string", "null"]}
       }
     },
+    "camera": {
+      "type": "object",
+      "required": ["translation", "rotation", "distance", "fov", "projection"],
+      "properties": {
+        "translation": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+        "rotation": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+        "distance": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000000000000},
+        "fov": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180},
+        "projection": {"enum": ["orthographic", "perspective"]}
+      }
+    },
+    "capture": {
+      "type": "object",
+      "required": ["document_id", "camera", "width", "height", "dpr", "png_sha256", "view_revision", "capture_policy"],
+      "properties": {
+        "document_id": {"$ref": "#/$defs/uuid"},
+        "camera": {"$ref": "#/$defs/camera"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "dpr": {"type": "number", "exclusiveMinimum": 0},
+        "png_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "png_base64": {"type": "string"},
+        "view_revision": {"type": "string"},
+        "displayed_result_id": {"type": ["string", "null"]},
+        "capture_policy": {"type": "string"}
+      }
+    },
     "outcome": {
       "type": "object",
       "required": ["request_id", "server_id", "state", "execution_started"],

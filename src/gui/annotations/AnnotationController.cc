@@ -449,6 +449,17 @@ bool Controller::setCamera(const QJsonObject& value, QString *error)
   emit changed();
   return true;
 }
+void trimHistory(QJsonArray& values, int count)
+{
+  while (values.size() > count || (!values.isEmpty() &&
+         QJsonDocument(values).toJson(QJsonDocument::Compact).size() > 512 * 1024)) values.removeFirst();
+}
+QJsonValue customizerContext(EditorInterface *editor)
+{
+  const auto values = editor ? editor->parameterWidget->annotationValues() : QJsonObject{};
+  if (QJsonDocument(values).toJson(QJsonDocument::Compact).size() > 65536) return QJsonValue::Null;
+  return values;
+}
 QString Controller::viewRevision() const
 {
   auto state = camera();
@@ -488,13 +499,13 @@ bool Controller::cameraOperation(const QJsonObject& operation, QString *error)
 void Controller::beginEvaluation(const QString& source)
 {
   if (!evaluation.isEmpty()) {
-    evaluation["customizer"] =
-      evaluationOwner ? evaluationOwner->parameterWidget->annotationValues() : QJsonObject{};
+    evaluation["customizer"] = customizerContext(evaluationOwner);
     return;
   }
   if (drafting()) cancelDrawing();
   if (capturePending) finishFrame("Evaluation replaced the requested frame.");
   evaluationOwner = window->activeEditor;
+  evaluationTimer.start();
   evaluation = {
     {"id", QString::number(++generation)},
     {"document_id", evaluationOwner->annotations->sessionId},
@@ -503,7 +514,7 @@ void Controller::beginEvaluation(const QString& source)
     {"dependency_provenance", "unknown"},
     {"time", window->animateWidget->getAnimTval()},
     {"backend", QString::fromStdString(renderBackend3DToString(RenderSettings::inst()->backend3D))},
-    {"customizer", evaluationOwner->parameterWidget->annotationValues()},
+    {"customizer", customizerContext(evaluationOwner)},
     {"outcome", "evaluating"}};
   evaluation["attempt_id"] = windowId + ":" + evaluation.value("id").toString();
   evaluation["origin"] = "editor";
@@ -522,19 +533,20 @@ void Controller::finishEvaluation(bool success)
     return;
   }
   lastAttempt = evaluation;
+  lastAttempt["duration_ms"] = double(evaluationTimer.elapsed());
   lastAttempt["outcome"] = success ? (view->getRenderer() ? "installed" : "empty") : "failed";
   if (success) {
     lastAttempt["result_id"] = lastAttempt.value("attempt_id");
     // Detach while both root SourceFile and cached library ModuleInstantiations are alive.
     // Never recover mappings later from an old renderer's raw modinst pointers.
     try {
-    auto tree = inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), lastAttempt);
-    if (Bridge::instance()->retainTree(tree)) {
-      lastAttempt["tree_id"] = tree.metadata.value("tree_id");
-      lastAttempt["tree_complete"] = tree.metadata.value("complete");
-      lastAttempt["instantiated_node_count"] = tree.metadata.value("node_count");
-      lastAttempt["dependencies"] = tree.metadata.value("dependencies");
-    } else lastAttempt["tree_unavailable_reason"] = "Inspection retention budget exceeded.";
+      auto tree = inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), lastAttempt);
+      if (Bridge::instance()->retainTree(tree)) {
+        lastAttempt["tree_id"] = tree.metadata.value("tree_id");
+        lastAttempt["tree_complete"] = tree.metadata.value("complete");
+        lastAttempt["instantiated_node_count"] = tree.metadata.value("node_count");
+        lastAttempt["dependencies"] = tree.metadata.value("dependencies");
+      } else lastAttempt["tree_unavailable_reason"] = "Inspection retention budget exceeded.";
     } catch (const std::exception&) {
       lastAttempt["tree_unavailable_reason"] = "Inspection could not serialize this result.";
     }
@@ -542,13 +554,13 @@ void Controller::finishEvaluation(bool success)
   const auto document = lastAttempt.value("document_id").toString();
   auto& attempts = attemptHistory[document];
   attempts.append(lastAttempt);
-  while (attempts.size() > 64) attempts.removeFirst();
+  trimHistory(attempts, 64);
   if (success) {
     auto published = lastAttempt;
     published["result_id"] = lastAttempt.value("attempt_id");
     auto& results = resultHistory[document];
     results.append(published);
-    while (results.size() > 32) results.removeFirst();
+    trimHistory(results, 32);
   }
   {
     QMutexLocker lock(&contextMutex);
@@ -592,7 +604,7 @@ void Controller::observeDiagnostic(const Message& message, const QJsonObject& co
   record["truncated"] = message.msg.size() > 8192;
   auto& history = diagnosticHistory[context.value("document_id").toString()];
   history.append(record);
-  while (history.size() > 128) history.removeFirst();
+  trimHistory(history, 128);
   emit changed();
 }
 QJsonObject Controller::inspection(const QString& document) const
@@ -628,18 +640,25 @@ void Controller::rendererChanged()
 }
 QJsonObject Controller::status() const
 {
+  QJsonArray reasons;
+  if (drafting()) reasons.append("annotation_draft");
+  if (capturePending) reasons.append("capture");
+  if (!evaluation.isEmpty() || GuiLocker::isLocked()) reasons.append("native_evaluation");
+  if (QApplication::activeModalWidget()) reasons.append("modal_interaction");
   QJsonObject value{
     {"window_id", windowId},
     {"viewport_id", viewportId},
     {"document_id", owner() ? owner()->annotations->sessionId : ""},
     {"active_document_id", window->activeEditor ? window->activeEditor->annotations->sessionId : ""},
     {"displayed_result_id", result.value("outcome") == "installed" || result.value("outcome") == "empty" ? result.value("result_id") : QJsonValue(QJsonValue::Null)},
-    {"busy", busy()},
+    {"busy", busy() || QApplication::activeModalWidget()},
+    {"busy_reasons", reasons},
     {"draft", drafting()},
     {"evaluation", evaluation.isEmpty() ? lastAttempt : evaluation},
     {"result", result},
     {"camera", camera()},
     {"view_revision", viewRevision()},
+    {"capture_available", view->isVisible() && !window->isMinimized()},
     {"automatic_reload", window->designActionAutoReload->isChecked()},
     {"current_source_sha256", sourceHash(owner())},
     {"stale_source", owner() && result.value("source_sha256").toString() != sourceHash(owner())}};

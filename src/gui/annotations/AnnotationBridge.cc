@@ -184,6 +184,8 @@ void Bridge::publish()
     ++it;
     controller->pruneInspection();
     viewports.append(controller->status());
+    snapshot.reads.insert("/v2/windows/" + controller->windowId + "/diagnostics",
+      {{"window_id", controller->windowId}, {"diagnostics", controller->inspection("").value("diagnostics")}, {"history_complete", false}});
     for (auto editor : controller->editors()) {
       const auto id = editor->annotations->sessionId;
       liveDocuments.insert(id);

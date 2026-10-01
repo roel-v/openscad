@@ -124,6 +124,8 @@ InspectionTree inspectModel(const AbstractNode *root, const AbstractNode *effect
   tree.metadata["effective_root_ids"] = effectiveRoots;
   tree.metadata["node_count"] = tree.nodes.size();
   tree.metadata["node_budget"] = maxNodes;
+  while (!dependencies.isEmpty() && QJsonDocument(dependencies).toJson(QJsonDocument::Compact).size() > 65536)
+    dependencies.removeLast();
   tree.metadata["dependencies"] = dependencies;
   tree.metadata["dependencies_complete"] = false; // Native compilation does not retain all input bytes.
   return tree;

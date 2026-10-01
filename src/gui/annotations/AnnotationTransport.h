@@ -7,6 +7,7 @@
 #include <QDeadlineTimer>
 #include <functional>
 class QTcpSocket;
+class QUrlQuery;
 
 namespace AgentAnnotations {
 struct Snapshot {
@@ -64,7 +65,7 @@ private:
   void respond(QTcpSocket *socket, int code, QJsonObject value);
   void expire();
   void routeV2(QTcpSocket *socket, const QByteArray& method, const QString& path,
-               const QByteArray& bytes);
+               const QByteArray& bytes, const QUrlQuery& query);
   void enqueueV2(QTcpSocket *socket, const QString& path, const QJsonObject& body);
 };
 }  // namespace AgentAnnotations

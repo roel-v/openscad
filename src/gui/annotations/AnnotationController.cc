@@ -31,6 +31,8 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QUuid>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 #include <cmath>
 
 namespace AgentAnnotations {
@@ -228,6 +230,7 @@ Controller::Controller(MainWindow *mainWindow)
   originalUndoText = window->editActionUndo->text();
   connect(qApp, &QApplication::focusChanged, this, [this] { updateActions(); });
   connect(view, &QGLView::cameraChanged, this, [this] {
+    viewRevision();
     if (state == DrawingState) {
       if (drawing.marked()) view->cam = lockedCamera;
       else {
@@ -238,6 +241,7 @@ Controller::Controller(MainWindow *mainWindow)
     emit changed();
   });
   connect(view, &QGLView::frameAboutToRender, this, [this] {
+    viewRevision();
     if (drafting() && display() != draftDisplay) {
       cancelDrawing();
       return;
@@ -441,6 +445,43 @@ bool Controller::setCamera(const QJsonObject& value, QString *error)
   view->cam.setProjection(projection == "orthographic" ? Camera::ProjectionType::ORTHOGONAL
                                                        : Camera::ProjectionType::PERSPECTIVE);
   view->update();
+  emit view->cameraChanged();
+  emit changed();
+  return true;
+}
+QString Controller::viewRevision() const
+{
+  auto state = camera();
+  state["width"] = view->width();
+  state["height"] = view->height();
+  state["dpr"] = view->devicePixelRatioF();
+  if (state != observedView) { observedView = state; ++viewGeneration; }
+  return QString::number(viewGeneration);
+}
+bool Controller::cameraOperation(const QJsonObject& operation, QString *error)
+{
+  if (busy() || QApplication::activeModalWidget()) { *error = "Viewport is busy."; return false; }
+  const auto kind = operation.value("operation").toString("set");
+  if (kind == "set") return setCamera(operation.value("camera").toObject(), error);
+  if (kind == "projection") {
+    auto value = camera();
+    value["projection"] = operation.value("projection");
+    return setCamera(value, error);
+  }
+  if (kind == "fit") view->viewAll();
+  else if (kind == "standard") {
+    const auto name = operation.value("view").toString();
+    if (name == "top") window->on_viewActionTop_triggered();
+    else if (name == "bottom") window->on_viewActionBottom_triggered();
+    else if (name == "left") window->on_viewActionLeft_triggered();
+    else if (name == "right") window->on_viewActionRight_triggered();
+    else if (name == "front") window->on_viewActionFront_triggered();
+    else if (name == "back") window->on_viewActionBack_triggered();
+    else if (name == "diagonal") window->on_viewActionDiagonal_triggered();
+    else { *error = "Unknown standard view."; return false; }
+  } else { *error = "Unknown camera operation."; return false; }
+  view->update();
+  emit view->cameraChanged();
   emit changed();
   return true;
 }
@@ -598,6 +639,7 @@ QJsonObject Controller::status() const
     {"evaluation", evaluation.isEmpty() ? lastAttempt : evaluation},
     {"result", result},
     {"camera", camera()},
+    {"view_revision", viewRevision()},
     {"automatic_reload", window->designActionAutoReload->isChecked()},
     {"current_source_sha256", sourceHash(owner())},
     {"stale_source", owner() && result.value("source_sha256").toString() != sourceHash(owner())}};
@@ -768,7 +810,8 @@ void Controller::capture(const QString& expectedResult,
 void Controller::requestFrame(bool annotation, const QString& expectedResult,
                               std::function<void(QJsonObject, QByteArray, QString)> done)
 {
-  if (!owner() || capturePending ||
+  if (!owner() || capturePending || !view->isVisible() || window->isMinimized() ||
+      QApplication::activeModalWidget() ||
       (!expectedResult.isEmpty() && result.value("id").toString() != expectedResult)) {
     done({}, {}, "Missing owner or stale result.");
     return;
@@ -779,16 +822,18 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
   QPointer<EditorInterface> target = owner();
   const auto session = target->annotations->sessionId;
   const auto boundResult = result, boundCamera = camera();
+  const auto boundView = viewRevision();
   const auto size = view->size();
   const auto dpr = view->devicePixelRatioF();
   frameConnection = connect(
     view, &QGLView::frameRendered, this,
-    [this, annotation, token, target, session, boundResult, boundCamera, size, dpr] {
+    [this, annotation, token, target, session, boundResult, boundCamera, boundView, size, dpr] {
       if (!capturePending || token != captureToken) return;
       disconnect(frameConnection);
       if (!target || target != owner() || target->annotations->sessionId != session ||
           result != boundResult || camera() != boundCamera || view->size() != size ||
-          view->devicePixelRatioF() != dpr || (!annotation && GuiLocker::isLocked())) {
+          view->devicePixelRatioF() != dpr || viewRevision() != boundView ||
+          (!annotation && (GuiLocker::isLocked() || QApplication::activeModalWidget()))) {
         finishFrame("Capture target changed.");
         return;
       }
@@ -801,13 +846,6 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
       if (annotation) {
         QPainter painter(&image);
         drawing.paint(painter, image.size(), dpr);
-      }
-      QByteArray png;
-      QBuffer buffer(&png);
-      buffer.open(QIODevice::WriteOnly);
-      if (!image.save(&buffer, "PNG") || png.size() > Store::MaxPng) {
-        finishFrame("Cannot encode viewport PNG within limits.");
-        return;
       }
       QJsonArray modelview, projection;
       for (int i = 0; i < 16; ++i) {
@@ -822,9 +860,11 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
         {"height", image.height()},
         {"dpr", dpr},
         {"camera", boundCamera},
+        {"view_revision", boundView},
+        {"displayed_result_id", boundResult.value("result_id")},
+        {"capture_policy", "native_renderer_without_annotation_controls_or_historical_marks"},
         {"modelview", modelview},
         {"projection_matrix", projection},
-        {"png_sha256", QString::fromLatin1(Store::hash(png))},
         {"result", boundResult},
         {"document_id", target->annotations->sessionId},
         {"path", target->filepath},
@@ -832,12 +872,28 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
         {"stale_source", sourceHash(target) != boundResult.value("source_sha256").toString()},
         {"strokes", annotation ? drawing.json() : QJsonArray{}},
         {"display", display()}};
-      captureTimeout.stop();
-      capturePending = false;
-      auto done = std::move(captureDone);
-      captureDone = {};
-      done(metadata, png, {});
-      emit changed();
+      auto watcher = new QFutureWatcher<QPair<QByteArray, QByteArray>>(this);
+      connect(watcher, &QFutureWatcher<QPair<QByteArray, QByteArray>>::finished, this,
+        [this, watcher, metadata, token]() mutable {
+          const auto encoded = watcher->result();
+          watcher->deleteLater();
+          if (!capturePending || token != captureToken) return;
+          if (encoded.first.isEmpty()) { finishFrame("Cannot encode viewport PNG within limits."); return; }
+          metadata["png_sha256"] = QString::fromLatin1(encoded.second);
+          captureTimeout.stop();
+          capturePending = false;
+          auto done = std::move(captureDone);
+          captureDone = {};
+          done(metadata, encoded.first, {});
+          emit changed();
+        });
+      watcher->setFuture(QtConcurrent::run([image = std::move(image)] {
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        if (!image.save(&buffer, "PNG") || png.size() > Store::MaxPng) png.clear();
+        return qMakePair(png, Store::hash(png));
+      }));
     },
     Qt::QueuedConnection);
   captureTimeout.start();

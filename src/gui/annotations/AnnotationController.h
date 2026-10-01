@@ -44,6 +44,9 @@ public:
   QJsonObject status() const;
   QJsonObject camera() const;
   bool setCamera(const QJsonObject& camera, QString *error);
+  bool cameraOperation(const QJsonObject& operation, QString *error);
+  QString viewRevision() const;
+  void cancelCapture() { finishFrame("Agent access stopped."); }
   void capture(const QString& expectedResult,
                std::function<void(QJsonObject, QByteArray, QString)> done);
   void setAccessWidget(QWidget *widget);
@@ -75,6 +78,8 @@ private:
   };
   std::map<Renderer *, Installed> installed;
   quint64 generation = 0, draftToken = 0, captureToken = 0;
+  mutable quint64 viewGeneration = 0;
+  mutable QJsonObject observedView;
   Drawing drawing;
   QColor color = QColor("#ffcf33");
   Camera lockedCamera;

@@ -172,3 +172,33 @@ when not captured. They do not replace separately identified parse-only dependen
 GET `/v2/documents/{id}/parameters` exposes typed current Customizer `values`, `origin:current_customizer`, contextual
 `source_revision`, `defined_from_source_revision`, and `stale_source`. Definitions may predate an edit. Metadata is
 unavailable; a response exceeding 64 KiB reports unavailable instead. This read never sets parameters or evaluates.
+
+## Evidence, camera and capture (phase 5)
+
+GET `/v2/annotations?document_id={id}&q={text}` reads accepted native evidence, including unsaved annotations.
+The optional case-insensitive comment search is data. Follow `next_cursor` for list pages (100 records/768 KiB).
+GET `/v2/annotations/{annotation_id}?document_id={id}` returns immutable original metadata and `png_base64`.
+Evidence reads remain available during drawing/compilation; no historical image is rendered again.
+
+POST `/v2/viewports/{id}/view`, `/v2/capture`, and `/v2/annotations/{id}/restore` require request/server/document/
+window/viewport IDs plus nonempty `expected_result_id` (the viewport's `displayed_result_id`) and
+`expected_view_revision`. Identical retries return the original receipt before checking current preconditions.
+New operations validate cached admission state and live dispatch state; stale/busy admission returns 409, while
+a change after admission produces a failed receipt. Do not refresh preconditions and silently repeat an operation.
+View revisions are monotonic observations of native camera, logical dimensions and DPR; they are not source revisions.
+
+`/view` accepts exactly one operation: `set` (default) with full `camera`, `standard` with `view` equal to top/bottom/
+left/right/front/back/diagonal, `projection` with orthographic/perspective, or `fit`. Full cameras use native public
+`translation:[x,y,z]`, `rotation:[x,y,z]` degrees, positive `distance`, `fov` in (0,180), and `projection`.
+Vectors must be finite and bounded by 1e12; distance is bounded by 1e12. Native operations notify camera consumers;
+Animate/script-camera behavior may subsequently replace the displayed result. Read fresh state before capture.
+Restore applies only the annotation's historical camera to the current geometry; it never loads old source or pixels.
+
+Capture binds owner/result/camera/revision/size/DPR and waits for a post-paint frame-ready notification. Changes before
+readback fail the receipt. It copies the frame on the GUI thread, then encodes/hashes the detached image on a worker.
+Timeout (four seconds), Stop and destruction invalidate callbacks. Minimized, hidden or modal targets are rejected.
+PNG metadata includes width/height in physical pixels, DPR, camera, `displayed_result_id`, `view_revision`, SHA-256
+and `capture_policy:native_renderer_without_annotation_controls_or_historical_marks`. Core renderer guides remain
+as configured; navigation integration later supplies helper-free capture. No fixed sleep proves frame freshness.
+Queued/running/terminal receipts retain their identity, including failure. `/v1` continues accepting its numeric
+result guard without requiring a view revision; its unchanged client remains supported on the same listener.

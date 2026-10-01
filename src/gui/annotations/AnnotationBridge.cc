@@ -68,6 +68,7 @@ void Bridge::stop(bool remember)
   sources.clear();
   trees.clear();
   parseOutcomes.clear();
+  for (const auto& controller : controllers) if (controller) controller->cancelCapture();
   QMetaObject::invokeMethod(transport, [this] { transport->stop(); }, Qt::BlockingQueuedConnection);
   emit accessChanged({}, {});
 }
@@ -314,21 +315,24 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
     done({}, {}, "Document/viewport session is no longer available.");
     return;
   }
-  if (target->busy()) {
+  if (target->busy() || QApplication::activeModalWidget()) {
     done({}, {}, "Viewport is busy.");
     return;
   }
   const auto expected = body.value("expected_result_id").toString();
-  if (target->status().value("result").toObject().value("id").toString() != expected) {
+  const bool v2 = path.startsWith("/v2/");
+  const auto state = target->status();
+  if ((v2 ? state.value("displayed_result_id").toString() : state.value("result").toObject().value("id").toString()) != expected ||
+      (v2 && target->viewRevision() != body.value("expected_view_revision").toString())) {
     done({}, {}, "Rendered result changed.");
     return;
   }
-  if (path == "/v1/capture") {
-    target->capture(expected, done);
+  if (path == "/v1/capture" || path == "/v2/capture") {
+    target->capture(state.value("result").toObject().value("id").toString(), done);
     return;
   }
   QJsonObject camera;
-  if (path.startsWith("/v1/annotations/")) {
+  if (path.startsWith("/v1/annotations/") || path.startsWith("/v2/annotations/")) {
     auto annotation = path.section('/', 3, 3);
     auto record = target->owner()->annotations->find(annotation);
     if (!record) {
@@ -344,7 +348,8 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
     camera = body.value("camera").toObject();
   }
   QString error;
-  if (!target->setCamera(camera, &error)) done({}, {}, error);
+  const bool changed = v2 && !path.startsWith("/v2/annotations/") ? target->cameraOperation(body, &error) : target->setCamera(camera, &error);
+  if (!changed) done({}, {}, error);
   else done(target->status(), {}, {});
 }
 QJsonObject Bridge::snapshotSource(EditorInterface *editor, const QJsonObject& request, QString *error)

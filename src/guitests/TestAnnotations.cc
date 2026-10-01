@@ -52,6 +52,72 @@ QJsonObject agentRequest(const QJsonObject& info, const QString& route, const QJ
 }
 }
 
+void TestAnnotations::guardedViewport()
+{
+  window->designActionAutoReload->setChecked(false);
+  window->tabManager->actionNew();
+  auto editor = window->activeEditor;
+  editor->setPlainText("difference(){cube(10,center=true); cylinder(h=20,r=3,center=true);}");
+  window->actionRenderPreview();
+  window->qglview->viewAll();
+  auto controller = window->annotationController;
+  auto bridge = AgentAnnotations::Bridge::instance();
+  bridge->startAgent(false);
+  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  const auto info = bridge->connection();
+  auto body = [&] {
+    const auto state = controller->status();
+    return QJsonObject{{"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
+      {"server_id", info.value("server_id")}, {"document_id", editor->annotations->sessionId},
+      {"window_id", controller->windowId}, {"viewport_id", controller->viewportId},
+      {"expected_result_id", state.value("displayed_result_id")}, {"expected_view_revision", state.value("view_revision")}};
+  };
+  const auto route = "/v2/viewports/" + controller->viewportId + "/view";
+  for (const auto& name : {"top", "bottom", "left", "right", "front", "back", "diagonal"}) {
+    auto request = body(); request["operation"] = "standard"; request["view"] = name;
+    QCOMPARE(agentRequest(info, route, request).value("http_status").toInt(), 202);
+    QTRY_COMPARE(agentRequest(info, "/v2/requests/" + request.value("request_id").toString()).value("state").toString(), QString("succeeded"));
+    const auto camera = controller->camera();
+    const auto revision = controller->viewRevision();
+    // An identical receipt must not move the camera a second time.
+    QCOMPARE(agentRequest(info, route, request).value("http_status").toInt(), 200);
+    QCOMPARE(controller->viewRevision(), revision);
+    QCOMPARE(controller->camera(), camera);
+  }
+  auto stale = body(); stale["operation"] = "fit";
+  window->qglview->cam.setVpr(15,25,35);
+  emit window->qglview->cameraChanged();
+  QTRY_COMPARE(agentRequest(info, route, stale).value("http_status").toInt(), 409);
+  auto projection = body(); projection["operation"] = "projection"; projection["projection"] = "orthographic";
+  QCOMPARE(agentRequest(info, route, projection).value("http_status").toInt(), 202);
+  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + projection.value("request_id").toString()).value("state").toString(), QString("succeeded"));
+  QCOMPARE(controller->camera().value("projection").toString(), QString("orthographic"));
+  auto invalid = body(); invalid["camera"] = controller->camera();
+  auto badCamera = invalid.value("camera").toObject(); badCamera["distance"] = -1; invalid["camera"] = badCamera;
+  QCOMPARE(agentRequest(info, route, invalid).value("http_status").toInt(), 202);
+  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + invalid.value("request_id").toString()).value("state").toString(), QString("failed"));
+  QTimer pump;
+  connect(&pump, &QTimer::timeout, window, [this] { window->qglview->grabFramebuffer(); });
+  pump.start(30);
+  const auto capture = body();
+  QCOMPARE(agentRequest(info, "/v2/capture", capture).value("http_status").toInt(), 202);
+  QJsonObject receipt;
+  QTRY_COMPARE((receipt = agentRequest(info, "/v2/requests/" + capture.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  const auto image = receipt.value("result").toObject();
+  const auto png = QByteArray::fromBase64(image.value("png_base64").toString().toLatin1());
+  QCOMPARE(QString::fromLatin1(AgentAnnotations::Store::hash(png)), image.value("png_sha256").toString());
+  QCOMPARE(image.value("view_revision"), capture.value("expected_view_revision"));
+  QCOMPARE(image.value("displayed_result_id"), capture.value("expected_result_id"));
+  QFile evidence(QFileInfo(qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG")).dir().filePath("agent-v2-capture.png"));
+  QVERIFY(evidence.open(QIODevice::WriteOnly)); evidence.write(png); evidence.close();
+  controller->startDrawing();
+  QCOMPARE(agentRequest(info, "/v2/capture", body()).value("http_status").toInt(), 409);
+  QCOMPARE(agentRequest(info, "/v2/annotations?document_id=" + editor->annotations->sessionId).value("http_status").toInt(), 200);
+  controller->cancelDrawing();
+  QCOMPARE(editor->toPlainText(), QString("difference(){cube(10,center=true); cylinder(h=20,r=3,center=true);}"));
+  bridge->stop();
+}
+
 void TestAnnotations::modelInspection()
 {
   window->designActionAutoReload->setChecked(false);

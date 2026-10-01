@@ -244,7 +244,7 @@ void Transport::route(QTcpSocket *socket, const QByteArray& header, const QByteA
       respond(socket, 415, {{"code", "invalid_media_type"}, {"message", "JSON required."}});
       return;
     }
-    routeV2(socket, request[0], path, bytes);
+    routeV2(socket, request[0], path, bytes, query);
     return;
   }
   if (request[0] == "GET") {
@@ -443,7 +443,7 @@ bool Transport::beginJob(const QString& server, const QString& id)
 }
 
 void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QString& path,
-                        const QByteArray& bytes)
+                        const QByteArray& bytes, const QUrlQuery& query)
 {
   expire();
   if (method == "GET" && !bytes.isEmpty()) {
@@ -454,7 +454,8 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     auto value = path == "/v2/info" ? info : snapshot.status;
     value["api_version"] = 2;
     value["capabilities"] = QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
-      "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read", "dependencies.read", "model.read", "parameters.read"};
+      "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read", "dependencies.read", "model.read", "parameters.read",
+      "annotations.read", "camera.set", "camera.restore", "viewport.capture"};
     value["state_generation"] = QString::number(stateGeneration);
     value["server_id"] = info.value("server_id");
     value["gui_heartbeat_age_ms"] = heartbeat ? double(now() - heartbeat) : -1;
@@ -472,6 +473,62 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
   if (method == "GET" && snapshot.reads.contains(path)) {
     respond(socket, 200, snapshot.reads.value(path));
     return;
+  }
+  if (method == "GET" && (path == "/v2/annotations" || path.startsWith("/v2/annotations/"))) {
+    const auto document = query.queryItemValue("document_id");
+    auto found = snapshot.records.constFind(document);
+    if (found == snapshot.records.cend()) {
+      respond(socket, 404, {{"code", "unknown_target"}, {"message", "Unknown document."}}); return;
+    }
+    if (path != "/v2/annotations") {
+      for (const auto& record : *found) if (record.id() == path.section('/', 3, 3)) {
+        auto result = record.metadata;
+        result["document_id"] = document;
+        result["png_base64"] = QString::fromLatin1(record.png.toBase64());
+        respond(socket, 200, result); return;
+      }
+      respond(socket, 404, {{"code", "unknown_annotation"}}); return;
+    }
+    bool valid = false;
+    const auto offsetText = query.queryItemValue("offset");
+    const int offset = offsetText.isEmpty() ? 0 : offsetText.toInt(&valid);
+    if ((!offsetText.isEmpty() && !valid) || offset < 0) { respond(socket, 400, {{"code", "invalid_offset"}}); return; }
+    QJsonArray values;
+    const auto text = query.queryItemValue("q");
+    int index = 0, bytes = 0;
+    bool more = false;
+    for (auto it = found->crbegin(); it != found->crend(); ++it) {
+      if (!it->metadata.value("comment").toString().contains(text, Qt::CaseInsensitive)) continue;
+      if (index++ < offset) continue;
+      const auto size = QJsonDocument(it->metadata).toJson(QJsonDocument::Compact).size();
+      if (bytes + size > 768 * 1024 || values.size() >= 100) { --index; more = true; break; }
+      values.append(it->metadata); bytes += size;
+    }
+    QJsonValue next(QJsonValue::Null);
+    if (more && !values.isEmpty()) {
+      QUrlQuery cursor; cursor.addQueryItem("document_id", document); cursor.addQueryItem("q", text);
+      cursor.addQueryItem("offset", QString::number(index));
+      next = "/v2/annotations?" + cursor.toString(QUrl::FullyEncoded);
+    }
+    if (values.isEmpty() && more) {
+      respond(socket, 413, {{"code", "metadata_limit"}, {"message", "Read individual evidence by ID."}}); return;
+    }
+    respond(socket, 200, {{"document_id", document}, {"annotations", values}, {"next_cursor", next}}); return;
+  }
+  if (method == "POST" && (path == "/v2/capture" ||
+      QRegularExpression("^/v2/(viewports/[a-fA-F0-9-]{36}/view|annotations/[a-fA-F0-9-]{36}/restore)$").match(path).hasMatch())) {
+    QJsonParseError parse;
+    const auto doc = QJsonDocument::fromJson(bytes, &parse);
+    const auto body = doc.object();
+    if (parse.error != QJsonParseError::NoError || !doc.isObject() ||
+        body.value("server_id") != info.value("server_id") || !validId(body.value("request_id").toString()) ||
+        !validId(body.value("document_id").toString()) || !validId(body.value("window_id").toString()) ||
+        !validId(body.value("viewport_id").toString()) || body.value("expected_result_id").toString().isEmpty() ||
+        body.value("expected_view_revision").toString().isEmpty() ||
+        (path.startsWith("/v2/viewports/") && path.section('/', 3, 3) != body.value("viewport_id"))) {
+      respond(socket, 400, {{"code", "invalid_request"}, {"message", "Explicit target and expected result/view required."}}); return;
+    }
+    enqueueV2(socket, path, body); return;
   }
   if (method == "GET" && (path.startsWith("/v2/source-snapshots/") || path.startsWith("/v2/trees/"))) {
     respond(socket, 410, {{"code", "expired"}, {"message", "Snapshot/page unavailable; capture explicitly again."}});
@@ -546,6 +603,16 @@ void Transport::enqueueV2(QTcpSocket *socket, const QString& path, const QJsonOb
   if (jobs.contains(id)) {
     respond(socket, jobs[id].input == fingerprint ? 200 : 409, jobs[id].input == fingerprint ? jobs[id].value : QJsonObject{{"code", "request_conflict"}});
     return;
+  }
+  if (body.contains("expected_view_revision")) {
+    bool matched = false;
+    for (const auto& entry : snapshot.status.value("viewports").toArray()) {
+      const auto view = entry.toObject();
+      if (view.value("viewport_id") == body.value("viewport_id") && view.value("window_id") == body.value("window_id") &&
+          view.value("document_id") == body.value("document_id") && view.value("displayed_result_id") == body.value("expected_result_id") &&
+          view.value("view_revision") == body.value("expected_view_revision") && !view.value("busy").toBool()) matched = true;
+    }
+    if (!matched) { respond(socket, 409, {{"code", "stale_or_busy"}, {"message", "Refresh target/result/view after resolving busy interaction."}}); return; }
   }
   if (!heartbeat || now() - heartbeat >= 5000) {
     respond(socket, 503, {{"code", "gui_unresponsive"}, {"message", "Wait for a fresh GUI heartbeat."}});

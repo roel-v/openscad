@@ -42,7 +42,7 @@ void CameraNavigation::tick(quint64 operation)
     apply(target);
     return;
   }
-  const double t = QEasingCurve(settings.easing).valueForProgress(progress);
+  const double t = QEasingCurve(static_cast<QEasingCurve::Type>(settings.easing)).valueForProgress(progress);
   auto pose = start;
   const Eigen::Quaterniond first(CameraPose::matrix(start.rotation));
   const Eigen::Quaterniond last(CameraPose::matrix(target.rotation));

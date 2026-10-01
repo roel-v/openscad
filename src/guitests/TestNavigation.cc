@@ -2,6 +2,13 @@
 #include "gui/QGLView.h"
 #include "gui/CameraNavigation.h"
 #include "gui/NavigationCube.h"
+#include "gui/ViewportPopup.h"
+#ifdef ENABLE_NAVIGATION_CUBE_TUNING
+#include "gui/NavigationTuning.h"
+#endif
+#include <QRadioButton>
+#include <QCheckBox>
+#include <QClipboard>
 #include <QFrame>
 #include <QLabel>
 #include <QSizeGrip>
@@ -238,4 +245,72 @@ void TestNavigation::interruptibleTransitions()
   QVERIFY(!nav->animating());
   nav->settings.animate=false;
   nav->apply(original,false);
+}
+
+void TestNavigation::popupAndTuning()
+{
+  auto view=window->qglview;
+  auto settings=&view->navigation()->settings;
+  auto popup=view->findChild<ViewportPopup *>();
+  QVERIFY(popup);
+  popup->toggle();
+  QTRY_VERIFY(popup->isVisible());
+  QVERIFY(popup->windowFlags().testFlag(Qt::FramelessWindowHint));
+  popup->resize(330,540);
+  QCOMPARE(popup->size(),QSize(330,540));
+  auto ortho=popup->findChild<QRadioButton *>("viewportOrthographic");
+  QVERIFY(ortho);
+  QTest::mouseClick(ortho,Qt::LeftButton);
+  QVERIFY(view->orthoMode());
+  QVERIFY(window->viewActionOrthogonal->isChecked());
+  const auto output=qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
+  if (!output.isEmpty()) QVERIFY(popup->grab().save(output+"/viewport-popup.png"));
+  QSignalSpy selected(view,&QGLView::doLeftClick);
+  QTest::mouseClick(window->windowHandle(),Qt::LeftButton,Qt::NoModifier,view->mapTo(window,QPoint(4,4)));
+  QTRY_VERIFY(!popup->isVisible());
+  QCOMPARE(selected.count(),0);
+  popup->toggle();
+  QTest::keyClick(popup,Qt::Key_Escape);
+  QVERIFY(!popup->isVisible());
+  settings->setTemporary("scale",1.2);
+  settings->setTemporary("cubeRight",25.0);
+  settings->setTemporary("menuRight",17.0);
+  QCOMPARE(view->navigationCube()->width(),168);
+  QCOMPARE(view->navigationCube()->menuTriangle()->x(),view->width()-qRound(24*1.2)-17);
+  const auto originalDuration=NavigationSettings::persistent("duration",200).toInt();
+  settings->setTemporary("duration",480);
+  NavigationSettings::setPersistent("duration",320);
+  QCOMPARE(settings->duration,320);
+  NavigationSettings fresh;
+  QCOMPARE(fresh.duration,320);
+  QCOMPARE(fresh.scale,0.75);
+#ifdef ENABLE_NAVIGATION_CUBE_TUNING
+  auto tuning=window->findChild<NavigationTuning *>();
+  QVERIFY(tuning);
+  tuning->show();
+  QTest::qWait(20);
+  auto copy=tuning->findChild<QPushButton *>("copyNavigationSettings");
+  QVERIFY(copy);
+  QTest::mouseClick(copy,Qt::LeftButton);
+  const auto text=QApplication::clipboard()->text();
+  QVERIFY(text.contains("scale = 1.2"));
+  QVERIFY(text.contains("cube resolved ="));
+  QVERIFY(text.contains("triangle resolved ="));
+  QVERIFY(text.contains("DPR ="));
+  QVERIFY(text.contains("freeOrbit ="));
+  if (!output.isEmpty()) {
+    QVERIFY(tuning->grab().save(output+"/tuning-window.png"));
+    QFile settingsFile(output+"/copied-settings.txt");
+    QVERIFY(settingsFile.open(QIODevice::WriteOnly)); settingsFile.write(text.toUtf8());
+  }
+  tuning->hide();
+#endif
+  settings->resetOverrides();
+  QCOMPARE(settings->scale,0.75);
+  QCOMPARE(settings->duration,320);
+  NavigationSettings::setPersistent("visible",false);
+  QVERIFY(!view->navigationCube()->isVisible());
+  QVERIFY(!view->navigationCube()->menuTriangle()->isVisible());
+  NavigationSettings::setPersistent("visible",true);
+  NavigationSettings::setPersistent("duration",originalDuration);
 }

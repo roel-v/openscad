@@ -70,6 +70,10 @@
 #include <QTimer>
 #include <QToolBar>
 #include "gui/CameraNavigation.h"
+#include "gui/ViewportPopup.h"
+#ifdef ENABLE_NAVIGATION_CUBE_TUNING
+#include "gui/NavigationTuning.h"
+#endif
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -3772,6 +3776,13 @@ void MainWindow::setup3DView()
   connect(this->qglview, &QGLView::doRightClick, this, &MainWindow::rightClick);
   connect(this->qglview, &QGLView::doLeftClick, this, &MainWindow::leftClick);
   connect(this->qglview, &QGLView::initialized, this, &MainWindow::updateViewModeAfterGLInit);
+  new ViewportPopup(this);
+#ifdef ENABLE_NAVIGATION_CUBE_TUNING
+  auto tuning = new NavigationTuning(qglview);
+  auto tuningAction = menu_View->addAction(tr("Navigation tuning…"));
+  tuningAction->setObjectName("navigationTuningAction");
+  connect(tuningAction, &QAction::triggered, tuning, [tuning] { tuning->show(); tuning->raise(); });
+#endif
 }
 
 /**

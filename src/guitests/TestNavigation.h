@@ -9,4 +9,5 @@ private slots:
   void documentMetadataLifetimeProbe();
   void cubeTargetsAndGestures();
   void interruptibleTransitions();
+  void popupAndTuning();
 };

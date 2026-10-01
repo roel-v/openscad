@@ -35,6 +35,7 @@
 #include "gui/MainWindow.h"
 #include "gui/Preferences.h"
 #include "gui/ScintillaEditor.h"
+#include "gui/annotations/AnnotationController.h"
 #include "utils/printutils.h"
 
 namespace {
@@ -287,11 +288,17 @@ void TabManager::unhighlightLastError()
 
 void TabManager::undo()
 {
+  if (parent->annotationController) if (auto target = parent->annotationController->actionOwner()) {
+    target->undoFromAnnotations(false); return;
+  }
   editor->undo();
 }
 
 void TabManager::redo()
 {
+  if (parent->annotationController) if (auto target = parent->annotationController->actionOwner()) {
+    target->undoFromAnnotations(true); return;
+  }
   editor->redo();
 }
 

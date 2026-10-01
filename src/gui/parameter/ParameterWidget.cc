@@ -26,6 +26,8 @@
 #include "gui/parameter/ParameterWidget.h"
 
 #include <QAction>
+#include <QJsonDocument>
+#include <QJsonArray>
 #include <QInputDialog>
 #include <QLayoutItem>
 #include <QMenu>
@@ -54,6 +56,16 @@
 #include "gui/parameter/ParameterText.h"
 #include "gui/parameter/ParameterVector.h"
 #include "gui/parameter/ParameterVirtualWidget.h"
+
+QJsonObject ParameterWidget::annotationValues() const
+{
+  QJsonObject values;
+  for (const auto& parameter : parameters) {
+    const auto json = "[" + parameter->jsonValue().dump() + "]";
+    values[QString::fromStdString(parameter->name())] = QJsonDocument::fromJson(QByteArray::fromStdString(json)).array().at(0);
+  }
+  return values;
+}
 
 ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
 {

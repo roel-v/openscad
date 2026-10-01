@@ -215,7 +215,10 @@ void QGLView::resizeGL(int w, int h)
 
 void QGLView::paintGL()
 {
+  emit frameAboutToRender();
+  if (annotationCameraLock) cam = *annotationCameraLock;
   GLView::paintGL();
+  emit frameRendered();
 
   if (statusLabel) {
     auto status = QString("%1 (%2x%3)")

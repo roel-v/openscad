@@ -25,6 +25,7 @@
  */
 
 #include "gui/MainWindow.h"
+#include "gui/annotations/AnnotationController.h"
 
 #include <sys/stat.h>
 
@@ -296,6 +297,7 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   setupFontList();
   setupColorList();
   setupAIDock();
+  annotationController = new AgentAnnotations::Controller(this);
   setupDocks();
 
   setup3DView();
@@ -542,6 +544,11 @@ void MainWindow::loadDesignSettings()
 
 void MainWindow::updateUndockMode(bool undockMode)
 {
+  if (annotationController) {
+    auto dock = annotationController->dock;
+    if (!undockMode && dock->isFloating()) dock->setFloating(false);
+    dock->setFeatures(undockMode ? dock->features() | QDockWidget::DockWidgetFloatable : dock->features() & ~QDockWidget::DockWidgetFloatable);
+  }
   MainWindow::undockMode = undockMode;
   if (undockMode) {
     editorDock->setFeatures(editorDock->features() | QDockWidget::DockWidgetFloatable);
@@ -612,6 +619,8 @@ void MainWindow::updateReorderMode(bool reorderMode)
 
 MainWindow::~MainWindow()
 {
+  delete annotationController;
+  annotationController = nullptr;
   // The QWidget destructor deletes our child docks, and deleting a QDockWidget
   // reparents and hides it, which emits Dock::visibilityChanged and sends hide
   // events through our event filter. Qt only severs connections in ~QObject,
@@ -901,6 +910,7 @@ void MainWindow::compileDone(bool didchange)
   try {
     const char *callslot;
     if (didchange) {
+      if (annotationController) annotationController->beginEvaluation(lastCompiledDoc);
       instantiateRoot();
       updateCompileResult();
       callslot = afterCompileSlot;
@@ -964,6 +974,7 @@ void MainWindow::selectPreviewViewMode()
 
 void MainWindow::compileEnded()
 {
+  if (annotationController) annotationController->finishEvaluation(compileErrors == 0 && rootFile != nullptr);
   clearCurrentOutput();
   GuiLocker::unlock();
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
@@ -1330,12 +1341,14 @@ void MainWindow::saveBackup()
 
 void MainWindow::on_fileActionSave_triggered()
 {
-  tabManager->save(activeEditor);
+  auto target = annotationController ? annotationController->actionOwner() : nullptr;
+  tabManager->save(target ? target : activeEditor);
 }
 
 void MainWindow::on_fileActionSaveAs_triggered()
 {
-  tabManager->saveAs(activeEditor);
+  auto target = annotationController ? annotationController->actionOwner() : nullptr;
+  tabManager->saveAs(target ? target : activeEditor);
 }
 
 void MainWindow::on_fileActionPythonRevoke_triggered()
@@ -1412,7 +1425,8 @@ void MainWindow::on_fileActionPythonSelectVenv_triggered()
 
 void MainWindow::on_fileActionSaveACopy_triggered()
 {
-  tabManager->saveACopy(activeEditor);
+  auto target = annotationController ? annotationController->actionOwner() : nullptr;
+  tabManager->saveACopy(target ? target : activeEditor);
 }
 
 void MainWindow::on_fileShowLibraryFolder_triggered()
@@ -1809,6 +1823,7 @@ void MainWindow::parseTopLevelDocument()
   resetSuppressedMessages();
 
   this->lastCompiledDoc = activeEditor->toPlainText();
+  if (annotationController) annotationController->beginEvaluation(lastCompiledDoc);
 
   activeEditor->resetHighlighting();
   this->rootFile = parseDocument(activeEditor);
@@ -2402,6 +2417,7 @@ void MainWindow::updateStatusBar(ProgressWidget *progressWidget)
 
 void MainWindow::exceptionCleanup()
 {
+  if (annotationController) annotationController->finishEvaluation(false);
   LOG("Execution aborted");
   LOG(" ");
   GuiLocker::unlock();
@@ -2410,6 +2426,7 @@ void MainWindow::exceptionCleanup()
 
 void MainWindow::UnknownExceptionCleanup(std::string msg)
 {
+  if (annotationController) annotationController->finishEvaluation(false);
   auto guard = scopedSetCurrentOutput();  // we need to show this error
   if (msg.size() == 0) {
     LOG(message_group::Error, "Compilation aborted by unknown exception");
@@ -3787,6 +3804,7 @@ void MainWindow::setupDocks()
 
   // clang-format off
   docks = {
+    {annotationController->dock, _("Annotations")},
     {editorDock, _("&Editor")},
     {consoleDock, _("&Console")},
     {parameterDock, _("C&ustomizer")},

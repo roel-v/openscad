@@ -112,6 +112,34 @@ void applyConfiguredFont()
 
 void initializeGuiTestApplication() { typographyApp(); }
 
+TEST_CASE("Preferences native tabs synchronize actions and conditional pages", "[ui-dialogs]")
+{
+  typographyApp();
+  auto *prefs = GlobalPreferences::inst();
+  REQUIRE(prefs->categoryTabs);
+  CHECK(prefs->toolBar->isHidden());
+  prefs->prefsActionAdvanced->trigger();
+  CHECK(prefs->stackedWidget->currentWidget() == prefs->pageAdvanced);
+  CHECK(prefs->categoryTabs->tabData(prefs->categoryTabs->currentIndex()).value<QAction *>() == prefs->prefsActionAdvanced);
+  prefs->categoryTabs->setCurrentIndex(0);
+  CHECK(prefs->stackedWidget->currentWidget() == prefs->page3DView);
+  const bool aiVisible = prefs->prefsActionAI->isVisible();
+  prefs->prefsActionAI->setVisible(true);
+  prefs->prefsActionAI->trigger();
+  CHECK(prefs->stackedWidget->currentWidget() == prefs->pageAI);
+  prefs->prefsActionAI->setVisible(false);
+  CHECK(prefs->stackedWidget->currentWidget() == prefs->pageDialogs);
+  for (int i = 0; i < prefs->categoryTabs->count(); ++i) {
+    auto *action = prefs->categoryTabs->tabData(i).value<QAction *>();
+    REQUIRE(action);
+    CHECK(action->isVisible());
+    prefs->categoryTabs->setCurrentIndex(i);
+    CHECK(action->isChecked());
+  }
+  prefs->prefsActionAI->setVisible(aiVisible);
+  prefs->prefsAction3DView->trigger();
+}
+
 TEST_CASE("Customizer disclosure preserves native activation and accessible expansion", "[ui-customizer]")
 {
   typographyApp();

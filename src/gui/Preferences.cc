@@ -390,6 +390,26 @@ void Preferences::init()
 
   connect(group, &QActionGroup::triggered, this, &Preferences::actionTriggered);
 
+  categoryTabs = new QTabBar(centralwidget);
+  categoryTabs->setObjectName("categoryTabs");
+  categoryTabs->setExpanding(false);
+  categoryTabs->setUsesScrollButtons(true);
+  categoryTabs->setIconSize(QSize(32, 32));
+  categoryTabs->setAccessibleName(tr("Preferences categories"));
+  gridLayout_6->removeWidget(stackedWidget);
+  gridLayout_6->addWidget(categoryTabs, 0, 0);
+  gridLayout_6->addWidget(stackedWidget, 1, 0);
+  gridLayout_6->setRowStretch(1, 1);
+  // Retain the actions for existing programmatic navigation, not their toolbar presentation.
+  toolBar->hide();
+  rebuildCategoryTabs();
+  connect(categoryTabs, &QTabBar::currentChanged, this, [this](int index) {
+    if (index >= 0 && !rebuildingCategoryTabs) {
+      auto *action = categoryTabs->tabData(index).value<QAction *>();
+      if (action) action->trigger();
+    }
+  });
+
   prefsAction3DView->setChecked(true);
   this->actionTriggered(this->prefsAction3DView);
 
@@ -514,6 +534,41 @@ void Preferences::addPrefPage(QActionGroup *group, QAction *action, QWidget *wid
 {
   group->addAction(action);
   prefPages[action] = widget;
+  categoryActions.append(action);
+  connect(action, &QAction::changed, this, &Preferences::rebuildCategoryTabs);
+}
+
+void Preferences::rebuildCategoryTabs()
+{
+  if (!categoryTabs || rebuildingCategoryTabs) return;
+  rebuildingCategoryTabs = true;
+  const QSignalBlocker blocker(categoryTabs);
+  QAction *current = nullptr;
+  for (auto *action : categoryActions)
+    if (prefPages.value(action) == stackedWidget->currentWidget()) current = action;
+  if (!current || !current->isVisible()) {
+    const int position = categoryActions.indexOf(current);
+    current = nullptr;
+    for (int i = position - 1; i >= 0; --i)
+      if (categoryActions[i]->isVisible()) { current = categoryActions[i]; break; }
+    if (!current)
+      for (auto *action : categoryActions)
+        if (action->isVisible()) { current = action; break; }
+  }
+  while (categoryTabs->count()) categoryTabs->removeTab(0);
+  for (auto *action : categoryActions) {
+    if (!action->isVisible()) continue;
+    const int index = categoryTabs->addTab(Icons::icon(action->icon().name(), categoryTabs), action->text());
+    categoryTabs->setTabData(index, QVariant::fromValue(action));
+    categoryTabs->setTabEnabled(index, action->isEnabled());
+    categoryTabs->setTabToolTip(index, action->toolTip());
+    if (action == current) categoryTabs->setCurrentIndex(index);
+  }
+  if (current) {
+    current->setChecked(true);
+    stackedWidget->setCurrentWidget(prefPages.value(current));
+  }
+  rebuildingCategoryTabs = false;
 }
 
 /**
@@ -523,7 +578,10 @@ void Preferences::addPrefPage(QActionGroup *group, QAction *action, QWidget *wid
  */
 void Preferences::actionTriggered(QAction *action)
 {
-  this->stackedWidget->setCurrentWidget(prefPages[action]);
+  if (!prefPages.contains(action) || !action->isVisible()) return;
+  this->stackedWidget->setCurrentWidget(prefPages.value(action));
+  action->setChecked(true);
+  rebuildCategoryTabs();
 }
 
 /**

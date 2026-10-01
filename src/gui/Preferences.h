@@ -15,6 +15,7 @@
 #include <QStringList>
 #include <QVariant>
 #include <QWidget>
+#include <QTabBar>
 #include <string>
 
 #include "core/Settings.h"
@@ -37,6 +38,7 @@ public:
   QVariant getValue(const QString& key) const;
   void init();
   QComboBox *statusIconAppearance = nullptr;
+  QTabBar *categoryTabs = nullptr;
   void update();
   void apply_win() const;
   void updateGUI();
@@ -222,6 +224,9 @@ private:
   void writeSettings();
   void hidePasswords();
   void addPrefPage(QActionGroup *group, QAction *action, QWidget *widget);
+  void rebuildCategoryTabs();
+  QList<QAction *> categoryActions;
+  bool rebuildingCategoryTabs = false;
   void createFontSizeMenu(QComboBox *box, const QString& setting);
   void updateGUIFontFamily(QFontComboBox *fontSelector, const QString& setting) const;
   void updateGUIFontSize(QComboBox *fsSelector, const QString& setting) const;

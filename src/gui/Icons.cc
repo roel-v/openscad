@@ -159,6 +159,8 @@ public:
                          : (widget && !widget->isActiveWindow() ? QPalette::Inactive : QPalette::Active);
     // Windows11 gives checked tool buttons an accent background. Other styles keep ButtonText.
     const bool checkedAccent = state == QIcon::On && mode != QIcon::Disabled &&
+                               (qobject_cast<const QAbstractButton *>(widget) ||
+                                qobject_cast<const QToolBar *>(widget)) &&
                                style->objectName().compare("windows11", Qt::CaseInsensitive) == 0;
     const bool selected = mode == QIcon::Selected || checkedAccent;
     const auto role =

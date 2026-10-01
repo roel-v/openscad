@@ -12,4 +12,5 @@ private slots:
   void popupAndTuning();
   void savedViewTransactions();
   void savedViewDocumentLifecycle();
+  void statisticsAndCleanCapture();
 };

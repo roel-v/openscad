@@ -1,4 +1,5 @@
 #include "gui/SavedViews.h"
+#include "gui/ViewportStatistics.h"
 #include "gui/TabManager.h"
 
 #include <QApplication>
@@ -479,6 +480,7 @@ void TabManager::showTabHeaderContextMenu(const QPoint& pos)
 
 void TabManager::setContentRenderState()  // since last render
 {
+  if (editor==parent->displayedDocument()) parent->qglview->statistics()->setStale(true);
   editor->contentsRendered = false;  // since last render
   editor->parameterWidget->setEnabled(false);
 }

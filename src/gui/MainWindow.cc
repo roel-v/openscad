@@ -1,4 +1,5 @@
 #include "gui/SavedViews.h"
+#include "gui/ViewportStatistics.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -1885,6 +1886,7 @@ void MainWindow::csgReloadRender()
 
 void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents, bool preview)
 {
+  qglview->statistics()->setStale(true);
   qglview->navigation()->cancel();
   setCurrentOutput();
   autoReloadTimer->stop();

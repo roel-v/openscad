@@ -37,6 +37,7 @@
 #include "glview/system-gl.h"
 #include "glview/VertexState.h"
 #include "glview/Renderer.h"
+#include "glview/TriangleStatistics.h"
 #include "utils/printutils.h"
 #include "core/CSGNode.h"
 #include "glview/ShaderUtils.h"
@@ -84,6 +85,7 @@ ThrownTogetherRenderer::ThrownTogetherRenderer(std::shared_ptr<CSGProducts> root
     highlight_products_(std::move(highlight_products)),
     background_products_(std::move(background_products))
 {
+  triangles_=previewTriangleStatistics(root_products_,highlight_products_,background_products_);
 }
 
 void ThrownTogetherRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)

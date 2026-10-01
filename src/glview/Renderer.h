@@ -12,6 +12,8 @@
 #endif
 
 #include <vector>
+#include <optional>
+#include <cstdint>
 
 namespace RendererUtils {
 
@@ -34,6 +36,11 @@ class Renderer
 public:
   Renderer();
   virtual ~Renderer() = default;
+  struct TriangleStatistics {
+    enum class Kind { Preview, Final } kind;
+    std::optional<uint64_t> count;
+  };
+  TriangleStatistics triangleStatistics() const { return triangles_; }
 
   virtual void prepare(const ShaderUtils::ShaderInfo *shaderinfo) = 0;
   virtual void draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const = 0;
@@ -68,6 +75,7 @@ public:
                                                       int mouse_x, int mouse_y, double tolerance);
 
 protected:
+  TriangleStatistics triangles_{TriangleStatistics::Kind::Final,std::nullopt};
   std::map<ColorMode, Color4f> colormap_;
   const ColorScheme *colorscheme_{nullptr};
   void setupShader();

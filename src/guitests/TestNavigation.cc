@@ -429,3 +429,75 @@ void TestNavigation::popupAndTuning()
   NavigationSettings::setPersistent("visible",true);
   NavigationSettings::setPersistent("duration",originalDuration);
 }
+#include "gui/ViewportStatistics.h"
+#include "gui/ai/ViewportGrabber.h"
+#include <stdexcept>
+
+void TestNavigation::statisticsAndCleanCapture()
+{
+  window->tabManager->createTab("");
+  auto editor=window->activeEditor;
+  editor->setPlainText("cube(10); translate([15,0,0]) cube(10);\n");
+  window->actionRenderPreview();
+  auto view=window->qglview;
+  QTRY_VERIFY(view->getRenderer());
+  const auto statistics=view->getRenderer()->triangleStatistics();
+  QVERIFY(statistics.count.has_value()); QCOMPARE(*statistics.count,uint64_t(24));
+  auto nav=view->navigation(); nav->settings.animate=false;
+  nav->settings.setTemporary("showInformation",true);
+  nav->settings.setTemporary("frameTime",true);
+  nav->settings.setTemporary("statsIdle",150);
+  nav->settings.setTemporary("statsRefresh",50);
+  QSignalSpy paints(view,&QGLView::viewportPaintCompleted);
+  for (int i=0;i<6;++i) {view->update();QTest::qWait(25);}
+  QVERIFY(view->statistics()->sampleCount()>0);
+  QTest::qWait(400);
+  QVERIFY(view->statistics()->text().contains("Idle"));
+  const int idlePaints=paints.count(); QTest::qWait(300);
+  QVERIFY2(paints.count()-idlePaints<=1,"Statistics must not drive an idle redraw loop");
+  nav->settings.setTemporary("visible",false);
+  QVERIFY(view->statistics()->isVisible());
+  nav->settings.setTemporary("visible",true);
+  view->setShowAxes(false); view->setShowScaleProportional(false); view->setShowCrosshairs(false);
+  view->setShowEdges(true);
+  const QImage reference=view->grabFrame(QGLView::CaptureContent::ModelOnly);
+  QVERIFY(!reference.isNull());
+  view->setShowAxes(true); view->setShowScaleProportional(true); view->setShowCrosshairs(true);
+  auto popup=window->findChild<ViewportPopup *>(); if (!popup->isVisible()) popup->toggle();
+  const auto pose=nav->current();
+  const int samples=view->statistics()->sampleCount();
+  const QImage clean=view->grabFrame();
+  QCOMPARE(view->statistics()->sampleCount(),samples);
+  QCOMPARE(clean,reference);
+  QVERIFY(view->showAxes() && view->showScaleProportional() && view->showCrosshairs() && view->showEdges());
+  QVERIFY(nav->current()==pose);
+  window->editActionCopyViewport->trigger();
+  QCOMPARE(QApplication::clipboard()->image(),reference);
+  const auto encoded=ViewportGrabber::captureViewportBase64(view,10000);
+  const auto decoded=QImage::fromData(QByteArray::fromBase64(QByteArray::fromStdString(encoded)),"PNG");
+  QCOMPARE(decoded.convertToFormat(reference.format()),reference);
+  int compositions=0;
+  view->composeAnnotations=[&](QImage& image){++compositions;image.setPixelColor(2,2,Qt::red);};
+  const QImage annotated=view->grabFrame();
+  QCOMPARE(compositions,1); QCOMPARE(annotated.pixelColor(2,2),QColor(Qt::red));
+  QCOMPARE(view->grabFrame(QGLView::CaptureContent::ModelOnly),reference); QCOMPARE(compositions,1);
+  view->composeAnnotations=[](QImage&){throw std::runtime_error("Injected composition failure");};
+  bool caught=false;
+  try {view->grabFrame();} catch(const std::runtime_error&) {caught=true;}
+  QVERIFY(caught); QVERIFY(view->showAxes() && view->showCrosshairs() && view->showScaleProportional());
+  view->composeAnnotations={};
+  nav->settings.animate=true; nav->settings.duration=500;
+  auto target=pose;target.rotation.z()+=75;nav->navigate(target);QTest::qWait(30);
+  view->grabFrame();const auto stopped=nav->current();QTest::qWait(80);
+  QVERIFY(!nav->animating());QVERIFY(nav->current()==stopped);
+  const auto output=qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
+  if (!output.isEmpty()) {
+    QVERIFY(clean.save(output+"/clean-viewport.png"));
+    QVERIFY(window->grab().save(output+"/statistics-ui.png"));
+    view->grabFrame(); QVERIFY(view->save((output+"/export-path.png").toStdString().c_str()));
+  }
+  popup->hide();
+  nav->settings.resetOverrides();
+  editor->setContentModified(false);
+  window->tabManager->closeCurrentTab();
+}

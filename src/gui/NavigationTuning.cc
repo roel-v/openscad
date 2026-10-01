@@ -76,6 +76,11 @@ NavigationTuning::NavigationTuning(QGLView *view) : Dock(view->window()),view(vi
       else if (name=="cubeRadius") spin->setRange(20,45);
       else if (name=="labelSize") spin->setRange(7,24);
       else if (name=="arrowSize") spin->setRange(12,30);
+      else if (name.endsWith("Inset")) {
+        spin->setRange(0,25);
+        spin->setSingleStep(1);
+        spin->setToolTip(tr("Move the buttons toward the cube. Higher values reduce the distance; scaled with the cube."));
+      }
       else if (name=="dragThreshold") spin->setRange(1,32);
       else if (name=="orbitSensitivity") { spin->setRange(0.1,3); spin->setSingleStep(0.1); }
       else if (name.endsWith("Step")) spin->setRange(1,180);

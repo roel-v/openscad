@@ -114,8 +114,12 @@ void NavigationCube::relayout()
   const QPoint centers[] = {{42,10},{98,10},{70,30},{70,136},{10,82},{130,82}};
   const int arrowSide=std::max(1,qRound(s.arrowSize*scale));
   for (int i=0; i<6; ++i) {
-    arrows[i]->setGeometry(std::clamp(qRound(centers[i].x()*scale-arrowSide/2.0),0,std::max(0,width()-arrowSide)),
-                           std::clamp(qRound(centers[i].y()*scale-arrowSide/2.0),0,std::max(0,height()-arrowSide)),
+    const QPointF offset=QPointF(centers[i])-QPointF(70,80);
+    const double distance=std::hypot(offset.x(),offset.y());
+    const double inset=std::clamp(i<2 ? s.rollInset : s.arrowInset,0.0,25.0);
+    const QPointF center=QPointF(70,80)+offset*(1-inset/distance);
+    arrows[i]->setGeometry(std::clamp(qRound(center.x()*scale-arrowSide/2.0),0,std::max(0,width()-arrowSide)),
+                           std::clamp(qRound(center.y()*scale-arrowSide/2.0),0,std::max(0,height()-arrowSide)),
                            arrowSide,arrowSide);
   }
   const int side = qRound(24*scale);

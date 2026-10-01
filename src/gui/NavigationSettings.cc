@@ -72,7 +72,7 @@ QString NavigationSettings::unit(const QByteArray& name)
 {
   if (name.endsWith("Delay") || name.startsWith("fade") || name=="duration" || name=="statsIdle" || name=="statsRefresh") return "ms";
   if (name.endsWith("Step")) return "degrees";
-  if (name.endsWith("Right") || name.endsWith("Top") || name.endsWith("Size") || name.endsWith("Radius") || name=="dragThreshold") return "logical px";
+  if (name.endsWith("Right") || name.endsWith("Top") || name.endsWith("Size") || name.endsWith("Radius") || name.endsWith("Inset") || name=="dragThreshold") return "logical px";
   if (name=="statsWindow") return "frames";
   return "";
 }

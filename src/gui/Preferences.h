@@ -225,6 +225,7 @@ private:
   void hidePasswords();
   void addPrefPage(QActionGroup *group, QAction *action, QWidget *widget);
   void rebuildCategoryTabs();
+  void updatePageMetrics();
   QList<QAction *> categoryActions;
   bool rebuildingCategoryTabs = false;
   void createFontSizeMenu(QComboBox *box, const QString& setting);

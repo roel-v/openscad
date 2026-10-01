@@ -1,5 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <QApplication>
+#include <QGroupBox>
 #include <QAccessible>
 #include <QComboBox>
 #include <QCheckBox>
@@ -138,6 +139,25 @@ TEST_CASE("Preferences native tabs synchronize actions and conditional pages", "
   }
   prefs->prefsActionAI->setVisible(aiVisible);
   prefs->prefsAction3DView->trigger();
+}
+
+TEST_CASE("Preferences group spacing follows native metrics without changing settings", "[ui-dialogs]")
+{
+  typographyApp();
+  auto *prefs = GlobalPreferences::inst();
+  const auto value = prefs->getValue("editor/fontsize");
+  const auto originalFont = prefs->font();
+  QFont larger = originalFont;
+  larger.setPointSize(18);
+  prefs->setFont(larger);
+  for (auto *box : prefs->findChildren<QGroupBox *>()) {
+    if (prefs->pageAdvanced->isAncestorOf(box)) CHECK(box->isFlat());
+    if (box->layout()) CHECK(box->layout()->spacing() == UIUtils::layoutSpacing(prefs, Qt::Vertical));
+  }
+  CHECK(prefs->getValue("editor/fontsize") == value);
+  CHECK(prefs->labelAIHeader->font().weight() == QFont::Medium);
+  CHECK(prefs->labelAIHeader->font().pointSize() == 18);
+  prefs->setFont(originalFont);
 }
 
 TEST_CASE("Customizer disclosure preserves native activation and accessible expansion", "[ui-customizer]")

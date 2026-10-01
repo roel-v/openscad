@@ -31,6 +31,8 @@
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QFont>
+#include <QGroupBox>
+#include "gui/UIUtils.h"
 #include <QFontComboBox>
 #include <QFontDatabase>
 #include <QKeyEvent>
@@ -396,6 +398,7 @@ void Preferences::init()
   categoryTabs->setUsesScrollButtons(true);
   categoryTabs->setIconSize(QSize(32, 32));
   categoryTabs->setAccessibleName(tr("Preferences categories"));
+  updatePageMetrics();
   gridLayout_6->removeWidget(stackedWidget);
   gridLayout_6->addWidget(categoryTabs, 0, 0);
   gridLayout_6->addWidget(stackedWidget, 1, 0);
@@ -569,6 +572,25 @@ void Preferences::rebuildCategoryTabs()
     stackedWidget->setCurrentWidget(prefPages.value(current));
   }
   rebuildingCategoryTabs = false;
+}
+
+void Preferences::updatePageMetrics()
+{
+  const int horizontal = UIUtils::layoutSpacing(this, Qt::Horizontal);
+  const int vertical = UIUtils::layoutSpacing(this, Qt::Vertical);
+  gridLayout_6->setContentsMargins(horizontal, vertical, horizontal, vertical);
+  gridLayout_6->setSpacing(vertical);
+  for (auto *box : findChildren<QGroupBox *>()) {
+    if (pageAdvanced->isAncestorOf(box) || pageDialogs->isAncestorOf(box)) box->setFlat(true);
+    if (pageDialogs->isAncestorOf(box)) box->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    if (auto *layout = box->layout()) {
+      layout->setSpacing(vertical);
+      layout->setContentsMargins(horizontal, vertical, horizontal, vertical);
+    }
+  }
+  QFont heading;
+  heading.setWeight(QFont::Medium);
+  labelAIHeader->setFont(heading);
 }
 
 /**
@@ -1906,6 +1928,8 @@ void Preferences::fireEditorConfigChanged() const
 // Make sure Ctrl-W isn't passed up to MainWindow and only affects Preferences
 bool Preferences::event(QEvent *e)
 {
+  if (categoryTabs && (e->type() == QEvent::FontChange || e->type() == QEvent::StyleChange))
+    updatePageMetrics();
   if (e->type() == QEvent::WindowDeactivate) {
     if (this->aiSaveTimer && this->aiSaveTimer->isActive()) {
       this->aiSaveTimer->stop();

@@ -484,6 +484,31 @@ void TestNavigation::popupAndTuning()
   popup->toggle();
   QTest::keyClick(popup,Qt::Key_Escape);
   QVERIFY(!popup->isVisible());
+  auto cube=view->navigationCube();
+  const auto arrows=cube->findChildren<QToolButton *>(QString(),Qt::FindDirectChildrenOnly);
+  QCOMPARE(arrows.size(),6);
+  QImage scaleSheet(880,2320,QImage::Format_ARGB32_Premultiplied);
+  scaleSheet.fill(window->palette().color(QPalette::Window));
+  QPainter scalePainter(&scaleSheet);
+  int row=0;
+  for (double scale : {0.35,0.75,1.5,3.0}) {
+    settings->setTemporary("scale",scale);
+    int smallerButton=0,column=0;
+    for (double size : {12.0,30.0}) {
+      settings->setTemporary("arrowSize",size);
+      for (auto arrow : arrows) {
+        QVERIFY2(cube->rect().contains(arrow->geometry()),"Scaled arrows must not extend outside the navigation widget");
+      }
+      if (size==12) smallerButton=arrows.first()->width();
+      else QVERIFY(arrows.first()->width()>smallerButton);
+      scalePainter.drawPixmap(column*440,row*580,cube->grab());
+      ++column;
+    }
+    ++row;
+  }
+  scalePainter.end();
+  if (!output.isEmpty()) QVERIFY(scaleSheet.save(output+"/arrow-scales.png"));
+  settings->setTemporary("arrowSize",20.0);
   settings->setTemporary("scale",1.2);
   settings->setTemporary("cubeRight",25.0);
   settings->setTemporary("menuRight",17.0);

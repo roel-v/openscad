@@ -1,0 +1,7 @@
+<RCC>
+  <qresource prefix="/agent-api">
+    <file alias="help.json">../../../contrib/openscad-agent-server/api.json</file>
+    <file alias="schema.json">../../../contrib/openscad-agent-server/schemas.json</file>
+    <file alias="contract.md">../../../contrib/openscad-agent-server/HTTP.md</file>
+  </qresource>
+</RCC>

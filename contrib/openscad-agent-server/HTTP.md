@@ -5,8 +5,23 @@ The process owns one numeric-loopback listener and one full agent API at `/v1`. 
 and remembered setting. Discovery records live in `OpenSCAD/AgentServer` under the platform's application
 data directory. Stopping access invalidates the server identity and pending operations.
 
-This contract is developed in phases. Always inspect live `capabilities`; an operation listed in the later inventory
-is not available merely because a future phase is documented. No MCP or arbitrary-execution endpoint exists.
+Always inspect live `capabilities`. Phase headings describe implementation history. No MCP or arbitrary-execution
+endpoint exists. No dedicated client is required.
+
+## Self-description and direct downloads
+
+GET `/v1/info` supplies `links` to `/v1/help` (JSON catalog, fields, examples and workflow rules), `/v1/schema`
+(JSON record schemas), `/v1/help/contract` (this text), and `/v1/status`. Help is compiled into the executable.
+All routes except initial info require both agent headers. Discovery identifies the port; the API describes usage.
+Receipts include `status_route`; queued/running responses include `poll_after_ms`. Poll with a bounded local deadline.
+A timeout does not authorize a new request ID. Errors include `help_route`.
+
+Annotation detail and successful captures include `image_route`, `png_bytes` and server-computed `png_sha256`.
+GET that route with the same headers for `image/png`. Responses include Content-Length and X-Content-SHA256;
+save with ordinary HTTP tools to a new local file. No base64 payload is sent in JSON.
+Capture images live at `/v1/requests/{request_id}/image`: 409 pending, 404 no image, 410 expired/unknown.
+Annotation images live at `/v1/annotations/{id}/image?document_id={id}` and share document/evidence lifetime.
+Raw images cap at 32 MiB and count toward the shared 128 MiB outcome budget; expiry frees their bytes.
 
 ## Connection and identity
 
@@ -176,7 +191,7 @@ unavailable; a response exceeding 64 KiB reports unavailable instead. This read 
 
 GET `/v1/annotations?document_id={id}&q={text}` reads accepted native evidence, including unsaved annotations.
 The optional case-insensitive comment search is data. Follow `next_cursor` for list pages (100 records/768 KiB).
-GET `/v1/annotations/{annotation_id}?document_id={id}` returns immutable original metadata and `png_base64`.
+GET `/v1/annotations/{annotation_id}?document_id={id}` returns immutable original metadata and `image_route`.
 Evidence reads remain available during drawing/compilation; no historical image is rendered again.
 
 POST `/v1/viewports/{id}/view`, `/v1/capture`, and `/v1/annotations/{id}/restore` require request/server/document/
@@ -209,7 +224,7 @@ and the actual reload setting. Native attempts report elapsed `duration_ms`. Glo
 document attempt, are available at GET `/v1/windows/{window_id}/diagnostics`.
 Each document/global history has an additional 512-KiB encoded bound, dropping oldest records. Captured result
 Customizer context exceeding 64 KiB is null; model dependency manifests cap at 64 KiB and remain explicitly incomplete.
-Responses cap at 1 MiB except explicit PNG-bearing responses (48 MiB); excessive JSON returns `response_limit`.
+JSON responses cap at 1 MiB; raw PNG downloads cap at 32 MiB. Excessive output returns `response_limit`.
 These bounds supplement record counts and shared source/tree/job retention. No read recomputes geometry.
 
 ## Native navigation adapter (phase 7)

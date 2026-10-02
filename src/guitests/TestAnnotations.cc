@@ -35,6 +35,26 @@
 #include <QSettings>
 
 namespace {
+QByteArray agentImage(const QJsonObject& info, const QString& route)
+{
+  QNetworkAccessManager network;
+  QNetworkRequest request(QUrl(info.value("url").toString() + route));
+  request.setRawHeader("X-OpenSCAD-Agent", "1");
+  request.setRawHeader("X-OpenSCAD-Agent-Server", info.value("server_id").toString().toUtf8());
+  auto reply = network.get(request);
+  QEventLoop loop;
+  QTimer timeout;
+  timeout.setSingleShot(true);
+  timeout.start(6000);
+  QObject::connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
+  QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+  loop.exec();
+  if (!reply->isFinished() || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200 ||
+      reply->header(QNetworkRequest::ContentTypeHeader).toString() != "image/png") return {};
+  const auto data = reply->readAll();
+  if (AgentAnnotations::Store::hash(data) != reply->rawHeader("X-Content-SHA256")) return {};
+  return data;
+}
 QJsonObject agentRequest(const QJsonObject& info, const QString& route, const QJsonObject& body = {})
 {
   QNetworkAccessManager network;
@@ -171,12 +191,12 @@ void TestAnnotations::nativeSavedViews()
   bridge->stop();
 }
 
-void TestAnnotations::packagedAgentClient()
+void TestAnnotations::directHttpWorkflow()
 {
   const auto script = qEnvironmentVariable("OPENSCAD_AGENT_TEST_WORKFLOW");
-  if (script.isEmpty()) QSKIP("Set OPENSCAD_AGENT_TEST_WORKFLOW to a staged live_workflow.py.");
+  if (script.isEmpty()) QSKIP("Set OPENSCAD_AGENT_TEST_WORKFLOW to tests/annotations/LiveHttpWorkflow.py.");
   QTemporaryDir dir;
-  QFile source(dir.filePath("client.scad"));
+  QFile source(dir.filePath("http.scad"));
   QVERIFY(source.open(QIODevice::WriteOnly)); source.write("cube([10,5,3]);"); source.close();
   window->designActionAutoReload->setChecked(false);
   window->tabManager->open(source.fileName());
@@ -200,7 +220,7 @@ void TestAnnotations::packagedAgentClient()
   QTRY_COMPARE_WITH_TIMEOUT(client.state(), QProcess::NotRunning, 30000);
   auto errors = client.readAllStandardError();
   QVERIFY2(client.exitCode() == 0, errors.constData());
-  QFile log(evidence.filePath("client-live.txt"));
+  QFile log(evidence.filePath("http-live.txt"));
   QVERIFY(log.open(QIODevice::WriteOnly)); log.write(client.readAllStandardOutput()); log.write(errors);
   // A real F6 result must retain the same identity/capture guarantees as preview.
   const auto preview = window->annotationController->status().value("displayed_result_id");
@@ -284,7 +304,7 @@ void TestAnnotations::guardedViewport()
   QJsonObject receipt;
   QTRY_COMPARE((receipt = agentRequest(info, "/v1/requests/" + capture.value("request_id").toString())).value("state").toString(), QString("succeeded"));
   const auto image = receipt.value("result").toObject();
-  const auto png = QByteArray::fromBase64(image.value("png_base64").toString().toLatin1());
+  const auto png = agentImage(info, image.value("image_route").toString());
   QCOMPARE(QString::fromLatin1(AgentAnnotations::Store::hash(png)), image.value("png_sha256").toString());
   QCOMPARE(image.value("view_revision"), capture.value("expected_view_revision"));
   QCOMPARE(image.value("displayed_result_id"), capture.value("expected_result_id"));
@@ -960,22 +980,6 @@ void TestAnnotations::agentAndAutomaticReload()
                    {"viewport_id", controller->viewportId},
                    {"expected_result_id", current.value("displayed_result_id")},
                    {"expected_view_revision", current.value("view_revision")}};
-  const auto python = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_PYTHON");
-  const auto client = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_CLIENT");
-  if (!python.isEmpty() && !client.isEmpty()) {
-    const auto connectionFile = dir.filePath("connection.json"),
-               requestFile = dir.filePath("request.json"), image = dir.filePath("client.png");
-    auto clientBody = body;
-    clientBody["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    QVERIFY(write(connectionFile, QJsonDocument(info).toJson()));
-    QVERIFY(write(requestFile, QJsonDocument(clientBody).toJson()));
-    QProcess process;
-    process.start(python, {client, "--connection", connectionFile, "post", "/v1/capture", "--body",
-                           requestFile, "--output", image});
-    QTRY_VERIFY_WITH_TIMEOUT(process.state() == QProcess::NotRunning, 12000);
-    QVERIFY2(process.exitCode() == 0, process.readAllStandardError().constData());
-    QVERIFY(!QImage(image).isNull());
-  }
   QCOMPARE(request("/v1/capture", body).value("http_status").toInt(), 202);
   QJsonObject job;
   QTRY_VERIFY_WITH_TIMEOUT(
@@ -983,7 +987,7 @@ void TestAnnotations::agentAndAutomaticReload()
       job.value("state") == "failed", 6000);
   QCOMPARE(job.value("state").toString(), QString("succeeded"));
   auto metadata = job.value("result").toObject();
-  auto png = QByteArray::fromBase64(metadata.take("png_base64").toString().toLatin1());
+  auto png = agentImage(info, metadata.take("image_route").toString());
   metadata["comment"] = "Retain this unsaved evidence across external reload";
   QString error;
   QVERIFY2(editor->annotations->add({metadata, png}, &error), qPrintable(error));

@@ -15,6 +15,12 @@
 #include <QCryptographicHash>
 #include <chrono>
 
+// Explicit initialization also retains this resource when linked through a static library.
+static void initAgentApiResources()
+{
+  Q_INIT_RESOURCE(agent_api);
+}
+
 namespace AgentAnnotations {
 namespace {
 constexpr int MaxBody = 256 * 1024, MaxHeader = 16 * 1024;
@@ -25,6 +31,8 @@ bool validId(const QString& id)
 }  // namespace
 Transport::Transport(QObject *parent, std::function<qint64()> clock) : QObject(parent), clock(std::move(clock))
 {
+  static const bool initialized = [] { initAgentApiResources(); return true; }();
+  Q_UNUSED(initialized);
 }
 qint64 Transport::now() const
 {
@@ -51,10 +59,12 @@ void Transport::start()
           {"schema_version", 1},
           {"server_id", id},
           {"url", url},
+          {"links", QJsonObject{{"help", "/v1/help"}, {"schema", "/v1/schema"},
+            {"contract", "/v1/help/contract"}, {"status", "/v1/status"}}},
           {"pid", QString::number(QCoreApplication::applicationPid())},
           {"started_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
           {"executable", QCoreApplication::applicationFilePath()},
-          {"capabilities", QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
+          {"capabilities", QJsonArray{"api.help", "images.read", "status.read", "requests.read", "requests.cancel", "documents.read",
             "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read",
             "dependencies.read", "model.read", "parameters.read", "annotations.read", "camera.set",
             "camera.restore", "viewport.capture", "saved_views.read", "saved_views.write"}}};
@@ -115,9 +125,13 @@ void Transport::respond(QTcpSocket *socket, int code, QJsonObject value)
     value["code"] = code == 403 ? "transport_guard" : code == 410 ? "expired" : "invalid_request";
     value["message"] = value.take("error").toString("Request failed.");
   }
+  if (value.contains("request_id")) {
+    value["status_route"] = "/v1/requests/" + value.value("request_id").toString();
+    if (value.value("state") == "queued" || value.value("state") == "running") value["poll_after_ms"] = 100;
+  }
+  if (code >= 400) value["help_route"] = "/v1/help";
   QByteArray data = QJsonDocument(value).toJson(QJsonDocument::Compact);
-  const bool image = value.contains("png_base64") || value.value("result").toObject().contains("png_base64");
-  if (data.size() > (image ? 48 * 1024 * 1024 : 1024 * 1024)) {
+  if (data.size() > 1024 * 1024) {
     code = 413;
     data = "{\"code\":\"response_limit\",\"message\":\"Response exceeds bounded JSON output; use narrower reads.\"}";
   }
@@ -126,6 +140,19 @@ void Transport::respond(QTcpSocket *socket, int code, QJsonObject value)
                         "close\r\nContent-Length: " +
                         QByteArray::number(data.size()) + "\r\n\r\n";
   socket->write(response);
+  socket->write(data);
+  socket->disconnectFromHost();
+}
+void Transport::respondBytes(QTcpSocket *socket, const QByteArray& data, const QByteArray& type)
+{
+  if (socket->state() == QAbstractSocket::UnconnectedState) return;
+  if (data.size() > Store::MaxPng) {
+    respond(socket, 413, {{"code", "response_limit"}}); return;
+  }
+  const auto hash = QCryptographicHash::hash(data, QCryptographicHash::Sha256).toHex();
+  socket->write("HTTP/1.1 200 OK\r\nContent-Type: " + type +
+    "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nX-Content-SHA256: " + hash +
+    "\r\nContent-Length: " + QByteArray::number(data.size()) + "\r\nConnection: close\r\n\r\n");
   socket->write(data);
   socket->disconnectFromHost();
 }
@@ -245,19 +272,25 @@ void Transport::complete(const QString& serverId, const QString& id, QJsonObject
   if (!listener || info.value("server_id") != serverId || !jobs.contains(id)) return;
   auto& job = jobs[id];
   if (job.value.value("state") != "queued" && job.value.value("state") != "running") return;
-  if (png.size() > Store::MaxPng || responseBytes + (png.size() * 4 / 3) > 128LL * 1024 * 1024) {
+  if (png.size() > Store::MaxPng || responseBytes + png.size() > 128LL * 1024 * 1024) {
     error = "Response image budget exceeded.";
     png.clear();
   }
   job.value["state"] = error.isEmpty() ? "succeeded" : "failed";
   job.created = now();  // Retain terminal outcomes for five minutes after completion.
   if (error.isEmpty()) {
-    if (!png.isEmpty()) result["png_base64"] = QString::fromLatin1(png.toBase64());
+    if (!png.isEmpty()) {
+      result["image_route"] = "/v1/requests/" + id + "/image";
+      result["png_sha256"] = QString::fromLatin1(Store::hash(png));
+      result["png_bytes"] = double(png.size());
+      job.png = std::move(png);
+    }
     job.value["result"] = result;
   } else job.value["error"] = error;
-  job.bytes = QJsonDocument(job.value).toJson(QJsonDocument::Compact).size();
+  job.bytes = QJsonDocument(job.value).toJson(QJsonDocument::Compact).size() + job.png.size();
   if (responseBytes + job.bytes > 128LL * 1024 * 1024) {
     job.value.remove("result");
+    job.png.clear();
     job.value["state"] = "failed";
     job.value["error"] = "Response budget exceeded.";
     job.bytes = QJsonDocument(job.value).toJson(QJsonDocument::Compact).size();
@@ -281,6 +314,7 @@ void Transport::expire()
       responseBytes -= it->bytes;
       it->bytes = 0;
       it->value.remove("result");
+      it->png.clear();
       it->value.remove("error");
       it->value["terminal_state"] = it->value.value("state");
       it->value["state"] = "expired";
@@ -302,6 +336,20 @@ void Transport::routeApi(QTcpSocket *socket, const QByteArray& method, const QSt
   expire();
   if (method == "GET" && !bytes.isEmpty()) {
     respond(socket, 400, {{"code", "invalid_request"}, {"message", "GET body is unsupported."}});
+    return;
+  }
+  if (method == "GET" && (path == "/v1/help" || path == "/v1/schema" || path == "/v1/help/contract")) {
+    const auto name = path == "/v1/help" ? "help.json" : path == "/v1/schema" ? "schema.json" : "contract.md";
+    QFile resource(QString(":/agent-api/") + name);
+    if (!resource.open(QIODevice::ReadOnly)) {
+      respond(socket, 503, {{"code", "help_unavailable"}}); return;
+    }
+    if (path == "/v1/help/contract") respondBytes(socket, resource.readAll(), "text/plain; charset=utf-8");
+    else {
+      auto value = QJsonDocument::fromJson(resource.readAll()).object();
+      value["server_id"] = info.value("server_id");
+      respond(socket, 200, value);
+    }
     return;
   }
   if (method == "GET" && (path == "/v1/info" || path == "/v1/status")) {
@@ -334,10 +382,17 @@ void Transport::routeApi(QTcpSocket *socket, const QByteArray& method, const QSt
       respond(socket, 404, {{"code", "unknown_target"}, {"message", "Unknown document."}}); return;
     }
     if (path != "/v1/annotations") {
+      const auto detailRoute = "/v1/annotations/" + path.section('/', 3, 3);
+      if (path != detailRoute && path != detailRoute + "/image") {
+        respond(socket, 404, {{"code", "unsupported"}}); return;
+      }
       for (const auto& record : *found) if (record.id() == path.section('/', 3, 3)) {
+        if (path.endsWith("/image")) { respondBytes(socket, record.png, "image/png"); return; }
         auto result = record.metadata;
         result["document_id"] = document;
-        result["png_base64"] = QString::fromLatin1(record.png.toBase64());
+        result["image_route"] = detailRoute + "/image?document_id=" + QString::fromLatin1(QUrl::toPercentEncoding(document));
+        result["png_sha256"] = QString::fromLatin1(Store::hash(record.png));
+        result["png_bytes"] = double(record.png.size());
         respond(socket, 200, result); return;
       }
       respond(socket, 404, {{"code", "unknown_annotation"}}); return;
@@ -418,8 +473,20 @@ void Transport::routeApi(QTcpSocket *socket, const QByteArray& method, const QSt
     enqueue(socket, path, body); return;
   }
   if (method == "GET" && path.startsWith("/v1/requests/")) {
-    const auto id = path.mid(13);
+    const auto id = path.section('/', 3, 3);
+    const auto receiptRoute = "/v1/requests/" + id;
+    if (path != receiptRoute && path != receiptRoute + "/image") {
+      respond(socket, 404, {{"code", "unsupported"}}); return;
+    }
     if (!jobs.contains(id)) respond(socket, 410, {{"code", "expired"}, {"message", "Unknown request; do not resubmit under a new ID."}});
+    else if (path.endsWith("/image")) {
+      const auto& job = jobs[id];
+      if (job.value.value("state") == "expired") respond(socket, 410, {{"code", "expired"}});
+      else if (job.value.value("state") == "queued" || job.value.value("state") == "running")
+        respond(socket, 409, {{"code", "not_ready"}, {"status_route", receiptRoute}, {"poll_after_ms", 100}});
+      else if (job.png.isEmpty()) respond(socket, 404, {{"code", "no_image"}});
+      else respondBytes(socket, job.png, "image/png");
+    }
     else respond(socket, jobs[id].value.value("state") == "expired" ? 410 : 200, jobs[id].value);
     return;
   }

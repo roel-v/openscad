@@ -17,6 +17,7 @@ class TransportTest : public QObject
 {
   Q_OBJECT
   QNetworkAccessManager network;
+  QByteArray lastBytes, lastType, lastHash;
   QPair<int, QJsonObject> request(const QJsonObject& info, QString path, QByteArray body = {},
                                   QByteArray extraName = {}, QByteArray extraValue = {},
                                   bool post = false)
@@ -34,13 +35,72 @@ class TransportTest : public QObject
     connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
     connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
     loop.exec();
+    lastBytes = reply->readAll();
+    lastType = reply->rawHeader("Content-Type");
+    lastHash = reply->rawHeader("X-Content-SHA256");
     auto result = qMakePair(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(),
-                            QJsonDocument::fromJson(reply->readAll()).object());
+                            QJsonDocument::fromJson(lastBytes).object());
     reply->abort();
     reply->deleteLater();
     return result;
   }
 private slots:
+  void directHelpAndImages()
+  {
+    qint64 time = 1000;
+    Transport transport(nullptr, [&] { return time; });
+    transport.start();
+    const auto info = transport.connection();
+    const auto help = request(info, info.value("links").toObject().value("help").toString());
+    QCOMPARE(help.first, 200);
+    QVERIFY(help.second.value("routes").toArray().size() >= 30);
+    QVERIFY(request(info, "/v1/schema").second.contains("$defs"));
+    QCOMPARE(request(info, "/v1/help/contract").first, 200);
+    QVERIFY(lastType.startsWith("text/plain"));
+    QVERIFY(lastBytes.contains("Self-description"));
+    QCOMPARE(request(info, "/v1/help", {}, "X-OpenSCAD-Agent-Server", uuid().toUtf8()).first, 403);
+    QCOMPARE(request(info, "/v1/help", {}, "Origin", "https://example.com").first, 403);
+    const auto document = uuid(), window = uuid(), viewport = uuid(), id = uuid();
+    Snapshot snapshot;
+    snapshot.status = {{"viewports", QJsonArray{QJsonObject{{"document_id", document},
+      {"window_id", window}, {"viewport_id", viewport}, {"busy", false},
+      {"displayed_result_id", "qualified:1"}, {"view_revision", "4"}}}}};
+    transport.publish(snapshot);
+    QJsonObject body{{"server_id", info.value("server_id")}, {"request_id", id},
+      {"document_id", document}, {"window_id", window}, {"viewport_id", viewport},
+      {"expected_result_id", "qualified:1"}, {"expected_view_revision", "4"}};
+    const auto submitted = request(info, "/v1/capture", QJsonDocument(body).toJson(), {}, {}, true);
+    QCOMPARE(submitted.first, 202);
+    const auto route = submitted.second.value("status_route").toString();
+    QCOMPARE(route, "/v1/requests/" + id);
+    QCOMPARE(submitted.second.value("poll_after_ms").toInt(), 100);
+    QCOMPARE(request(info, route + "/image").first, 409);
+    const QByteArray png("detached PNG bytes"); // Transport preserves exact bytes; native tests validate actual PNGs.
+    QVERIFY(transport.beginJob(info.value("server_id").toString(), id));
+    transport.complete(info.value("server_id").toString(), id, {}, png, {});
+    const auto result = request(info, route).second.value("result").toObject();
+    QVERIFY(!result.contains("png_base64"));
+    QCOMPARE(result.value("png_bytes").toInt(), png.size());
+    const auto imageRoute = result.value("image_route").toString();
+    QCOMPARE(request(info, imageRoute).first, 200);
+    QCOMPARE(lastBytes, png);
+    QCOMPARE(lastType, "image/png");
+    QCOMPARE(lastHash, Store::hash(png));
+    QCOMPARE(result.value("png_sha256").toString(), QString::fromLatin1(lastHash));
+    QCOMPARE(request(info, imageRoute, {}, "X-OpenSCAD-Agent-Server", uuid().toUtf8()).first, 403);
+    QCOMPARE(request(info, imageRoute, {}, "Origin", "https://example.com").first, 403);
+    time += 300001;
+    QCOMPARE(request(info, imageRoute).first, 410);
+    QCOMPARE(request(info, route).second.value("state").toString(), "expired");
+    transport.publish(snapshot);
+    body["request_id"] = uuid();
+    const auto nextId = body.value("request_id").toString();
+    QCOMPARE(request(info, "/v1/capture", QJsonDocument(body).toJson(), {}, {}, true).first, 202);
+    transport.complete(info.value("server_id").toString(), nextId, {}, {}, "capture failed");
+    QCOMPARE(request(info, "/v1/requests/" + nextId + "/image").first, 404);
+    transport.stop(); transport.start();
+    QCOMPARE(request(transport.connection(), imageRoute).first, 410);
+  }
   void evidenceAndAdmission()
   {
     Transport transport;
@@ -58,7 +118,12 @@ private slots:
     QCOMPARE(found.second.value("annotations").toArray().size(), 1);
     QVERIFY(found.second.value("next_cursor").isNull());
     auto detail = request(info, "/v1/annotations/" + annotation + "?document_id=" + document);
-    QCOMPARE(QByteArray::fromBase64(detail.second.value("png_base64").toString().toLatin1()), record.png);
+    QVERIFY(!detail.second.contains("png_base64"));
+    const auto imageRoute = detail.second.value("image_route").toString();
+    QCOMPARE(request(info, imageRoute).first, 200);
+    QCOMPARE(lastBytes, record.png);
+    QCOMPARE(lastHash, Store::hash(record.png));
+    QCOMPARE(request(info, imageRoute + "/extra").first, 404);
     QJsonObject body{{"server_id", info.value("server_id")}, {"request_id", uuid()}, {"document_id", document},
       {"window_id", window}, {"viewport_id", viewport}, {"expected_result_id", "qualified:1"}, {"expected_view_revision", "4"}};
     QSignalSpy dispatched(&transport, &Transport::operation);
@@ -73,6 +138,8 @@ private slots:
     QCOMPARE(request(info, "/v1/annotations/" + annotation + "?document_id=" + document).second, detail.second);
     body.remove("expected_view_revision");
     QCOMPARE(submit().first, 400);
+    snapshot.records.clear(); transport.publish(snapshot);
+    QCOMPARE(request(info, imageRoute).first, 404);
   }
   void queueCapacity()
   {

@@ -54,6 +54,7 @@ private:
     qint64 created;
     qint64 bytes = 0;
     qint64 deadline = 0;
+    QByteArray png;
   };
   QHash<QString, Job> jobs;
   int connections = 0;
@@ -62,6 +63,7 @@ private:
   void accept();
   void route(QTcpSocket *socket, const QByteArray& header, const QByteArray& body);
   void respond(QTcpSocket *socket, int code, QJsonObject value);
+  void respondBytes(QTcpSocket *socket, const QByteArray& data, const QByteArray& type);
   void expire();
   void routeApi(QTcpSocket *socket, const QByteArray& method, const QString& path,
                const QByteArray& bytes, const QUrlQuery& query);

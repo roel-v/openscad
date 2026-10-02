@@ -1617,6 +1617,9 @@ if (APPLE)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE})
 elseif(WIN32)
   list(APPEND RESOURCE_FILES ${WINDOWS_RESOURCE_PATH})
+  # RC dependency scanning does not track files embedded as resource data.
+  set_property(SOURCE ${WINDOWS_RESOURCE_PATH} APPEND PROPERTY OBJECT_DEPENDS
+               "${CMAKE_CURRENT_SOURCE_DIR}/scripts/winmanifest.xml")
 endif()
 
 file(GLOB_RECURSE TEST_SOURCES

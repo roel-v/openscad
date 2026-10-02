@@ -729,7 +729,11 @@ argument
         ;
 
 attribute_block
-        : TOK_AT '{' attribute_list '}'
+        : TOK_AT '{' '}'
+            {
+                $$ = new ObjectExpression(AssignmentList{}, LOC(@$));
+            }
+        | TOK_AT '{' attribute_list optional_trailing_comma '}'
             {
                 $$ = new ObjectExpression(*$3, LOC(@$));
                 delete $3;
@@ -737,12 +741,17 @@ attribute_block
         ;
 
 attribute_list
-        : /* empty */ { $$ = new AssignmentList(); }
-        | attribute_list TOK_ID '=' expr ';'
+        : TOK_ID ':' expr
+            {
+                $$ = new AssignmentList();
+                $$->emplace_back(new Assignment($1, std::shared_ptr<Expression>($3), LOC(@1)));
+                free($1);
+            }
+        | attribute_list ',' TOK_ID ':' expr
             {
                 $$ = $1;
-                $$->emplace_back(new Assignment($2, std::shared_ptr<Expression>($4), LOC(@2)));
-                free($2);
+                $$->emplace_back(new Assignment($3, std::shared_ptr<Expression>($5), LOC(@3)));
+                free($3);
             }
         ;
 

@@ -8,6 +8,7 @@
 #include <fstream>
 #include <memory>
 #include <set>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -17,6 +18,7 @@
 #include "core/BuiltinContext.h"
 #include "core/Context.h"
 #include "core/EvaluationSession.h"
+#include "core/Expression.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFile.h"
 #include "core/customizer/ParameterObject.h"
@@ -115,28 +117,72 @@ void setStringValue(ParameterObject& parameter, const std::string& value)
 
 const std::string selectorAttributes = R"(
 @{
-  range = [
+  range: [
     ["hide", "Hide"],
     ["show", "Show"]
-  ];
+  ]
 }
 )";
 
 }  // namespace
+
+TEST_CASE("Native attributes use fixed OEP8-style members", "[customizer][parameter-attributes][parser]")
+{
+  const auto source = GENERATE(
+    "@{} size = 10;",
+    "@{hidden: false} size = 10;",
+    "@{hidden: false,} size = 10;",
+    "@{range: [1:2:9], hidden: true ? false : true} size = 5;");
+  TemporaryCustomizerDirectory files;
+  const auto filename = (files.path() / "attribute_syntax.scad").string();
+  SourceFile *parsed = nullptr;
+  REQUIRE(parse(parsed, source, filename, filename, false));
+  std::unique_ptr<SourceFile> owner(parsed);
+  REQUIRE(parsed != nullptr);
+  REQUIRE(parsed->scope->assignments.size() == 1);
+  const auto *annotation = parsed->scope->assignments.front()->annotation("NativeAttributes");
+  REQUIRE(annotation != nullptr);
+  std::ostringstream printed;
+  annotation->getExpr()->print(printed, "");
+  SourceFile *reparsed = nullptr;
+  const auto roundTrip = printed.str() + " size = 10;";
+  REQUIRE(parse(reparsed, roundTrip, filename, filename, false));
+  std::unique_ptr<SourceFile> roundTripOwner(reparsed);
+}
+
+TEST_CASE("Native attributes reject old syntax and dynamic object construction",
+          "[customizer][parameter-attributes][parser]")
+{
+  const auto source = GENERATE(
+    "@{hidden = false;} size = 10;",
+    "@{hidden: false;} size = 10;",
+    "@{hidden: false locked: true} size = 10;",
+    "@{,} size = 10;",
+    "@{\"hidden\": false} size = 10;",
+    "@{(\"hidden\"): false} size = 10;",
+    "@{each object(hidden = false)} size = 10;",
+    "@{for (i = [1:2]) (str(i)): false} size = 10;",
+    "@{if (true) hidden: false} size = 10;");
+  TemporaryCustomizerDirectory files;
+  const auto filename = (files.path() / "invalid_attribute_syntax.scad").string();
+  SourceFile *parsed = nullptr;
+  CHECK_FALSE(parse(parsed, source, filename, filename, false));
+  std::unique_ptr<SourceFile> owner(parsed);
+}
 
 TEST_CASE("Native Customizer attributes configure number parameters",
           "[customizer][parameter-attributes]")
 {
   const std::string source = R"(
 @{
-  description = "Cube size";
-  group = "Geometry";
-  min = 1;
-  max = 100;
-  step = 0.5;
-  slider = false;
-  hidden = false;
-  locked = true;
+  description: "Cube size",
+  group: "Geometry",
+  min: 1,
+  max: 100,
+  step: 0.5,
+  slider: false,
+  hidden: false,
+  locked: true,
 }
 cube_size = 36;
 )";
@@ -173,8 +219,8 @@ TEST_CASE("Ordinary parameters dynamically control hidden and locked attributes"
 selector = "hide";
 
 @{
-  hidden = selector != "show";
-  locked = selector == "hide";
+  hidden: selector != "show",
+  locked: selector == "hide"
 }
 cube_size = 36;
 )";
@@ -205,8 +251,8 @@ TEST_CASE("Ordinary parent parameters dynamically control included parameters",
   TemporaryCustomizerDirectory files;
   files.writeFile("dynamic_attributes_include_normal.scad", R"(
 @{
-  hidden = selector != "show";
-  locked = selector == "hide";
+  hidden: selector != "show",
+  locked: selector == "hide"
 }
 included_cube_size = 36;
 )");
@@ -242,7 +288,7 @@ TEST_CASE("Special parent parameters dynamically control included parameters",
   TemporaryCustomizerDirectory files;
   files.writeFile("dynamic_attributes_include_special.scad", R"(
 @{
-  hidden = $selector != "show";
+  hidden: $selector != "show"
 }
 special_included_cube_size = 36;
 )");

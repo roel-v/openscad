@@ -1047,10 +1047,13 @@ Value ObjectExpression::evaluate(const std::shared_ptr<const Context>& context) 
 void ObjectExpression::print(std::ostream& stream, const std::string& indent) const
 {
   stream << "@{ ";
+  bool first = true;
   for (const auto& member : members) {
-    stream << member->getName() << " = " << *member->getExpr() << "; ";
+    if (!first) stream << ", ";
+    first = false;
+    stream << member->getName() << ": " << *member->getExpr();
   }
-  stream << "}";
+  stream << " }";
 }
 
 void UnaryOp::collectDependencies(std::set<std::string>& deps) const

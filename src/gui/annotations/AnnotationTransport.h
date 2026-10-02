@@ -23,7 +23,7 @@ class Transport : public QObject
 public:
   explicit Transport(QObject *parent = nullptr, std::function<qint64()> clock = {});
   ~Transport() override { stop(); }
-  void start(bool broadAccess = false);
+  void start();
   void stop();
   void publish(Snapshot snapshot);
   void complete(const QString& serverId, const QString& requestId, QJsonObject result, QByteArray png,
@@ -46,7 +46,6 @@ private:
   Snapshot snapshot;
   qint64 heartbeat = 0;
   quint64 stateGeneration = 0;
-  bool broadAccess = false;
   std::function<qint64()> clock;
   qint64 now() const;
   struct Job {
@@ -64,8 +63,8 @@ private:
   void route(QTcpSocket *socket, const QByteArray& header, const QByteArray& body);
   void respond(QTcpSocket *socket, int code, QJsonObject value);
   void expire();
-  void routeV2(QTcpSocket *socket, const QByteArray& method, const QString& path,
+  void routeApi(QTcpSocket *socket, const QByteArray& method, const QString& path,
                const QByteArray& bytes, const QUrlQuery& query);
-  void enqueueV2(QTcpSocket *socket, const QString& path, const QJsonObject& body);
+  void enqueue(QTcpSocket *socket, const QString& path, const QJsonObject& body);
 };
 }  // namespace AgentAnnotations

@@ -22,14 +22,14 @@ spec.loader.exec_module(client)
 
 class ClientTests(unittest.TestCase):
     def test_connection_guards(self):
-        info = {"product": "OpenSCAD", "protocol": 1, "server_id": str(uuid.uuid4()), "url": "http://127.0.0.1:1234"}
+        info = {"product": "OpenSCAD", "api_version": 1, "schema_version": 1, "server_id": str(uuid.uuid4()), "url": "http://127.0.0.1:1234"}
         self.assertEqual(client.connection(info), info)
         for url in ("http://localhost:1234", "https://127.0.0.1:1234", "http://127.0.0.1:1234/remote", "http://x@127.0.0.1:1234", "http://127.0.0.1:1234#foo"):
             with self.assertRaises(ValueError):
                 client.connection({**info, "url": url})
         with self.assertRaises(ValueError):
             client.identifier("00000000-0000-0000-0000-000000000000")
-        for route in ("https://example.com/v2/info", "/v2/../v1/info", "/v2/info\r\nHost:x", "//example.com/v2/info"):
+        for route in ("/v2/info", "https://example.com/v1/info", "/v1/../v1/info", "/v1/info\r\nHost:x", "//example.com/v1/info"):
             with self.assertRaises(ValueError):
                 client.request(info, "GET", route)
 
@@ -40,15 +40,15 @@ class ClientTests(unittest.TestCase):
         queued = {**body, "server_id": info["server_id"], "state": "running", "execution_started": True}
         success = {**queued, "state": "succeeded", "result": {"ok": True}}
         with patch.object(client, "request", side_effect=[queued, success]) as send, patch.object(client.time, "sleep"), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(client.operation(info, "/v2/capture", body), success)
+            self.assertEqual(client.operation(info, "/v1/capture", body), success)
             self.assertEqual(send.call_args_list[0].args[1], "POST")
-            self.assertEqual(send.call_args_list[1].args[2], "/v2/requests/" + request_id)
+            self.assertEqual(send.call_args_list[1].args[2], "/v1/requests/" + request_id)
         for reply in ({**success, "server_id": str(uuid.uuid4())}, {**success, "request_id": str(uuid.uuid4())}, {**success, "state": "expired"}):
             with patch.object(client, "request", return_value=reply), self.assertRaises(client.AgentError), contextlib.redirect_stderr(io.StringIO()):
-                client.operation(info, "/v2/capture", body)
+                client.operation(info, "/v1/capture", body)
         diagnostic = io.StringIO()
         with patch.object(client, "request", side_effect=OSError("lost connection")) as send, self.assertRaises(OSError), contextlib.redirect_stderr(diagnostic):
-            client.operation(info, "/v2/capture", body)
+            client.operation(info, "/v1/capture", body)
         self.assertEqual(send.call_count, 1)
         self.assertIn(request_id, diagnostic.getvalue())
 
@@ -56,7 +56,7 @@ class ClientTests(unittest.TestCase):
         info = {"server_id": str(uuid.uuid4())}
         body = {"request_id": str(uuid.uuid4())}
         with patch.object(client, "request", return_value={**body, "server_id": info["server_id"], "state": "queued"}) as send, patch.object(client.time, "monotonic", side_effect=[0, 2]), self.assertRaises(client.AgentError), contextlib.redirect_stderr(io.StringIO()):
-            client.operation(info, "/v2/capture", body, timeout=1)
+            client.operation(info, "/v1/capture", body, timeout=1)
         self.assertEqual(send.call_count, 1)
 
     def test_png_validation_and_explicit_output(self):
@@ -88,7 +88,7 @@ class ClientTests(unittest.TestCase):
                 pass
             def do_GET(self):
                 connections.append(self.path)
-                if self.path != "/v2/info":
+                if self.path != "/v1/info":
                     self.send_response(302)
                     self.send_header("Location", "http://example.invalid/")
                     self.end_headers()
@@ -102,11 +102,11 @@ class ClientTests(unittest.TestCase):
         servers = []
         try:
             with tempfile.TemporaryDirectory() as folder:
-                directory = Path(folder) / "AgentAnnotations/OpenSCAD"
+                directory = Path(folder) / "OpenSCAD/AgentServer"
                 directory.mkdir(parents=True)
                 for _ in range(2):
                     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-                    server.info = {"product": "OpenSCAD", "protocol": 1, "api_version": 2, "access_mode": "agent", "server_id": str(uuid.uuid4()), "url": f"http://127.0.0.1:{server.server_port}"}
+                    server.info = {"product": "OpenSCAD", "api_version": 1, "schema_version": 1, "server_id": str(uuid.uuid4()), "url": f"http://127.0.0.1:{server.server_port}"}
                     servers.append(server)
                     threading.Thread(target=server.serve_forever, daemon=True).start()
                     (directory / (server.info["server_id"] + ".json")).write_text(json.dumps(server.info))
@@ -117,8 +117,8 @@ class ClientTests(unittest.TestCase):
                 with self.assertRaises(client.AgentError):
                     client.verify(stale)
                 with self.assertRaises(client.AgentError):
-                    client.request(servers[0].info, "GET", "/v2/redirect")
-                self.assertEqual(connections[-1], "/v2/redirect")
+                    client.request(servers[0].info, "GET", "/v1/redirect")
+                self.assertEqual(connections[-1], "/v1/redirect")
         finally:
             for server in servers:
                 server.shutdown()

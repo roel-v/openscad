@@ -17,7 +17,7 @@ python scripts/client.py --connection connection.json parse --document DOC --win
 python scripts/client.py --connection connection.json tree TREE
 python scripts/client.py --connection connection.json node TREE NODE
 python scripts/client.py --connection connection.json children TREE NODE
-python scripts/client.py --connection connection.json get /v2/trees/TREE/nodes/NODE/children/pages/1
+python scripts/client.py --connection connection.json get /v1/trees/TREE/nodes/NODE/children/pages/1
 python scripts/client.py --connection connection.json diagnostics --document DOC
 python scripts/client.py --connection connection.json annotations --document DOC --query hole
 python scripts/client.py --connection connection.json annotation ANNOTATION --document DOC --output original.png

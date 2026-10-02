@@ -268,7 +268,7 @@ ParseInspectionResult inspectSyntax(const QJsonObject& source, const QString& te
 QHash<QString, QJsonObject> treePages(const InspectionTree& tree)
 {
   QHash<QString, QJsonObject> pages;
-  const auto base = "/v2/trees/" + tree.metadata.value("tree_id").toString();
+  const auto base = "/v1/trees/" + tree.metadata.value("tree_id").toString();
   pages.insert(base, tree.metadata);
   for (auto it = tree.nodes.cbegin(); it != tree.nodes.cend(); ++it) {
     const auto route = base + "/nodes/" + it.key();

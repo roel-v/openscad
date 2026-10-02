@@ -22,8 +22,8 @@ class TransportTest : public QObject
                                   bool post = false)
   {
     QNetworkRequest request(QUrl(info.value("url").toString() + path));
-    request.setRawHeader(path.startsWith("/v2/") ? "X-OpenSCAD-Agent" : "X-Agent-Annotations", "1");
-    request.setRawHeader(path.startsWith("/v2/") ? "X-OpenSCAD-Agent-Server" : "X-Agent-Annotations-Server", info.value("server_id").toString().toUtf8());
+    request.setRawHeader("X-OpenSCAD-Agent", "1");
+    request.setRawHeader("X-OpenSCAD-Agent-Server", info.value("server_id").toString().toUtf8());
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     if (!extraName.isEmpty()) request.setRawHeader(extraName, extraValue);
     auto reply = post ? network.post(request, body) : network.get(request);
@@ -41,10 +41,10 @@ class TransportTest : public QObject
     return result;
   }
 private slots:
-  void v2EvidenceAndAdmission()
+  void evidenceAndAdmission()
   {
     Transport transport;
-    transport.start(true);
+    transport.start();
     auto info = transport.connection();
     const auto document = uuid(), viewport = uuid(), window = uuid(), annotation = uuid();
     Snapshot snapshot;
@@ -54,15 +54,15 @@ private slots:
     Record record{{{"id", annotation}, {"comment", "Inspect HOLE"}}, QByteArray("immutable evidence")};
     snapshot.records.insert(document, {record});
     transport.publish(snapshot);
-    auto found = request(info, "/v2/annotations?document_id=" + document + "&q=hole");
+    auto found = request(info, "/v1/annotations?document_id=" + document + "&q=hole");
     QCOMPARE(found.second.value("annotations").toArray().size(), 1);
     QVERIFY(found.second.value("next_cursor").isNull());
-    auto detail = request(info, "/v2/annotations/" + annotation + "?document_id=" + document);
+    auto detail = request(info, "/v1/annotations/" + annotation + "?document_id=" + document);
     QCOMPARE(QByteArray::fromBase64(detail.second.value("png_base64").toString().toLatin1()), record.png);
     QJsonObject body{{"server_id", info.value("server_id")}, {"request_id", uuid()}, {"document_id", document},
       {"window_id", window}, {"viewport_id", viewport}, {"expected_result_id", "qualified:1"}, {"expected_view_revision", "4"}};
     QSignalSpy dispatched(&transport, &Transport::operation);
-    auto submit = [&] { return request(info, "/v2/capture", QJsonDocument(body).toJson(), {}, {}, true); };
+    auto submit = [&] { return request(info, "/v1/capture", QJsonDocument(body).toJson(), {}, {}, true); };
     QCOMPARE(submit().first, 202);
     auto busy = view; busy["busy"] = true; busy["view_revision"] = "5";
     snapshot.status["viewports"] = QJsonArray{busy}; transport.publish(snapshot);
@@ -70,14 +70,14 @@ private slots:
     QCOMPARE(dispatched.size(), 1);
     body["request_id"] = uuid();
     QCOMPARE(submit().first, 409);
-    QCOMPARE(request(info, "/v2/annotations/" + annotation + "?document_id=" + document).second, detail.second);
+    QCOMPARE(request(info, "/v1/annotations/" + annotation + "?document_id=" + document).second, detail.second);
     body.remove("expected_view_revision");
     QCOMPARE(submit().first, 400);
   }
   void queueCapacity()
   {
     Transport transport;
-    transport.start(true);
+    transport.start();
     auto info = transport.connection();
     transport.publish({});
     const auto document = uuid(), window = uuid();
@@ -85,43 +85,56 @@ private slots:
       {"document_id", document}, {"window_id", window}, {"origin", "disk"}};
     for (int i = 0; i < 32; ++i) {
       body["request_id"] = uuid();
-      QCOMPARE(request(info, "/v2/documents/" + document + "/source-snapshots", QJsonDocument(body).toJson(), {}, {}, true).first, 202);
+      QCOMPARE(request(info, "/v1/documents/" + document + "/source-snapshots", QJsonDocument(body).toJson(), {}, {}, true).first, 202);
     }
     body["request_id"] = uuid();
-    QCOMPARE(request(info, "/v2/documents/" + document + "/source-snapshots", QJsonDocument(body).toJson(), {}, {}, true).first, 429);
+    QCOMPARE(request(info, "/v1/documents/" + document + "/source-snapshots", QJsonDocument(body).toJson(), {}, {}, true).first, 429);
   }
   void cachedInspectionExpiry()
   {
     Transport transport;
-    transport.start(true);
+    transport.start();
     Snapshot snapshot;
-    const auto route = "/v2/trees/" + uuid();
+    const auto route = "/v1/trees/" + uuid();
     snapshot.reads.insert(route, {{"kind", "syntax"}});
     snapshot.readExpiry.insert(route, QDeadlineTimer(0));
     transport.publish(snapshot);
     QCOMPARE(request(transport.connection(), route).first, 410);
-    QCOMPARE(request(transport.connection(), "/v2/info").second.value("gui_responsive").toBool(), true);
+    QCOMPARE(request(transport.connection(), "/v1/info").second.value("gui_responsive").toBool(), true);
   }
-  void broadConsentAndGuards()
+  void versionAndGuards()
   {
     Transport transport;
     transport.start();
-    auto info = transport.connection();
-    QCOMPARE(request(info, "/v1/info").first, 200);
-    QCOMPARE(request(info, "/v2/info").first, 403);
-    transport.stop();
-    transport.start(true);
-    info = transport.connection();
-    QCOMPARE(request(info, "/v2/info").second.value("api_version").toInt(), 2);
-    QCOMPARE(request(info, "/v2/info", {}, "X-OpenSCAD-Agent-Server", "").first, 200);
-    QCOMPARE(request(info, "/v2/status", {}, "X-OpenSCAD-Agent-Server", uuid().toUtf8()).first, 403);
-    QCOMPARE(request(info, "/v2/info", {}, "Sec-Fetch-Site", "none").first, 403);
+    const auto info = transport.connection();
+    const auto live = request(info, "/v1/info");
+    QCOMPARE(live.first, 200);
+    QCOMPARE(live.second.value("api_version").toInt(), 1);
+    QCOMPARE(live.second.value("schema_version").toInt(), 1);
+    QVERIFY(!live.second.contains("protocol"));
+    QVERIFY(!live.second.contains("schema"));
+    QVERIFY(!live.second.contains("agent_api_versions"));
+    QVERIFY(!live.second.contains("access_mode"));
+    QVERIFY(live.second.value("capabilities").toArray().contains("source.read"));
+    QCOMPARE(request(info, "/v2/info").first, 404);
+    QCOMPARE(request(info, "/v2/capture", "{}", {}, {}, true).first, 404);
+    QCOMPARE(request(info, "/v1/info", {}, "X-OpenSCAD-Agent", "").first, 403);
+    QCOMPARE(request(info, "/v1/info", {}, "X-OpenSCAD-Agent-Server", "").first, 200);
+    QCOMPARE(request(info, "/v1/status", {}, "X-OpenSCAD-Agent-Server", uuid().toUtf8()).first, 403);
+    QCOMPARE(request(info, "/v1/info", {}, "Sec-Fetch-Site", "none").first, 403);
     QCOMPARE(request(info, "/v1/info", {}, "Sec-Fetch-Mode", "cors").first, 403);
-    QCOMPARE(request(info, "/v2/info", {}, "Origin", "null").first, 403);
-    QCOMPARE(request(info, "/v2/execute", "{}", {}, {}, true).first, 404);
-    QCOMPARE(request(info, "/v1/info").first, 200);
+    QCOMPARE(request(info, "/v1/info", {}, "Origin", "null").first, 403);
+    QCOMPARE(request(info, "/v1/execute", "{}", {}, {}, true).first, 404);
+    QNetworkRequest oldHeaders(QUrl(info.value("url").toString() + "/v1/info"));
+    oldHeaders.setRawHeader("X-Agent-Annotations", "1");
+    oldHeaders.setRawHeader("X-Agent-Annotations-Server", info.value("server_id").toString().toUtf8());
+    auto reply = network.get(oldHeaders);
+    QSignalSpy finished(reply, &QNetworkReply::finished);
+    QVERIFY(finished.wait(5000));
+    QCOMPARE(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt(), 403);
+    reply->deleteLater();
     Transport second;
-    second.start(true);
+    second.start();
     QVERIFY(second.connection().value("server_id") != info.value("server_id"));
     QVERIFY(second.connection().value("url") != info.value("url"));
   }
@@ -129,30 +142,29 @@ private slots:
   {
     qint64 time = 1000;
     Transport transport(nullptr, [&] { return time; });
-    transport.start(true);
+    transport.start();
     const auto info = transport.connection();
     const auto document = uuid(), window = uuid(), viewport = uuid();
     Snapshot snapshot;
     snapshot.status = {{"viewports", QJsonArray{QJsonObject{{"document_id", document},
       {"window_id", window}, {"viewport_id", viewport}, {"busy", false},
-      {"result", QJsonObject{{"id", "1"}}}}}}};
+      {"displayed_result_id", "qualified:1"}, {"view_revision", "4"}}}}};
     transport.publish(snapshot);
     QJsonObject body{{"server_id", info.value("server_id")}, {"request_id", uuid()},
-      {"document_id", document}, {"window_id", window}, {"viewport_id", viewport}, {"expected_result_id", "1"}};
+      {"document_id", document}, {"window_id", window}, {"viewport_id", viewport}, {"expected_result_id", "qualified:1"}, {"expected_view_revision", "4"}};
     QSignalSpy dispatched(&transport, &Transport::operation);
     auto submit = [&] { return request(info, "/v1/capture", QJsonDocument(body).toJson(), {}, {}, true); };
     QCOMPARE(submit().first, 202);
     auto id = body.value("request_id").toString();
     QVERIFY(transport.beginJob(info.value("server_id").toString(), id));
     QVERIFY(!transport.beginJob(info.value("server_id").toString(), id));
-    QCOMPARE(request(info, "/v1/requests/" + id).second.value("state").toString(), QString("queued"));
-    QCOMPARE(request(info, "/v2/requests/" + id).second.value("state").toString(), QString("running"));
+    QCOMPARE(request(info, "/v1/requests/" + id).second.value("state").toString(), QString("running"));
     QJsonObject runningCancel{{"server_id", info.value("server_id")}, {"request_id", uuid()}};
-    auto runningReply = request(info, "/v2/requests/" + id + "/cancel", QJsonDocument(runningCancel).toJson(), {}, {}, true);
+    auto runningReply = request(info, "/v1/requests/" + id + "/cancel", QJsonDocument(runningCancel).toJson(), {}, {}, true);
     QCOMPARE(runningReply.second.value("result").toObject().value("cancelled").toBool(), false);
     transport.complete(info.value("server_id").toString(), id, {{"ok", true}}, {}, {});
     time += 300001;
-    QCOMPARE(request(info, "/v2/requests/" + id).first, 410);
+    QCOMPARE(request(info, "/v1/requests/" + id).first, 410);
     QCOMPARE(submit().second.value("state").toString(), QString("expired"));
     QCOMPARE(dispatched.size(), 1);
     transport.publish(snapshot);
@@ -161,7 +173,7 @@ private slots:
     id = body.value("request_id").toString();
     QJsonObject cancel{{"server_id", info.value("server_id")}, {"request_id", uuid()}};
     auto cancelBytes = QJsonDocument(cancel).toJson();
-    auto route = "/v2/requests/" + id + "/cancel";
+    auto route = "/v1/requests/" + id + "/cancel";
     QCOMPARE(request(info, route, cancelBytes, {}, {}, true).second.value("result").toObject().value("cancelled").toBool(), true);
     QVERIFY(!transport.beginJob(info.value("server_id").toString(), id));
     QCOMPARE(request(info, route, cancelBytes, {}, {}, true).first, 200);
@@ -170,11 +182,11 @@ private slots:
     id = body.value("request_id").toString();
     time += 10001;
     QVERIFY(!transport.beginJob(info.value("server_id").toString(), id));
-    auto receipt = request(info, "/v2/requests/" + id).second;
+    auto receipt = request(info, "/v1/requests/" + id).second;
     QCOMPARE(receipt.value("state").toString(), QString("cancelled"));
     QCOMPARE(receipt.value("execution_started").toBool(), false);
     transport.stop();
-    transport.start(true);
+    transport.start();
     transport.complete(info.value("server_id").toString(), id, {{"wrong", true}}, {}, {});
     QVERIFY(!transport.beginJob(info.value("server_id").toString(), id));
   }
@@ -193,12 +205,12 @@ private slots:
                                                             {"window_id", window},
                                                             {"viewport_id", viewport},
                                                             {"busy", false},
-                                                            {"result", QJsonObject{{"id", "1"}}}}}}};
+                                                            {"displayed_result_id", "qualified:1"}, {"view_revision", "4"}}}}};
     transport.publish(snapshot);
     QCOMPARE(request(info, "/v1/info").first, 200);
     QCOMPARE(request(info, "/v1/info", {}, "Origin", "http://example.invalid").first, 403);
     QCOMPARE(request(info, "/v1/info", {}, "Host", "example.invalid").first, 403);
-    QCOMPARE(request(info, "/v1/info", {}, "X-Agent-Annotations-Server", uuid().toUtf8()).first, 403);
+    QCOMPARE(request(info, "/v1/status", {}, "X-OpenSCAD-Agent-Server", uuid().toUtf8()).first, 403);
     QCOMPARE(request(info, "/v1/annotations?document_id=" + document)
                .second.value("annotations")
                .toArray()
@@ -210,7 +222,7 @@ private slots:
                      {"document_id", document},
                      {"window_id", window},
                      {"viewport_id", viewport},
-                     {"expected_result_id", "1"}};
+                     {"expected_result_id", "qualified:1"}, {"expected_view_revision", "4"}};
     QSignalSpy jobs(&transport, &Transport::operation);
     auto bytes = QJsonDocument(body).toJson();
     QCOMPARE(request(info, "/v1/capture", bytes, {}, {}, true).first, 202);
@@ -247,7 +259,7 @@ private slots:
                                                             {"window_id", window},
                                                             {"viewport_id", viewport},
                                                             {"busy", true},
-                                                            {"result", QJsonObject{{"id", "1"}}}}}}};
+                                                            {"displayed_result_id", "qualified:1"}, {"view_revision", "4"}}}}};
     snapshot.records.insert(document, {});
     transport.publish(snapshot);
     QJsonObject body{{"server_id", info.value("server_id")},
@@ -255,7 +267,7 @@ private slots:
                      {"document_id", document},
                      {"window_id", window},
                      {"viewport_id", viewport},
-                     {"expected_result_id", "1"}};
+                     {"expected_result_id", "qualified:1"}, {"expected_view_revision", "4"}};
     QCOMPARE(request(info, "/v1/capture", QJsonDocument(body).toJson(), {}, {}, true).first, 409);
     QCOMPARE(request(info, "/v1/annotations?document_id=" + document).first, 200);
     body["document_id"] = uuid();

@@ -34,7 +34,7 @@ def identifier(value):
 
 def connection(value):
     url = urlsplit(value["url"])
-    if (value.get("product") != "OpenSCAD" or value.get("protocol") != 1 or
+    if (value.get("product") != "OpenSCAD" or value.get("api_version") != 1 or value.get("schema_version") != 1 or
             url.scheme != "http" or url.hostname != "127.0.0.1" or not url.port or
             url.username or url.password or url.path not in ("", "/") or url.query or url.fragment):
         raise ValueError("Expected an OpenSCAD connection at numeric IPv4 loopback")
@@ -45,9 +45,9 @@ def connection(value):
 def request(info, method, route, body=None, timeout=10):
     connection(info)
     parsed = urlsplit(route)
-    if (not route.startswith("/v2/") or parsed.scheme or parsed.netloc or parsed.fragment or
+    if (not route.startswith("/v1/") or parsed.scheme or parsed.netloc or parsed.fragment or
             any(ord(char) < 32 for char in route) or ".." in parsed.path.split("/")):
-        raise ValueError("Expected a local /v2/ route or returned cursor")
+        raise ValueError("Expected a local /v1/ route or returned cursor")
     data = None if body is None else json.dumps(body, ensure_ascii=False, allow_nan=False).encode("utf-8")
     if data is not None and len(data) > 256 * 1024:
         raise ValueError("Request exceeds 256 KiB")
@@ -74,9 +74,9 @@ def request(info, method, route, body=None, timeout=10):
 
 
 def verify(info):
-    live = request(info, "GET", "/v2/info", timeout=2)
-    if (live.get("server_id") != info["server_id"] or live.get("api_version") != 2 or
-            live.get("product") != "OpenSCAD" or live.get("access_mode") != "agent"):
+    live = request(info, "GET", "/v1/info", timeout=2)
+    if (live.get("server_id") != info["server_id"] or live.get("api_version") != 1 or live.get("schema_version") != 1 or
+            live.get("product") != "OpenSCAD"):
         raise AgentError("Instance identity/version changed; select it explicitly again")
     return live
 
@@ -89,7 +89,7 @@ def discover():
     else:
         root = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share"))
     instances = []
-    for path in sorted((root / "AgentAnnotations/OpenSCAD").glob("*.json")):
+    for path in sorted((root / "OpenSCAD/AgentServer").glob("*.json")):
         try:
             info = connection(json.loads(path.read_text(encoding="utf-8-sig")))
             live = verify(info)
@@ -130,7 +130,7 @@ def operation(info, route, body, timeout=60):
         remaining = end - time.monotonic()
         if remaining <= 0:
             continue
-        value = request(info, "GET", "/v2/requests/" + request_id, timeout=min(10, remaining))
+        value = request(info, "GET", "/v1/requests/" + request_id, timeout=min(10, remaining))
 
 
 def png_bytes(value):
@@ -257,7 +257,7 @@ def run(args):
         capability = "saved_views.read" if reading else "saved_views.write"
         if capability not in live.get("capabilities", []):
             raise AgentError(f"Unsupported capability: {capability}")
-        route = f"/v2/documents/{args.document}/saved-views"
+        route = f"/v1/documents/{args.document}/saved-views"
         if reading:
             return request(info, "GET", route)
         body = {"document_id": args.document, "window_id": args.window, "viewport_id": args.viewport,
@@ -272,24 +272,24 @@ def run(args):
     if command == "info":
         return live
     if command in ("status", "documents", "viewports"):
-        return request(info, "GET", "/v2/" + command)
+        return request(info, "GET", "/v1/" + command)
     if command in ("dependencies", "diagnostics", "attempts", "results", "parameters"):
         capability = command + ".read"
         if capability not in live.get("capabilities", []):
             raise AgentError(f"Unsupported capability: {capability}")
-        return request(info, "GET", f"/v2/documents/{args.document}/{command}")
+        return request(info, "GET", f"/v1/documents/{args.document}/{command}")
     if command in ("tree", "node", "children"):
-        route = "/v2/trees/" + args.tree
+        route = "/v1/trees/" + args.tree
         if command != "tree":
             route += "/nodes/" + quote(args.node, safe="")
         if command == "children":
             route += "/children"
         return request(info, "GET", route)
     if command in ("annotations", "annotation"):
-        route = "/v2/annotations" + ("/" + args.id if command == "annotation" else "")
+        route = "/v1/annotations" + ("/" + args.id if command == "annotation" else "")
         return request(info, "GET", route + "?" + urlencode({"document_id": args.document, "q": getattr(args, "query", "")}))
     if command in ("snapshot", "outcome", "get"):
-        route = args.route if command == "get" else ("/v2/source-snapshots/" if command == "snapshot" else "/v2/requests/") + args.id
+        route = args.route if command == "get" else ("/v1/source-snapshots/" if command == "snapshot" else "/v1/requests/") + args.id
         return request(info, "GET", route)
     body = {"request_id": args.request_id or str(uuid.uuid4())}
     if command == "post":
@@ -302,7 +302,7 @@ def run(args):
             body["request_id"] = args.request_id
         return operation(info, args.route, body, args.timeout)
     if command == "cancel":
-        return operation(info, f"/v2/requests/{args.id}/cancel", body, args.timeout)
+        return operation(info, f"/v1/requests/{args.id}/cancel", body, args.timeout)
     body.update(document_id=args.document, window_id=args.window)
     if command == "source":
         body["origin"] = args.origin
@@ -311,18 +311,18 @@ def run(args):
         for key, value in (("expected_source_revision", args.expected_revision), ("expected_source_sha256", args.expected_hash), ("dependency_id", args.dependency)):
             if value is not None:
                 body[key] = value
-        route, capability = f"/v2/documents/{args.document}/source-snapshots", "source.read"
+        route, capability = f"/v1/documents/{args.document}/source-snapshots", "source.read"
     elif command == "parse":
         body["snapshot_id"] = args.snapshot
-        route, capability = f"/v2/documents/{args.document}/parse", "syntax.parse"
+        route, capability = f"/v1/documents/{args.document}/parse", "syntax.parse"
     else:
         body.update(viewport_id=args.viewport, expected_result_id=args.expected_result, expected_view_revision=args.expected_view)
         if command == "capture":
-            route, capability = "/v2/capture", "viewport.capture"
+            route, capability = "/v1/capture", "viewport.capture"
         elif command == "restore":
-            route, capability = f"/v2/annotations/{args.id}/restore", "camera.restore"
+            route, capability = f"/v1/annotations/{args.id}/restore", "camera.restore"
         else:
-            route, capability = f"/v2/viewports/{args.viewport}/view", "camera.set"
+            route, capability = f"/v1/viewports/{args.viewport}/view", "camera.set"
             body["operation"] = args.operation
             if args.operation == "set":
                 if not args.camera:

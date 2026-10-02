@@ -51,7 +51,7 @@ Bridge::~Bridge()
 }
 void Bridge::start(bool remember)
 {
-  if (remember) QSettings().setValue("annotations/agentAccess", true);
+  if (remember) QSettings().setValue("agentServer/enabled", true);
   if (starting || !info.isEmpty()) return;
   starting = true;
   QMetaObject::invokeMethod(transport, [this] { transport->start(); }, Qt::QueuedConnection);
@@ -59,7 +59,6 @@ void Bridge::start(bool remember)
 void Bridge::stop(bool remember)
 {
   if (remember) {
-    QSettings().setValue("annotations/agentAccess", false);
     QSettings().setValue("agentServer/enabled", false);
   }
   info = {};
@@ -71,17 +70,6 @@ void Bridge::stop(bool remember)
   for (const auto& controller : controllers) if (controller) controller->cancelCapture();
   QMetaObject::invokeMethod(transport, [this] { transport->stop(); }, Qt::BlockingQueuedConnection);
   emit accessChanged({}, {});
-}
-void Bridge::startAgent(bool remember)
-{
-  if (remember) QSettings().setValue("agentServer/enabled", true);
-  if (info.value("access_mode") == "agent") return;
-  // Upgrading consent starts a new server identity, invalidating old queued work.
-  auto observedTrees = std::move(trees);
-  stop(false);
-  trees = std::move(observedTrees);
-  starting = true;
-  QMetaObject::invokeMethod(transport, [this] { transport->start(true); }, Qt::QueuedConnection);
 }
 void Bridge::showAccess(QWidget *parent)
 {
@@ -107,18 +95,18 @@ void Bridge::showAccess(QWidget *parent)
   layout->addWidget(enable);
   layout->addWidget(stopButton);
   layout->addWidget(copy);
-  connect(enable, &QPushButton::clicked, this, [this] { startAgent(); });
+  connect(enable, &QPushButton::clicked, this, [this] { start(); });
   connect(stopButton, &QPushButton::clicked, this, [this] { stop(); });
   connect(copy, &QPushButton::clicked, this, [this] {
     if (!info.isEmpty()) QApplication::clipboard()->setText(QString::fromUtf8(QJsonDocument(info).toJson()));
   });
   auto update = [state, enable, stopButton, copy](QJsonObject value, QString error) {
     const bool live = !value.isEmpty();
-    enable->setEnabled(value.value("access_mode") != "agent");
+    enable->setEnabled(!live);
     stopButton->setEnabled(live);
     copy->setEnabled(live);
     state->setText(!error.isEmpty() ? error : !live ? tr("Agent access is stopped.") :
-      value.value("url").toString() + "\n" + (value.value("access_mode") == "agent" ? tr("Agent access enabled") : tr("Annotations-only access")));
+      value.value("url").toString() + "\n" + tr("Agent access enabled"));
   };
   connect(this, &Bridge::accessChanged, dialog, update);
   update(info, {});
@@ -165,8 +153,7 @@ void Bridge::registerController(Controller *controller)
   connect(this, &Bridge::accessChanged, widget, update);
   update(info, {});
   controller->setAccessWidget(widget);
-  if (QSettings().value("agentServer/enabled", false).toBool()) startAgent(false);
-  else if (QSettings().value("annotations/agentAccess", false).toBool()) start(false);
+  if (QSettings().value("agentServer/enabled", false).toBool()) start(false);
   publish();
 }
 void Bridge::publish()
@@ -184,7 +171,7 @@ void Bridge::publish()
     ++it;
     controller->pruneInspection();
     viewports.append(controller->status());
-    snapshot.reads.insert("/v2/windows/" + controller->windowId + "/diagnostics",
+    snapshot.reads.insert("/v1/windows/" + controller->windowId + "/diagnostics",
       {{"window_id", controller->windowId}, {"diagnostics", controller->inspection("").value("diagnostics")}, {"history_complete", false}});
     for (auto editor : controller->editors()) {
       const auto id = editor->annotations->sessionId;
@@ -202,7 +189,7 @@ void Bridge::publish()
                     {"annotation_revision", QString::number(editor->annotations->revision())},
                     {"diagnostic", editor->annotations->diagnostic()}});
       snapshot.records.insert(id, editor->annotations->records());
-      const auto savedRoute = "/v2/documents/" + id + "/saved-views";
+      const auto savedRoute = "/v1/documents/" + id + "/saved-views";
       auto savedState = controller->owner() == editor ? controller->savedViews() :
         QJsonObject{{"available", false}, {"document_id", id}, {"reason", "Document does not own this viewport."}};
       const auto views = savedState.take("views").toArray();
@@ -221,12 +208,12 @@ void Bridge::publish()
         {"stale_source", editor->parameterWidget->property("agentSourceFingerprint").toString() != editor->sourceFingerprint}};
       if (QJsonDocument(parameterState).toJson(QJsonDocument::Compact).size() > 65536)
         parameterState = {{"document_id", id}, {"available", false}, {"reason", "Parameter byte budget exceeded."}};
-      snapshot.reads.insert("/v2/documents/" + id + "/parameters", parameterState);
+      snapshot.reads.insert("/v1/documents/" + id + "/parameters", parameterState);
       const auto inspection = controller->inspection(id);
       for (const auto& kind : {"attempts", "results", "diagnostics"})
-        snapshot.reads.insert("/v2/documents/" + id + "/" + kind,
+        snapshot.reads.insert("/v1/documents/" + id + "/" + kind,
           {{"document_id", id}, {kind, inspection.value(kind)}, {"history_complete", false}});
-      snapshot.reads.insert("/v2/documents/" + id + "/dependencies",
+      snapshot.reads.insert("/v1/documents/" + id + "/dependencies",
         {{"document_id", id}, {"dependencies", QJsonArray{}}, {"complete", false},
          {"reason", "Dependency bytes have not been captured for this document."}});
     }
@@ -253,7 +240,7 @@ void Bridge::publish()
   }
   for (auto it = parseOutcomes.begin(); it != parseOutcomes.end();) {
     if (!liveDocuments.contains(it.key())) { it = parseOutcomes.erase(it); continue; }
-    const auto base = "/v2/documents/" + it.key();
+    const auto base = "/v1/documents/" + it.key();
     snapshot.reads.insert(base + "/parse-result", it.value());
     auto diagnostics = snapshot.reads.value(base + "/diagnostics");
     diagnostics["latest_parse"] = it->value("diagnostics");
@@ -286,8 +273,8 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
       },
       Qt::QueuedConnection);
   };
-  const bool saved = path.startsWith("/v2/documents/") && path.contains("/saved-views");
-  if (path.startsWith("/v2/documents/") && !saved) {
+  const bool saved = path.startsWith("/v1/documents/") && path.contains("/saved-views");
+  if (path.startsWith("/v1/documents/") && !saved) {
     for (const auto& controller : controllers) {
       if (!controller || controller->windowId != body.value("window_id")) continue;
       for (auto editor : controller->editors()) {
@@ -335,11 +322,10 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
     return;
   }
   const auto expected = body.value("expected_result_id").toString();
-  const bool v2 = path.startsWith("/v2/");
   const bool metadataOnly = saved && (path.endsWith("/rename") || path.endsWith("/remove"));
   const auto state = target->status();
-  if (!metadataOnly && ((v2 ? state.value("displayed_result_id").toString() : state.value("result").toObject().value("id").toString()) != expected ||
-      (v2 && target->viewRevision() != body.value("expected_view_revision").toString()))) {
+  if (!metadataOnly && (state.value("displayed_result_id").toString() != expected ||
+      target->viewRevision() != body.value("expected_view_revision").toString())) {
     done({}, {}, "Rendered result changed.");
     return;
   }
@@ -349,12 +335,12 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
     const auto result = target->savedViewOperation(action, path.section('/', 5, 5), body, &error);
     publish(); done(result, {}, error); return;
   }
-  if (path == "/v1/capture" || path == "/v2/capture") {
-    target->capture(state.value("result").toObject().value("id").toString(), done);
+  if (path == "/v1/capture") {
+    target->capture(expected, done);
     return;
   }
   QJsonObject camera;
-  if (path.startsWith("/v1/annotations/") || path.startsWith("/v2/annotations/")) {
+  if (path.startsWith("/v1/annotations/")) {
     auto annotation = path.section('/', 3, 3);
     auto record = target->owner()->annotations->find(annotation);
     if (!record) {
@@ -370,7 +356,7 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
     camera = body.value("camera").toObject();
   }
   QString error;
-  const bool changed = v2 && !path.startsWith("/v2/annotations/") ? target->cameraOperation(body, &error) : target->setCamera(camera, &error);
+  const bool changed = path.startsWith("/v1/annotations/") ? target->setCamera(camera, &error) : target->cameraOperation(body, &error);
   if (!changed) done({}, {}, error);
   else done(target->status(), {}, {});
 }
@@ -460,7 +446,7 @@ QJsonObject Bridge::snapshotSource(EditorInterface *editor, const QJsonObject& r
     sources.erase(oldest);
   }
   Source source{metadata, text, QDeadlineTimer(300000), {}};
-  const QString route = "/v2/source-snapshots/" + id;
+  const QString route = "/v1/source-snapshots/" + id;
   int offset = 0;
   for (int page = 0; offset < text.size() || page == 0; ++page) {
     int end = qMin(offset + 16384, int(text.size()));

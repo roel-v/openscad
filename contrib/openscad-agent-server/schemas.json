@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "OpenSCAD agent API v2 records",
+  "title": "OpenSCAD agent API v1 records",
   "description": "Wire contracts; capability discovery controls which records/operations are implemented.",
   "$defs": {
     "uuid": {"type": "string", "format": "uuid"},

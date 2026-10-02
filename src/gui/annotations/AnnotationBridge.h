@@ -17,7 +17,6 @@ public:
   ~Bridge() override;
   void registerController(Controller *controller);
   void start(bool remember = true);
-  void startAgent(bool remember = true);
   void showAccess(QWidget *parent);
   void stop(bool remember = true);
   QJsonObject connection() const { return info; }

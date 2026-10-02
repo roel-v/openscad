@@ -17,7 +17,7 @@ def main():
         return json.loads(process.stdout)
     target = ("--document", document, "--window", window)
     info = run("info")
-    assert info["api_version"] == 2
+    assert info["api_version"] == 1
     assert any(item["document_id"] == document for item in run("documents")["documents"])
     captured = run("source", *target, "--origin", "disk")["result"]
     snapshot = run("snapshot", captured["snapshot_id"])

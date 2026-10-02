@@ -559,7 +559,7 @@ QJsonObject Controller::savedViewOperation(const QString& action, const QString&
   }
   auto response = savedViews();
   response.remove("views");
-  response["views_route"] = "/v2/documents/" + owner()->annotations->sessionId + "/saved-views";
+  response["views_route"] = "/v1/documents/" + owner()->annotations->sessionId + "/saved-views";
   response["viewport"] = status();
   if (!added.isEmpty()) response["added_id"] = added;
   emit changed();
@@ -576,7 +576,7 @@ void Controller::beginEvaluation(const QString& source)
   evaluationOwner = window->activeEditor;
   evaluationTimer.start();
   evaluation = {
-    {"id", QString::number(++generation)},
+    {"attempt_id", windowId + ":" + QString::number(++generation)},
     {"document_id", evaluationOwner->annotations->sessionId},
     {"source_sha256", QString::fromLatin1(Store::hash(source.toUtf8()))},
     {"path", evaluationOwner->filepath},
@@ -585,7 +585,6 @@ void Controller::beginEvaluation(const QString& source)
     {"backend", QString::fromStdString(renderBackend3DToString(RenderSettings::inst()->backend3D))},
     {"customizer", customizerContext(evaluationOwner)},
     {"outcome", "evaluating"}};
-  evaluation["attempt_id"] = windowId + ":" + evaluation.value("id").toString();
   evaluation["origin"] = "editor";
   evaluation["source_revision"] = QString::number(evaluationOwner->sourceRevision);
   {
@@ -900,7 +899,7 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
 {
   if (!owner() || capturePending || !view->isVisible() || window->isMinimized() ||
       QApplication::activeModalWidget() ||
-      (!expectedResult.isEmpty() && result.value("id").toString() != expectedResult)) {
+      (!expectedResult.isEmpty() && result.value("result_id").toString() != expectedResult)) {
     done({}, {}, "Missing owner or stale result.");
     return;
   }
@@ -1015,7 +1014,7 @@ void Controller::acceptDrawing()
   state = Capturing;
   updateLock();
   const auto token = draftToken;
-  requestFrame(true, result.value("id").toString(),
+  requestFrame(true, result.value("result_id").toString(),
                [this, token](QJsonObject metadata, QByteArray png, QString error) {
                  if (token != draftToken || !draftOwner) return;
                  if (!error.isEmpty()) {

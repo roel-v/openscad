@@ -70,10 +70,10 @@ void TestAnnotations::nativeSavedViews()
   auto controller = window->annotationController;
   auto store = SavedViews::forEditor(editor);
   auto bridge = AgentAnnotations::Bridge::instance();
-  bridge->startAgent(false);
-  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  bridge->start(false);
+  QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
   const auto info = bridge->connection();
-  const auto route = "/v2/documents/" + editor->annotations->sessionId + "/saved-views";
+  const auto route = "/v1/documents/" + editor->annotations->sessionId + "/saved-views";
   const auto nativeId = store->add(window->qglview->navigation()->current());
   QVERIFY(!nativeId.isEmpty());
   QTRY_COMPARE(agentRequest(info, route).value("views").toArray().size(), 1);
@@ -88,7 +88,7 @@ void TestAnnotations::nativeSavedViews()
   auto added = body();
   QCOMPARE(agentRequest(info, route, added).value("http_status").toInt(), 202);
   QJsonObject job;
-  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + added.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  QTRY_COMPARE((job = agentRequest(info, "/v1/requests/" + added.value("request_id").toString())).value("state").toString(), QString("succeeded"));
   const auto id = job.value("result").toObject().value("added_id").toString();
   QVERIFY(store->find(id));
   QCOMPARE(store->entries().size(), 2);
@@ -183,8 +183,8 @@ void TestAnnotations::packagedAgentClient()
   window->actionRenderPreview();
   window->qglview->viewAll();
   auto bridge = AgentAnnotations::Bridge::instance();
-  bridge->startAgent(false);
-  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  bridge->start(false);
+  QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
   QFile connection(dir.filePath("connection.json"));
   QVERIFY(connection.open(QIODevice::WriteOnly));
   connection.write(QJsonDocument(bridge->connection()).toJson()); connection.close();
@@ -211,7 +211,7 @@ void TestAnnotations::packagedAgentClient()
   QVERIFY(rendered.value("displayed_result_id") != preview);
   bool captured = false;
   QString captureError;
-  window->annotationController->capture(rendered.value("result").toObject().value("id").toString(),
+  window->annotationController->capture(rendered.value("result").toObject().value("result_id").toString(),
     [&](QJsonObject metadata, QByteArray png, QString error) {
       captureError = error;
       captured = true;
@@ -242,8 +242,8 @@ void TestAnnotations::guardedViewport()
   QTRY_VERIFY(!window->qglview->navigation()->animating());
   auto controller = window->annotationController;
   auto bridge = AgentAnnotations::Bridge::instance();
-  bridge->startAgent(false);
-  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  bridge->start(false);
+  QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
   const auto info = bridge->connection();
   auto body = [&] {
     const auto state = controller->status();
@@ -252,11 +252,11 @@ void TestAnnotations::guardedViewport()
       {"window_id", controller->windowId}, {"viewport_id", controller->viewportId},
       {"expected_result_id", state.value("displayed_result_id")}, {"expected_view_revision", state.value("view_revision")}};
   };
-  const auto route = "/v2/viewports/" + controller->viewportId + "/view";
+  const auto route = "/v1/viewports/" + controller->viewportId + "/view";
   for (const auto& name : {"top", "bottom", "left", "right", "front", "back", "diagonal"}) {
     auto request = body(); request["operation"] = "standard"; request["view"] = name;
     QCOMPARE(agentRequest(info, route, request).value("http_status").toInt(), 202);
-    QTRY_COMPARE(agentRequest(info, "/v2/requests/" + request.value("request_id").toString()).value("state").toString(), QString("succeeded"));
+    QTRY_COMPARE(agentRequest(info, "/v1/requests/" + request.value("request_id").toString()).value("state").toString(), QString("succeeded"));
     const auto camera = controller->camera();
     const auto revision = controller->viewRevision();
     // An identical receipt must not move the camera a second time.
@@ -270,29 +270,29 @@ void TestAnnotations::guardedViewport()
   QTRY_COMPARE(agentRequest(info, route, stale).value("http_status").toInt(), 409);
   auto projection = body(); projection["operation"] = "projection"; projection["projection"] = "orthographic";
   QCOMPARE(agentRequest(info, route, projection).value("http_status").toInt(), 202);
-  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + projection.value("request_id").toString()).value("state").toString(), QString("succeeded"));
+  QTRY_COMPARE(agentRequest(info, "/v1/requests/" + projection.value("request_id").toString()).value("state").toString(), QString("succeeded"));
   QCOMPARE(controller->camera().value("projection").toString(), QString("orthographic"));
   auto invalid = body(); invalid["camera"] = controller->camera();
   auto badCamera = invalid.value("camera").toObject(); badCamera["distance"] = -1; invalid["camera"] = badCamera;
   QCOMPARE(agentRequest(info, route, invalid).value("http_status").toInt(), 202);
-  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + invalid.value("request_id").toString()).value("state").toString(), QString("failed"));
+  QTRY_COMPARE(agentRequest(info, "/v1/requests/" + invalid.value("request_id").toString()).value("state").toString(), QString("failed"));
   QTimer pump;
   connect(&pump, &QTimer::timeout, window, [this] { window->qglview->grabFramebuffer(); });
   pump.start(30);
   const auto capture = body();
-  QCOMPARE(agentRequest(info, "/v2/capture", capture).value("http_status").toInt(), 202);
+  QCOMPARE(agentRequest(info, "/v1/capture", capture).value("http_status").toInt(), 202);
   QJsonObject receipt;
-  QTRY_COMPARE((receipt = agentRequest(info, "/v2/requests/" + capture.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  QTRY_COMPARE((receipt = agentRequest(info, "/v1/requests/" + capture.value("request_id").toString())).value("state").toString(), QString("succeeded"));
   const auto image = receipt.value("result").toObject();
   const auto png = QByteArray::fromBase64(image.value("png_base64").toString().toLatin1());
   QCOMPARE(QString::fromLatin1(AgentAnnotations::Store::hash(png)), image.value("png_sha256").toString());
   QCOMPARE(image.value("view_revision"), capture.value("expected_view_revision"));
   QCOMPARE(image.value("displayed_result_id"), capture.value("expected_result_id"));
-  QFile evidence(QFileInfo(qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG")).dir().filePath("agent-v2-capture.png"));
+  QFile evidence(QFileInfo(qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG")).dir().filePath("agent-capture.png"));
   QVERIFY(evidence.open(QIODevice::WriteOnly)); evidence.write(png); evidence.close();
   controller->startDrawing();
-  QCOMPARE(agentRequest(info, "/v2/capture", body()).value("http_status").toInt(), 409);
-  QCOMPARE(agentRequest(info, "/v2/annotations?document_id=" + editor->annotations->sessionId).value("http_status").toInt(), 200);
+  QCOMPARE(agentRequest(info, "/v1/capture", body()).value("http_status").toInt(), 409);
+  QCOMPARE(agentRequest(info, "/v1/annotations?document_id=" + editor->annotations->sessionId).value("http_status").toInt(), 200);
   controller->cancelDrawing();
   QCOMPARE(editor->toPlainText(), QString("difference(){cube(10,center=true); cylinder(h=20,r=3,center=true);}"));
   bridge->stop();
@@ -307,13 +307,13 @@ void TestAnnotations::modelInspection()
     "!difference() { for (s=[2:4]) part(s); #sphere(1); %cube(8); } *cube(99);\n");
   window->actionRenderPreview();
   auto bridge = AgentAnnotations::Bridge::instance();
-  bridge->startAgent(false);
-  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  bridge->start(false);
+  QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
   const auto info = bridge->connection();
   const auto result = window->annotationController->status().value("result").toObject();
   const auto treeId = result.value("tree_id").toString();
   QVERIFY(!treeId.isEmpty());
-  auto tree = agentRequest(info, "/v2/trees/" + treeId);
+  auto tree = agentRequest(info, "/v1/trees/" + treeId);
   QCOMPARE(tree.value("kind").toString(), QString("evaluated"));
   QVERIFY(tree.value("complete").toBool());
   QVERIFY(tree.value("effective_root_ids") != tree.value("root_ids"));
@@ -329,16 +329,16 @@ void TestAnnotations::modelInspection()
   }
   QCOMPARE(cubes, 4);
   QCOMPARE(spans.size(), 1); // Loop expansions share a source call, never a public node ID.
-  const auto oldNode = agentRequest(info, "/v2/trees/" + treeId + "/nodes/1");
+  const auto oldNode = agentRequest(info, "/v1/trees/" + treeId + "/nodes/1");
   editor->setPlainText("cube(7);");
-  QVERIFY(agentRequest(info, "/v2/documents/" + editor->annotations->sessionId + "/parameters").value("stale_source").toBool());
+  QVERIFY(agentRequest(info, "/v1/documents/" + editor->annotations->sessionId + "/parameters").value("stale_source").toBool());
   window->actionRenderPreview();
   QVERIFY(window->annotationController->status().value("result").toObject().value("tree_id") != treeId);
-  QCOMPARE(agentRequest(info, "/v2/trees/" + treeId + "/nodes/1"), oldNode);
+  QCOMPARE(agentRequest(info, "/v1/trees/" + treeId + "/nodes/1"), oldNode);
   editor->setPlainText("");
   window->actionRenderPreview();
   auto empty = window->annotationController->status().value("result").toObject();
-  QVERIFY(agentRequest(info, "/v2/trees/" + empty.value("tree_id").toString()).value("empty").toBool());
+  QVERIFY(agentRequest(info, "/v1/trees/" + empty.value("tree_id").toString()).value("empty").toBool());
   GroupNode wide(nullptr);
   for (int i = 0; i < 13000; ++i) wide.children.push_back(std::make_shared<CubeNode>(nullptr));
   auto bounded = AgentAnnotations::inspectModel(&wide, &wide, nullptr, empty);
@@ -368,28 +368,28 @@ void TestAnnotations::sourceInspection()
   const auto dirty = editor->isContentModified(), undo = editor->canUndo();
   const auto revision = editor->sourceRevision;
   auto bridge = AgentAnnotations::Bridge::instance();
-  bridge->startAgent(false);
-  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  bridge->start(false);
+  QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
   const auto info = bridge->connection();
   const auto document = editor->annotations->sessionId;
-  const auto route = "/v2/documents/" + document;
+  const auto route = "/v1/documents/" + document;
   QJsonObject body{{"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
     {"server_id", info.value("server_id")}, {"document_id", document},
     {"window_id", window->annotationController->windowId}, {"origin", "disk"}};
   QCOMPARE(agentRequest(info, route + "/source-snapshots", body).value("http_status").toInt(), 202);
   QJsonObject job;
-  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  QTRY_COMPARE((job = agentRequest(info, "/v1/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
   const auto meta = job.value("result").toObject();
   QCOMPARE(meta.value("disk_sha256").toString(), QString::fromLatin1(AgentAnnotations::Store::hash(disk)));
-  auto snapshot = agentRequest(info, "/v2/source-snapshots/" + meta.value("snapshot_id").toString());
+  auto snapshot = agentRequest(info, "/v1/source-snapshots/" + meta.value("snapshot_id").toString());
   QCOMPARE(snapshot.value("text").toString(), QString::fromUtf8("// \xe2\x86\x92\necho(42); cube(2);\n"));
   QVERIFY(snapshot.value("source_sha256") != snapshot.value("disk_sha256"));
   body["origin"] = "editor";
   body["expected_source_revision"] = QString::number(revision);
   body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
   QCOMPARE(agentRequest(info, route + "/source-snapshots", body).value("http_status").toInt(), 202);
-  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
-  snapshot = agentRequest(info, "/v2/source-snapshots/" + job.value("result").toObject().value("snapshot_id").toString());
+  QTRY_COMPARE((job = agentRequest(info, "/v1/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  snapshot = agentRequest(info, "/v1/source-snapshots/" + job.value("result").toObject().value("snapshot_id").toString());
   QCOMPARE(snapshot.value("text").toString(), editor->toPlainText());
   QCOMPARE(editor->sourceRevision, revision);
   QCOMPARE(editor->isContentModified(), dirty);
@@ -402,7 +402,7 @@ void TestAnnotations::sourceInspection()
   editor->setPlainText("cube( ;");
   body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
   QCOMPARE(agentRequest(info, route + "/source-snapshots", body).value("http_status").toInt(), 202);
-  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
+  QTRY_COMPARE(agentRequest(info, "/v1/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
   window->actionRenderPreview();
   QCOMPARE(agentRequest(info, route + "/results").value("results"), results);
   auto attempts = agentRequest(info, route + "/attempts").value("attempts").toArray();
@@ -410,8 +410,8 @@ void TestAnnotations::sourceInspection()
   // A known document source is required, even for disk origin; no arbitrary path browsing.
   body["document_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
   body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
-  QCOMPARE(agentRequest(info, "/v2/documents/" + body.value("document_id").toString() + "/source-snapshots", body).value("http_status").toInt(), 202);
-  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
+  QCOMPARE(agentRequest(info, "/v1/documents/" + body.value("document_id").toString() + "/source-snapshots", body).value("http_status").toInt(), 202);
+  QTRY_COMPARE(agentRequest(info, "/v1/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
   bridge->stop();
 }
 
@@ -420,29 +420,31 @@ void TestAnnotations::agentAccessLifecycle()
   auto service = AgentAnnotations::Bridge::instance();
   service->stop();
   QVERIFY(!QSettings().value("agentServer/enabled", false).toBool());
-  service->start();
-  QTRY_COMPARE(service->connection().value("access_mode").toString(), QString("annotations"));
-  QVERIFY(!QSettings().value("agentServer/enabled", false).toBool());
-  const auto legacyId = service->connection().value("server_id");
   service->showAccess(window);
   auto dialog = window->findChild<QDialog *>("agentAccessDialog");
   QVERIFY(dialog);
   auto enable = dialog->findChild<QPushButton *>("enableAgentAccess");
   auto stop = dialog->findChild<QPushButton *>("stopAgentAccess");
   QVERIFY(enable && stop);
+  QVERIFY(enable->isEnabled());
+  QVERIFY(!stop->isEnabled());
   enable->click();
-  QTRY_COMPARE(service->connection().value("access_mode").toString(), QString("agent"));
-  QVERIFY(service->connection().value("server_id") != legacyId);
-  QVERIFY(QSettings().value("agentServer/enabled").toBool());
+  QTRY_COMPARE(service->connection().value("api_version").toInt(), 1);
+  const auto firstId = service->connection().value("server_id");
+  QVERIFY(QSettings().value("agentServer/enabled", false).toBool());
   QVERIFY(!enable->isEnabled());
+  service->start();
+  QCOMPARE(service->connection().value("server_id"), firstId);
   service->stop(false);
-  QVERIFY(QSettings().value("agentServer/enabled").toBool());
-  service->startAgent(false);
-  QTRY_COMPARE(service->connection().value("access_mode").toString(), QString("agent"));
+  QVERIFY(QSettings().value("agentServer/enabled", false).toBool());
+  service->start(false);
+  QTRY_COMPARE(service->connection().value("api_version").toInt(), 1);
+  QVERIFY(service->connection().value("server_id") != firstId);
   stop->click();
   QVERIFY(service->connection().isEmpty());
-  QVERIFY(!QSettings().value("agentServer/enabled").toBool());
-  QVERIFY(!QSettings().value("annotations/agentAccess").toBool());
+  QVERIFY(!QSettings().value("agentServer/enabled", false).toBool());
+  QVERIFY(enable->isEnabled());
+  QVERIFY(!stop->isEnabled());
   dialog->close();
 }
 
@@ -472,23 +474,23 @@ void TestAnnotations::targetInspection()
   auto bridge = AgentAnnotations::Bridge::instance();
   QVERIFY(bridge->snapshotSource(window->activeEditor, {{"origin", "disk"}}, &error).isEmpty());
   QVERIFY(error.contains("Untitled"));
-  bridge->startAgent(false);
-  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  bridge->start(false);
+  QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
   auto info = bridge->connection();
-  const auto route = "/v2/documents/" + other + "/source-snapshots";
+  const auto route = "/v1/documents/" + other + "/source-snapshots";
   QJsonObject body{{"origin", "disk"}, {"document_id", other},
     {"window_id", second->annotationController->windowId}, {"server_id", info.value("server_id")},
     {"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)}};
   QCOMPARE(agentRequest(info, route, body).value("http_status").toInt(), 202);
   QJsonObject job;
-  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
-  const auto snapshotRoute = "/v2/source-snapshots/" + job.value("result").toObject().value("snapshot_id").toString();
+  QTRY_COMPARE((job = agentRequest(info, "/v1/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  const auto snapshotRoute = "/v1/source-snapshots/" + job.value("result").toObject().value("snapshot_id").toString();
   second.reset();
   bridge->publish();
   QTRY_COMPARE(agentRequest(info, snapshotRoute).value("http_status").toInt(), 410);
   body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
   QCOMPARE(agentRequest(info, route, body).value("http_status").toInt(), 202);
-  QTRY_COMPARE(agentRequest(info, "/v2/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
+  QTRY_COMPARE(agentRequest(info, "/v1/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
   window->tabManager->closeCurrentTab();
   bridge->stop();
 }
@@ -570,7 +572,7 @@ void TestAnnotations::syntaxInspection()
   auto wide = inspect(QString("cube(1);\n").repeated(600));
   QVERIFY(wide.outcome.value("success").toBool());
   const auto pages = AgentAnnotations::treePages(wide.tree);
-  const auto wideBase = "/v2/trees/" + wide.tree.metadata.value("tree_id").toString();
+  const auto wideBase = "/v1/trees/" + wide.tree.metadata.value("tree_id").toString();
   const auto wideRoot = wide.tree.nodes.value(wide.tree.metadata.value("root_ids").toArray().first().toString());
   const auto scopeId = wideRoot.value("children").toArray().first().toObject().value("node_id").toString();
   const auto page = pages.value(wideBase + "/nodes/" + scopeId + "/children");
@@ -605,19 +607,19 @@ void TestAnnotations::syntaxInspection()
   QCOMPARE(parser_error_pos, oldError);
   QVERIFY(!GuiLocker::isLocked());
   auto bridge = AgentAnnotations::Bridge::instance();
-  bridge->startAgent(false);
-  QTRY_COMPARE(bridge->connection().value("access_mode").toString(), QString("agent"));
+  bridge->start(false);
+  QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
   QString error;
   auto snapshot = bridge->snapshotSource(editor, {{"origin", "disk"}}, &error);
   QVERIFY(error.isEmpty());
   const auto info = bridge->connection();
   QJsonObject body{{"server_id", info.value("server_id")}, {"document_id", editor->annotations->sessionId},
     {"window_id", window->annotationController->windowId}, {"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)}, {"snapshot_id", snapshot.value("snapshot_id")}};
-  QCOMPARE(agentRequest(info, "/v2/documents/" + editor->annotations->sessionId + "/parse", body).value("http_status").toInt(), 202);
+  QCOMPARE(agentRequest(info, "/v1/documents/" + editor->annotations->sessionId + "/parse", body).value("http_status").toInt(), 202);
   QJsonObject job;
-  QTRY_COMPARE((job = agentRequest(info, "/v2/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
+  QTRY_COMPARE((job = agentRequest(info, "/v1/requests/" + body.value("request_id").toString())).value("state").toString(), QString("succeeded"));
   QVERIFY(job.value("result").toObject().value("success").toBool());
-  const auto treePath = "/v2/trees/" + job.value("result").toObject().value("tree_id").toString();
+  const auto treePath = "/v1/trees/" + job.value("result").toObject().value("tree_id").toString();
   auto tree = agentRequest(info, treePath);
   QCOMPARE(tree.value("kind").toString(), QString("syntax"));
   const auto nodePath = treePath + "/nodes/" + tree.value("root_ids").toArray().first().toString();
@@ -845,7 +847,7 @@ void TestAnnotations::viewportWorkflow()
   bool complete = false;
   QString error;
   QByteArray fresh;
-  controller->capture(result.value("id").toString(), [&](QJsonObject, QByteArray png, QString failure) {
+  controller->capture(result.value("result_id").toString(), [&](QJsonObject, QByteArray png, QString failure) {
     fresh = png;
     error = failure;
     complete = true;
@@ -931,8 +933,8 @@ void TestAnnotations::agentAndAutomaticReload()
   QNetworkAccessManager network;
   auto request = [&](const QString& route, const QJsonObject& body = QJsonObject{}) {
     QNetworkRequest request(QUrl(info.value("url").toString() + route));
-    request.setRawHeader("X-Agent-Annotations", "1");
-    request.setRawHeader("X-Agent-Annotations-Server", info.value("server_id").toString().toUtf8());
+    request.setRawHeader("X-OpenSCAD-Agent", "1");
+    request.setRawHeader("X-OpenSCAD-Agent-Server", info.value("server_id").toString().toUtf8());
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     auto reply =
       body.isEmpty() ? network.get(request) : network.post(request, QJsonDocument(body).toJson());
@@ -956,7 +958,8 @@ void TestAnnotations::agentAndAutomaticReload()
                    {"document_id", editor->annotations->sessionId},
                    {"window_id", controller->windowId},
                    {"viewport_id", controller->viewportId},
-                   {"expected_result_id", current.value("result").toObject().value("id").toString()}};
+                   {"expected_result_id", current.value("displayed_result_id")},
+                   {"expected_view_revision", current.value("view_revision")}};
   const auto python = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_PYTHON");
   const auto client = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_CLIENT");
   if (!python.isEmpty() && !client.isEmpty()) {
@@ -976,7 +979,8 @@ void TestAnnotations::agentAndAutomaticReload()
   QCOMPARE(request("/v1/capture", body).value("http_status").toInt(), 202);
   QJsonObject job;
   QTRY_VERIFY_WITH_TIMEOUT(
-    (job = request("/v1/requests/" + requestId)).value("state").toString() != "queued", 6000);
+    (job = request("/v1/requests/" + requestId)).value("state").toString() == "succeeded" ||
+      job.value("state") == "failed", 6000);
   QCOMPARE(job.value("state").toString(), QString("succeeded"));
   auto metadata = job.value("result").toObject();
   auto png = QByteArray::fromBase64(metadata.take("png_base64").toString().toLatin1());
@@ -996,6 +1000,7 @@ void TestAnnotations::agentAndAutomaticReload()
            202);
   QTRY_COMPARE(controller->camera(), changedCamera);
   cameraBody.remove("camera");
+  cameraBody["expected_view_revision"] = controller->status().value("view_revision");
   cameraBody["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
   QCOMPARE(request("/v1/annotations/" + metadata.value("id").toString() + "/restore", cameraBody)
              .value("http_status")
@@ -1013,7 +1018,7 @@ void TestAnnotations::agentAndAutomaticReload()
   QVERIFY(socket.waitForConnected(2000));
   QByteArray header = "GET /v1/annotations?document_id=" + editor->annotations->sessionId.toUtf8() +
                       " HTTP/1.1\r\nHost: 127.0.0.1:" + QByteArray::number(url.port()) +
-                      "\r\nX-Agent-Annotations: 1\r\nX-Agent-Annotations-Server: " +
+                      "\r\nX-OpenSCAD-Agent: 1\r\nX-OpenSCAD-Agent-Server: " +
                       info.value("server_id").toString().toUtf8() + "\r\n\r\n";
   socket.write(header);
   socket.flush();
@@ -1028,15 +1033,15 @@ void TestAnnotations::agentAndAutomaticReload()
   window->designActionAutoReload->setChecked(true);
   QTest::qWait(1100);  // Upstream include/use cache timestamps have one-second resolution.
   const auto rootHash = editor->sourceFingerprint;
-  auto prior = controller->status().value("result").toObject().value("id");
+  auto prior = controller->status().value("result").toObject().value("result_id");
   QVERIFY(write(include, "size=16;\n"));
-  QTRY_VERIFY_WITH_TIMEOUT(controller->status().value("result").toObject().value("id") != prior, 8000);
+  QTRY_VERIFY_WITH_TIMEOUT(controller->status().value("result").toObject().value("result_id") != prior, 8000);
   QCOMPARE(editor->sourceFingerprint, rootHash);
   QVERIFY(editor->annotations->dirty());
   QTest::qWait(1100);
-  prior = controller->status().value("result").toObject().value("id");
+  prior = controller->status().value("result").toObject().value("result_id");
   QVERIFY(write(library, "module part(s){sphere(r=s/2,$fn=32);}\n"));
-  QTRY_VERIFY_WITH_TIMEOUT(controller->status().value("result").toObject().value("id") != prior, 8000);
+  QTRY_VERIFY_WITH_TIMEOUT(controller->status().value("result").toObject().value("result_id") != prior, 8000);
   QCOMPARE(editor->sourceFingerprint, rootHash);
   const QByteArray changed = initial + "translate([20,0,0]) cube(3);\n";
   QVERIFY(write(source, changed));
@@ -1065,7 +1070,7 @@ void TestAnnotations::agentAndAutomaticReload()
            QString("installed"));
   bool rendered = false;
   QString renderError;
-  controller->capture(controller->status().value("result").toObject().value("id").toString(),
+  controller->capture(controller->status().value("result").toObject().value("result_id").toString(),
                       [&](QJsonObject, QByteArray image, QString failure) {
                         renderError = failure;
                         rendered = !image.isEmpty();

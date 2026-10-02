@@ -32,10 +32,9 @@ qint64 Transport::now() const
   return std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::steady_clock::now().time_since_epoch()).count();
 }
-void Transport::start(bool broad)
+void Transport::start()
 {
   if (listener) return;
-  broadAccess = broad;
   listener = new QTcpServer(this);
   if (!listener->listen(QHostAddress::LocalHost, 0)) {
     auto error = listener->errorString();
@@ -48,22 +47,22 @@ void Transport::start(bool broad)
   const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
   const QString url = "http://127.0.0.1:" + QString::number(listener->serverPort());
   info = {{"product", "OpenSCAD"},
-          {"protocol", 1},
-          {"schema", 1},
+          {"api_version", 1},
+          {"schema_version", 1},
           {"server_id", id},
           {"url", url},
           {"pid", QString::number(QCoreApplication::applicationPid())},
           {"started_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
           {"executable", QCoreApplication::applicationFilePath()},
-          {"capabilities", QJsonArray{"annotations.read", "viewport.capture", "camera.set",
-                                      "camera.restore", "status.read"}}};
-  info["agent_api_versions"] = broadAccess ? QJsonArray{2} : QJsonArray{};
-  info["access_mode"] = broadAccess ? "agent" : "annotations";
+          {"capabilities", QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
+            "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read",
+            "dependencies.read", "model.read", "parameters.read", "annotations.read", "camera.set",
+            "camera.restore", "viewport.capture", "saved_views.read", "saved_views.write"}}};
   QString directory =
-    QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/AgentAnnotations/OpenSCAD";
+    QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/OpenSCAD/AgentServer";
   if (!QDir().mkpath(directory)) {
     stop();
-    emit listening({}, "Cannot create annotation discovery directory.");
+    emit listening({}, "Cannot create agent discovery directory.");
     return;
   }
   discovery = directory + "/" + id + ".json";
@@ -71,7 +70,7 @@ void Transport::start(bool broad)
   QByteArray data = QJsonDocument(info).toJson();
   if (!file.open(QIODevice::WriteOnly) || file.write(data) != data.size() || !file.commit()) {
     stop();
-    emit listening({}, "Cannot publish annotation discovery.");
+    emit listening({}, "Cannot publish agent discovery.");
     return;
   }
   expiry = new QTimer(this);
@@ -112,20 +111,15 @@ void Transport::publish(Snapshot value)
 void Transport::respond(QTcpSocket *socket, int code, QJsonObject value)
 {
   if (socket->state() == QAbstractSocket::UnconnectedState) return;
-  // The original client polls only "queued". Preserve its pending-state contract.
-  if (!socket->property("agentV2").toBool() && value.value("state") == "running")
-    value["state"] = "queued";
-  if (socket->property("agentV2").toBool() && code >= 400 && !value.contains("code")) {
+  if (code >= 400 && !value.contains("code")) {
     value["code"] = code == 403 ? "transport_guard" : code == 410 ? "expired" : "invalid_request";
-    value["message"] = value.value("error").toString("Request failed.");
+    value["message"] = value.take("error").toString("Request failed.");
   }
   QByteArray data = QJsonDocument(value).toJson(QJsonDocument::Compact);
-  if (socket->property("agentV2").toBool()) {
-    const bool image = value.contains("png_base64") || value.value("result").toObject().contains("png_base64");
-    if (data.size() > (image ? 48 * 1024 * 1024 : 1024 * 1024)) {
-      code = 413;
-      data = "{\"code\":\"response_limit\",\"message\":\"Response exceeds bounded JSON output; use narrower reads.\"}";
-    }
+  const bool image = value.contains("png_base64") || value.value("result").toObject().contains("png_base64");
+  if (data.size() > (image ? 48 * 1024 * 1024 : 1024 * 1024)) {
+    code = 413;
+    data = "{\"code\":\"response_limit\",\"message\":\"Response exceeds bounded JSON output; use narrower reads.\"}";
   }
   QByteArray response = "HTTP/1.1 " + QByteArray::number(code) + " " + (code < 300 ? "OK" : "Error") +
                         "\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nConnection: "
@@ -222,175 +216,28 @@ void Transport::route(QTcpSocket *socket, const QByteArray& header, const QByteA
     }
     fields.insert(line.left(colon).toLower(), line.mid(colon + 1).trimmed());
   }
-  const bool v2 = request[1].startsWith("/v2/");
-  socket->setProperty("agentV2", v2);
-  const bool discoveryRequest = v2 && request[0] == "GET" && request[1] == "/v2/info";
-  const auto protocolHeader = v2 ? "x-openscad-agent" : "x-agent-annotations";
-  const auto serverHeader = v2 ? "x-openscad-agent-server" : "x-agent-annotations-server";
+  const bool discoveryRequest = request[0] == "GET" && request[1] == "/v1/info";
   bool browser = fields.contains("origin");
   for (auto it = fields.cbegin(); it != fields.cend(); ++it)
     browser = browser || it.key().startsWith("sec-fetch-");
   const auto host = "127.0.0.1:" + QByteArray::number(listener->serverPort());
   if (fields.value("host") != host || browser ||
-      fields.contains("transfer-encoding") || fields.value(protocolHeader) != "1" ||
-      (!discoveryRequest && fields.value(serverHeader) != info.value("server_id").toString().toUtf8())) {
-    respond(
-      socket, 403,
-      {{"error", "Numeric loopback Host, protocol/server headers and no browser Origin are required."}});
+      fields.contains("transfer-encoding") || fields.value("x-openscad-agent") != "1" ||
+      (!discoveryRequest && fields.value("x-openscad-agent-server") != info.value("server_id").toString().toUtf8())) {
+    respond(socket, 403,
+      {{"code", "transport_guard"}, {"message", "Numeric loopback Host, agent/server headers and no browser Origin are required."}});
     return;
   }
-  QUrl url = QUrl::fromEncoded(request[1]);
-  QUrlQuery query(url);
-  QString path = url.path();
-  if (v2) {
-    if (!broadAccess) {
-      respond(socket, 403, {{"code", "access_disabled"}, {"message", "Enable broad agent access first."}});
-      return;
-    }
-    if (request[0] == "POST" && fields.value("content-type").split(';').first().trimmed() != "application/json") {
-      respond(socket, 415, {{"code", "invalid_media_type"}, {"message", "JSON required."}});
-      return;
-    }
-    routeV2(socket, request[0], path, bytes, query);
+  const QUrl url = QUrl::fromEncoded(request[1]);
+  if (!url.path().startsWith("/v1/")) {
+    respond(socket, 404, {{"code", "unsupported"}, {"message", "Operation is not available."}});
     return;
   }
-  if (request[0] == "GET") {
-    if (!bytes.isEmpty()) {
-      respond(socket, 400, {{"error", "GET body is unsupported."}});
-      return;
-    }
-    if (path == "/v1/info") {
-      auto value = info;
-      value["gui_heartbeat_age_ms"] = heartbeat ? double(now() - heartbeat) : -1;
-      value["gui_responsive"] = heartbeat && now() - heartbeat < 5000;
-      respond(socket, 200, value);
-      return;
-    }
-    if (path == "/v1/documents" || path == "/v1/viewports") {
-      QString key = path.mid(4);
-      respond(socket, 200,
-              {{key, snapshot.status.value(key)},
-               {"gui_heartbeat_age_ms", heartbeat ? double(now() - heartbeat) : -1}});
-      return;
-    }
-    if (path.startsWith("/v1/requests/")) {
-      auto id = path.mid(13);
-      auto it = jobs.constFind(id);
-      if (it == jobs.cend())
-        respond(socket, 410,
-                {{"state", "expired"},
-                 {"error", "Unknown or expired request; do not silently submit a new ID."}});
-      else respond(socket, 200, it->value);
-      return;
-    }
-    if (path == "/v1/annotations" || path.startsWith("/v1/annotations/")) {
-      const auto document = query.queryItemValue("document_id");
-      auto it = snapshot.records.constFind(document);
-      if (it == snapshot.records.cend()) {
-        respond(socket, 404, {{"error", "Unknown document session."}});
-        return;
-      }
-      const QString annotation = path == "/v1/annotations" ? QString() : path.mid(16);
-      if (!annotation.isEmpty()) {
-        for (const auto& record : *it)
-          if (record.id() == annotation) {
-            auto result = record.metadata;
-            result["png_base64"] = QString::fromLatin1(record.png.toBase64());
-            respond(socket, 200, result);
-            return;
-          }
-        respond(socket, 404, {{"error", "Unknown annotation."}});
-        return;
-      }
-      QJsonArray records;
-      auto text = query.queryItemValue("q");
-      for (auto rit = it->crbegin(); rit != it->crend(); ++rit)
-        if (rit->metadata.value("comment").toString().contains(text, Qt::CaseInsensitive))
-          records.append(rit->metadata);
-      respond(socket, 200, {{"document_id", document}, {"annotations", records}});
-      return;
-    }
-    respond(socket, 404, {{"error", "Unknown read route."}});
+  if (request[0] == "POST" && fields.value("content-type").split(';').first().trimmed() != "application/json") {
+    respond(socket, 415, {{"code", "invalid_media_type"}, {"message", "JSON required."}});
     return;
   }
-  const bool capture = path == "/v1/capture";
-  const bool restore =
-    QRegularExpression("^/v1/annotations/[a-fA-F0-9-]{36}/restore$").match(path).hasMatch();
-  const bool view = QRegularExpression("^/v1/viewports/[a-fA-F0-9-]{36}/view$").match(path).hasMatch();
-  if (request[0] != "POST" || (!capture && !restore && !view)) {
-    respond(socket, 404, {{"error", "Unsupported operation."}});
-    return;
-  }
-  if (!fields.value("content-type").startsWith("application/json")) {
-    respond(socket, 415, {{"error", "JSON required."}});
-    return;
-  }
-  QJsonParseError parse;
-  auto document = QJsonDocument::fromJson(bytes, &parse);
-  auto body = document.object();
-  if (parse.error != QJsonParseError::NoError || !document.isObject() ||
-      body.value("server_id") != info.value("server_id") ||
-      !validId(body.value("request_id").toString()) || !validId(body.value("document_id").toString()) ||
-      !validId(body.value("window_id").toString()) || !validId(body.value("viewport_id").toString()) ||
-      !body.value("expected_result_id").isString()) {
-    respond(
-      socket, 400,
-      {{"error",
-        "Explicit server, request, document, window, viewport and expected result IDs are required."}});
-    return;
-  }
-  expire();
-  const auto id = body.value("request_id").toString();
-  const QByteArray input = QCryptographicHash::hash(
-    path.toUtf8() + '\n' + QJsonDocument(body).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
-  auto existing = jobs.constFind(id);
-  if (existing != jobs.cend()) {
-    if (existing->input != input)
-      respond(socket, 409, {{"error", "Request ID reused with different input."}});
-    else respond(socket, 200, existing->value);
-    return;
-  }
-  if (!heartbeat || now() - heartbeat >= 5000) {
-    respond(socket, 503,
-            {{"error", "GUI heartbeat is stale; retry the same request after it becomes responsive."}});
-    return;
-  }
-  int pending = 0, retained = 0;
-  for (const auto& job : jobs)
-    if (job.value.value("state") == "queued" || job.value.value("state") == "running") ++pending;
-  for (const auto& job : jobs)
-    if (job.value.value("state") != "expired") ++retained;
-  if (pending >= 32 || retained >= 128 || jobs.size() >= 10000 || responseBytes >= 128LL * 1024 * 1024) {
-    respond(socket, 429, {{"error", "Request/result capacity reached; wait for expiry."}});
-    return;
-  }
-  bool targetFound = false;
-  for (const auto& value : snapshot.status.value("viewports").toArray()) {
-    const auto viewport = value.toObject();
-    if (viewport.value("viewport_id") != body.value("viewport_id") ||
-        viewport.value("window_id") != body.value("window_id"))
-      continue;
-    targetFound = true;
-    if (viewport.value("document_id") != body.value("document_id") ||
-        viewport.value("result").toObject().value("id").toString() !=
-          body.value("expected_result_id").toString()) {
-      respond(socket, 409, {{"error", "Stale document or result."}});
-      return;
-    }
-    if (viewport.value("busy").toBool()) {
-      respond(socket, 409, {{"error", "Viewport is busy."}});
-      return;
-    }
-  }
-  if (!targetFound) {
-    respond(socket, 404, {{"error", "Unknown viewport."}});
-    return;
-  }
-  QJsonObject value{{"request_id", id}, {"state", "queued"}, {"execution_started", false},
-                   {"document_id", body.value("document_id")}, {"server_id", info.value("server_id")}};
-  jobs.insert(id, {input, value, now(), 0, now() + 10000});
-  respond(socket, 202, value);
-  emit operation(info.value("server_id").toString(), id, path, body);
+  routeApi(socket, request[0], url.path(), bytes, QUrlQuery(url));
 }
 void Transport::complete(const QString& serverId, const QString& id, QJsonObject result, QByteArray png,
                          QString error)
@@ -449,7 +296,7 @@ bool Transport::beginJob(const QString& server, const QString& id)
   return true;
 }
 
-void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QString& path,
+void Transport::routeApi(QTcpSocket *socket, const QByteArray& method, const QString& path,
                         const QByteArray& bytes, const QUrlQuery& query)
 {
   expire();
@@ -457,13 +304,11 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     respond(socket, 400, {{"code", "invalid_request"}, {"message", "GET body is unsupported."}});
     return;
   }
-  if (method == "GET" && (path == "/v2/info" || path == "/v2/status")) {
-    auto value = path == "/v2/info" ? info : snapshot.status;
-    value["api_version"] = 2;
-    value["schema_version"] = 2;
-    value["capabilities"] = QJsonArray{"status.read", "requests.read", "requests.cancel", "documents.read",
-      "source.read", "attempts.read", "results.read", "diagnostics.read", "syntax.parse", "trees.read", "dependencies.read", "model.read", "parameters.read",
-      "annotations.read", "camera.set", "camera.restore", "viewport.capture", "saved_views.read", "saved_views.write"};
+  if (method == "GET" && (path == "/v1/info" || path == "/v1/status")) {
+    auto value = path == "/v1/info" ? info : snapshot.status;
+    value["api_version"] = info.value("api_version");
+    value["schema_version"] = info.value("schema_version");
+    value["capabilities"] = info.value("capabilities");
     value["state_generation"] = QString::number(stateGeneration);
     value["server_id"] = info.value("server_id");
     value["gui_heartbeat_age_ms"] = heartbeat ? double(now() - heartbeat) : -1;
@@ -473,7 +318,7 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     respond(socket, 200, value);
     return;
   }
-  if (method == "GET" && (path == "/v2/documents" || path == "/v2/viewports")) {
+  if (method == "GET" && (path == "/v1/documents" || path == "/v1/viewports")) {
     const auto key = path.mid(4);
     respond(socket, 200, {{key, snapshot.status.value(key)}, {"state_generation", QString::number(stateGeneration)}});
     return;
@@ -482,13 +327,13 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     respond(socket, 200, snapshot.reads.value(path));
     return;
   }
-  if (method == "GET" && (path == "/v2/annotations" || path.startsWith("/v2/annotations/"))) {
+  if (method == "GET" && (path == "/v1/annotations" || path.startsWith("/v1/annotations/"))) {
     const auto document = query.queryItemValue("document_id");
     auto found = snapshot.records.constFind(document);
     if (found == snapshot.records.cend()) {
       respond(socket, 404, {{"code", "unknown_target"}, {"message", "Unknown document."}}); return;
     }
-    if (path != "/v2/annotations") {
+    if (path != "/v1/annotations") {
       for (const auto& record : *found) if (record.id() == path.section('/', 3, 3)) {
         auto result = record.metadata;
         result["document_id"] = document;
@@ -516,15 +361,15 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
     if (more && !values.isEmpty()) {
       QUrlQuery cursor; cursor.addQueryItem("document_id", document); cursor.addQueryItem("q", text);
       cursor.addQueryItem("offset", QString::number(index));
-      next = "/v2/annotations?" + cursor.toString(QUrl::FullyEncoded);
+      next = "/v1/annotations?" + cursor.toString(QUrl::FullyEncoded);
     }
     if (values.isEmpty() && more) {
       respond(socket, 413, {{"code", "metadata_limit"}, {"message", "Read individual evidence by ID."}}); return;
     }
     respond(socket, 200, {{"document_id", document}, {"annotations", values}, {"next_cursor", next}}); return;
   }
-  if (method == "POST" && (path == "/v2/capture" ||
-      QRegularExpression("^/v2/(viewports/[a-fA-F0-9-]{36}/view|annotations/[a-fA-F0-9-]{36}/restore)$").match(path).hasMatch())) {
+  if (method == "POST" && (path == "/v1/capture" ||
+      QRegularExpression("^/v1/(viewports/[a-fA-F0-9-]{36}/view|annotations/[a-fA-F0-9-]{36}/restore)$").match(path).hasMatch())) {
     QJsonParseError parse;
     const auto doc = QJsonDocument::fromJson(bytes, &parse);
     const auto body = doc.object();
@@ -533,16 +378,16 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
         !validId(body.value("document_id").toString()) || !validId(body.value("window_id").toString()) ||
         !validId(body.value("viewport_id").toString()) || body.value("expected_result_id").toString().isEmpty() ||
         body.value("expected_view_revision").toString().isEmpty() ||
-        (path.startsWith("/v2/viewports/") && path.section('/', 3, 3) != body.value("viewport_id"))) {
+        (path.startsWith("/v1/viewports/") && path.section('/', 3, 3) != body.value("viewport_id"))) {
       respond(socket, 400, {{"code", "invalid_request"}, {"message", "Explicit target and expected result/view required."}}); return;
     }
-    enqueueV2(socket, path, body); return;
+    enqueue(socket, path, body); return;
   }
-  if (method == "GET" && (path.startsWith("/v2/source-snapshots/") || path.startsWith("/v2/trees/") || path.contains("/saved-views/pages/"))) {
+  if (method == "GET" && (path.startsWith("/v1/source-snapshots/") || path.startsWith("/v1/trees/") || path.contains("/saved-views/pages/"))) {
     respond(socket, 410, {{"code", "expired"}, {"message", "Snapshot/page unavailable; capture explicitly again."}});
     return;
   }
-  if (method == "POST" && QRegularExpression("^/v2/documents/[a-fA-F0-9-]{36}/(source-snapshots|parse)$").match(path).hasMatch()) {
+  if (method == "POST" && QRegularExpression("^/v1/documents/[a-fA-F0-9-]{36}/(source-snapshots|parse)$").match(path).hasMatch()) {
     QJsonParseError error;
     auto document = QJsonDocument::fromJson(bytes, &error);
     auto body = document.object();
@@ -554,10 +399,10 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
       respond(socket, 400, {{"code", "invalid_request"}, {"message", "Explicit document/window, origin, server and request required."}});
       return;
     }
-    enqueueV2(socket, path, body);
+    enqueue(socket, path, body);
     return;
   }
-  if (method == "POST" && QRegularExpression("^/v2/documents/[a-fA-F0-9-]{36}/saved-views(/[a-fA-F0-9-]{36}/(rename|remove|recall))?$").match(path).hasMatch()) {
+  if (method == "POST" && QRegularExpression("^/v1/documents/[a-fA-F0-9-]{36}/saved-views(/[a-fA-F0-9-]{36}/(rename|remove|recall))?$").match(path).hasMatch()) {
     QJsonParseError parse;
     const auto doc = QJsonDocument::fromJson(bytes, &parse);
     const auto body = doc.object();
@@ -570,15 +415,15 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
         (path.endsWith("/rename") && !body.value("name").isString())) {
       respond(socket, 400, {{"code", "invalid_request"}, {"message", "Saved views require explicit target/library guards and camera guards for add/recall."}}); return;
     }
-    enqueueV2(socket, path, body); return;
+    enqueue(socket, path, body); return;
   }
-  if (method == "GET" && path.startsWith("/v2/requests/")) {
+  if (method == "GET" && path.startsWith("/v1/requests/")) {
     const auto id = path.mid(13);
     if (!jobs.contains(id)) respond(socket, 410, {{"code", "expired"}, {"message", "Unknown request; do not resubmit under a new ID."}});
     else respond(socket, jobs[id].value.value("state") == "expired" ? 410 : 200, jobs[id].value);
     return;
   }
-  if (method == "POST" && QRegularExpression("^/v2/requests/[a-fA-F0-9-]{36}/cancel$").match(path).hasMatch()) {
+  if (method == "POST" && QRegularExpression("^/v1/requests/[a-fA-F0-9-]{36}/cancel$").match(path).hasMatch()) {
     QJsonParseError parse;
     auto document = QJsonDocument::fromJson(bytes, &parse);
     const auto body = document.object();
@@ -619,7 +464,7 @@ void Transport::routeV2(QTcpSocket *socket, const QByteArray& method, const QStr
   }
   respond(socket, 404, {{"code", "unsupported"}, {"message", "Operation is not available."}});
 }
-void Transport::enqueueV2(QTcpSocket *socket, const QString& path, const QJsonObject& body)
+void Transport::enqueue(QTcpSocket *socket, const QString& path, const QJsonObject& body)
 {
   const auto id = body.value("request_id").toString();
   const auto fingerprint = QCryptographicHash::hash(path.toUtf8() + '\n' + QJsonDocument(body).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256);
@@ -628,7 +473,7 @@ void Transport::enqueueV2(QTcpSocket *socket, const QString& path, const QJsonOb
     return;
   }
   if (path.contains("/saved-views")) {
-    const auto state = snapshot.reads.value("/v2/documents/" + body.value("document_id").toString() + "/saved-views");
+    const auto state = snapshot.reads.value("/v1/documents/" + body.value("document_id").toString() + "/saved-views");
     if (!state.value("available").toBool() || state.value("window_id") != body.value("window_id") ||
         state.value("viewport_id") != body.value("viewport_id") || state.value("library_revision") != body.value("expected_library_revision")) {
       respond(socket, 409, {{"code", "stale_library"}, {"message", "Saved-view library or displayed owner changed."}}); return;

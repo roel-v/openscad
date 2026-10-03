@@ -60,7 +60,7 @@ else() # !PROJECT_IS_TOP_LEVEL
   if(APPLE)
     set(OPENSCAD_BINPATH "${CBD}/OpenSCAD.app/Contents/MacOS/OpenSCAD")
   elseif (WIN32 OR MXECROSS)
-    set(OPENSCAD_BINPATH "${CBD}/openscad.com")
+    set(OPENSCAD_BINPATH "${CBD}/${OPENSCAD_WINDOWS_OUTPUT_NAME}.com")
   elseif(EXISTS "${CBD}/bin/openscad${SUFFIX_WITH_DASH}")
     set(OPENSCAD_BINPATH "${CBD}/bin/openscad${SUFFIX_WITH_DASH}")
   else()

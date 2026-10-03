@@ -127,10 +127,18 @@ if(CLANG_TIDY)
 endif(CLANG_TIDY)
 
 add_executable(OpenSCADExe src/main_wrapper.cc)
+if(WIN32)
+  set(OPENSCAD_WINDOWS_OUTPUT_NAME "openscad" CACHE STRING "Windows application executable basename")
+  if(NOT OPENSCAD_WINDOWS_OUTPUT_NAME MATCHES "^[A-Za-z0-9_-]+$")
+    message(FATAL_ERROR "Invalid OPENSCAD_WINDOWS_OUTPUT_NAME")
+  endif()
+endif()
 if (APPLE)
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "OpenSCAD"
   )
+elseif(WIN32)
+  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME "${OPENSCAD_WINDOWS_OUTPUT_NAME}")
 else()
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "openscad"

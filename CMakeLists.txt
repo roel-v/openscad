@@ -128,10 +128,18 @@ if(CLANG_TIDY)
 endif(CLANG_TIDY)
 
 add_executable(OpenSCADExe src/main_wrapper.cc)
+if(WIN32)
+  set(OPENSCAD_WINDOWS_OUTPUT_NAME "openscad" CACHE STRING "Windows application executable basename")
+  if(NOT OPENSCAD_WINDOWS_OUTPUT_NAME MATCHES "^[A-Za-z0-9_-]+$")
+    message(FATAL_ERROR "Invalid OPENSCAD_WINDOWS_OUTPUT_NAME")
+  endif()
+endif()
 if (APPLE)
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "OpenSCAD"
   )
+elseif(WIN32)
+  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME "${OPENSCAD_WINDOWS_OUTPUT_NAME}")
 else()
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "openscad"
@@ -1412,10 +1420,15 @@ set(GUI_SOURCES
   src/gui/ScadApi.cc
   src/gui/ScadLexer.cc
   src/gui/ScintillaEditor.cc
+  src/gui/source/SourceEditTransaction.cc
+  src/gui/source/SourceEditTransaction.h
+  src/gui/source/DiskSourceState.cc
+  src/gui/source/DiskSourceState.h
   src/gui/SettingsWriter.cc
   src/gui/TabManager.cc
   src/gui/UIUtils.cc
   src/gui/WindowManager.cc
+  src/gui/ShortcutConfigurator.cc
   src/gui/IgnoreWheelWhenNotFocused.cc
   src/gui/input/AxisConfigWidget.cc
   src/gui/input/ButtonConfigWidget.cc
@@ -1624,6 +1637,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/guitests.h
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
+    src/guitests/TestSourceTransactions.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
     src/guitests/UXTest.h
@@ -1635,6 +1649,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/guitests.cc
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
+    src/guitests/TestSourceTransactions.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
     src/guitests/UXTest.cc
@@ -1663,6 +1678,9 @@ if (APPLE)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE})
 elseif(WIN32)
   target_sources(OpenSCADExe PRIVATE ${WINDOWS_RESOURCE_PATH})
+  # RC dependency scanning does not track files embedded as resource data.
+  set_property(SOURCE ${WINDOWS_RESOURCE_PATH} APPEND PROPERTY OBJECT_DEPENDS
+               "${CMAKE_CURRENT_SOURCE_DIR}/scripts/winmanifest.xml")
   if(MSVC)
     # The resource script already embeds the application manifest.
     target_link_options(OpenSCADExe PRIVATE /MANIFEST:NO)
@@ -1779,7 +1797,9 @@ else()
 endif()
 
 if(NOT APPLE OR APPLE_UNIX)
-  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME openscad${SUFFIX_WITH_DASH})
+  if(NOT WIN32)
+    set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME openscad${SUFFIX_WITH_DASH})
+  endif()
   install(TARGETS OpenSCADExe RUNTIME DESTINATION "${OPENSCAD_BINDIR}")
   if(ENABLE_PYTHON)
     install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/openscad-python DESTINATION "${OPENSCAD_BINDIR}")
@@ -1813,7 +1833,7 @@ if(NOT APPLE OR APPLE_UNIX)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/templates DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*.json")
 
   if(ENABLE_GUI_TESTS)
-    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests)
+    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests/data)
   endif()
 
 else()
@@ -1896,6 +1916,11 @@ if(ENABLE_TESTS)
       add_executable(OpenSCADUnitTests ${TEST_SOURCES} ${GUI_TEST_SOURCES})
     endif()
     target_link_libraries(OpenSCADUnitTests PRIVATE Catch2::Catch2WithMain OpenSCADLibInternal svg)
+    if(NOT HEADLESS)
+      # Widget headers used by real-editor tests include the library's generated UI headers.
+      target_include_directories(OpenSCADUnitTests PRIVATE
+        "${CMAKE_BINARY_DIR}/OpenSCADLibInternal_autogen/include")
+    endif()
     target_compile_definitions(OpenSCADUnitTests PRIVATE
       OPENSCAD_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
     include(CTest)

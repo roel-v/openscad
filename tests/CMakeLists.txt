@@ -60,7 +60,7 @@ else() # !PROJECT_IS_TOP_LEVEL
   if(APPLE)
     set(OPENSCAD_BINPATH "${CBD}/OpenSCAD.app/Contents/MacOS/OpenSCAD")
   elseif (WIN32 OR MXECROSS)
-    set(OPENSCAD_BINPATH "${CBD}/openscad.com")
+    set(OPENSCAD_BINPATH "${CBD}/${OPENSCAD_WINDOWS_OUTPUT_NAME}.com")
   elseif(EXISTS "${CBD}/bin/openscad${SUFFIX_WITH_DASH}")
     set(OPENSCAD_BINPATH "${CBD}/bin/openscad${SUFFIX_WITH_DASH}")
   else()
@@ -1555,6 +1555,14 @@ if(NOT ENABLE_MANIFOLD)
     render-manifold_roof
   )
 endif()
+
+# Exercise real file I/O, including paths that cannot be represented by legacy Windows code pages.
+add_test(NAME unicode_filenames
+  CONFIGURATIONS Default
+  COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_unicode_filenames.py
+          ${OPENSCAD_BINPATH} ${CMAKE_CURRENT_BINARY_DIR}/unicode-filenames
+)
+set_tests_properties(unicode_filenames PROPERTIES TIMEOUT 180)
 
 ###############################
 # Test harness's own behaviour #

@@ -2,7 +2,7 @@
 #include "gui/ViewportStatistics.h"
 /*
  *  OpenSCAD (www.openscad.org)
- *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
+ *  Copyright (C) 2009-2025 Clifford Wolf <clifford@clifford.at> and
  *                          Marius Kintel <marius@kintel.net>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -182,6 +182,7 @@
 #ifdef OPENSCAD_UPDATER
 #include "gui/AutoUpdater.h"
 #endif
+#include "gui/ShortcutConfigurator.h"
 
 #ifdef ENABLE_PYTHON
 #include "nettle/base64.h"
@@ -321,6 +322,14 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   restoreWindowState();
 
   this->hideFind();
+
+  // init shortcut-config
+  QList<QAction *> allActions = this->findChildren<QAction *>();
+  GlobalPreferences::inst()->shortcutConfigurator->collectDefaults(allActions);
+  GlobalPreferences::inst()->shortcutConfigurator->applyConfigFile(allActions);
+  GlobalPreferences::inst()->shortcutConfigurator->initGUI(allActions);
+  GlobalPreferences::inst()->shortcutConfigurator->searchBox->setText("");
+
   show();
   openRemainingFiles(filenames);
 }
@@ -1469,7 +1478,7 @@ void MainWindow::on_fileActionReload_triggered()
 {
   auto guard = scopedSetCurrentOutput();
   if (checkEditorModified()) {
-    fileChangedOnDisk();                  // force cached autoReloadId to update
+    fileChangedOnDisk();                 // update the last observed disk snapshot
     (void)tabManager->refreshDocument();  // ignore errors opening the file
   }
 }
@@ -1704,22 +1713,15 @@ void MainWindow::setRenderVariables(ContextHandle<BuiltinContext>& context)
 
 /*!
    Returns true if the current document is a file on disk and that file has new content.
-   Returns false if a file on disk has disappeared or if we haven't yet saved.
+   Missing and unreadable destinations also count as changed. Untitled buffers have no destination.
  */
 bool MainWindow::fileChangedOnDisk()
 {
   if (!activeEditor->filepath.isEmpty()) {
-    struct stat st;
-    memset(&st, 0, sizeof(struct stat));
-    const bool valid = (stat(activeEditor->filepath.toLocal8Bit(), &st) == 0);
-    // If file isn't there, just return and use current editor text
-    if (!valid) return false;
-
-    auto newid = str(boost::format("%x.%x") % st.st_mtime % st.st_size);
-    if (newid != activeEditor->autoReloadId) {
-      activeEditor->autoReloadId = newid;
-      return true;
-    }
+    const auto disk = SourceEditing::DiskSourceState::capture(activeEditor->filepath);
+    const bool changed = !activeEditor->sourceDiskObserved || !activeEditor->sourceDiskObserved->matches(disk);
+    activeEditor->sourceDiskObserved = disk;
+    return changed;
   }
   return false;
 }

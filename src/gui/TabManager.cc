@@ -13,6 +13,7 @@
 #include <Qsci/qscicommandset.h>
 
 #include <QByteArray>
+#include <QBuffer>
 #include <QClipboard>
 #include <QDesktopServices>
 #include <QDir>
@@ -21,7 +22,6 @@
 #include <QFileInfo>
 #include <QMessageBox>
 #include <QPoint>
-#include <QSaveFile>
 #include <QShortcut>
 #include <QStringList>
 #include <QTabBar>
@@ -59,13 +59,15 @@ bool prepareAnnotationSave(EditorInterface *editor, const QString& sourcePath, Q
   }
   return true;
 }
-bool writeAnnotations(EditorInterface *editor, const QString& path, bool adopt, bool replace, QWidget *parent)
+bool writeAnnotations(EditorInterface *editor, const QString& path, bool adopt, bool replace,
+                      bool sourceSaved, QWidget *parent)
 {
   QString error;
   if (editor->annotations->save(path + ".annotations", adopt, &error, replace)) return true;
   if (adopt) editor->annotations->markUnsaved();
   QMessageBox::warning(parent, "Annotations not saved",
-    "The source file may already be saved. Annotation evidence remains in memory.\n" + error);
+    (sourceSaved ? QString("The source file was saved. ") : QString("The source file was not changed. ")) +
+    "Annotation evidence remains in memory.\n" + error);
   return false;
 }
 }
@@ -548,6 +550,8 @@ void TabManager::onTabModified(EditorInterface *edt)
 void TabManager::openTabFile(const QString& filename)
 {
   editor->annotations->renewSession();
+  editor->sourceDiskBaseline.reset();
+  editor->sourceDiskObserved.reset();
 #ifdef ENABLE_PYTHON
   if (boost::algorithm::ends_with(filename, ".py")) {
     std::string templ = "from openscad import *\n";
@@ -621,22 +625,28 @@ bool TabManager::refreshDocument()
 {
   bool file_opened = false;
   if (!editor->filepath.isEmpty()) {
-    QFile file(editor->filepath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    QByteArray bytes;
+    const auto disk = SourceEditing::DiskSourceState::capture(editor->filepath, &bytes);
+    if (disk.status != SourceEditing::DiskReadStatus::Readable) {
       LOG("Failed to open file %1$s: %2$s", editor->filepath.toStdString(),
-          file.errorString().toStdString());
+          disk.error.toStdString());
     } else {
-      QTextStream reader(&file);
+      // Preserve the existing text-stream decoding/EOL policy, while hashing the raw read above.
+      QBuffer buffer(&bytes);
+      buffer.open(QIODevice::ReadOnly | QIODevice::Text);
+      QTextStream reader(&buffer);
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
       reader.setCodec("UTF-8");
 #endif
-      auto text = reader.readAll();
+      const auto text = reader.readAll();
       LOG("Loaded design '%1$s'.", editor->filepath.toStdString());
       if (editor->toPlainText() != text) {
         editor->setPlainText(text);
         setContentRenderState();  // since last render
       }
       file_opened = true;
+      editor->sourceDiskBaseline = disk;
+      editor->sourceDiskObserved = disk;
     }
   }
   if (file_opened) {
@@ -706,17 +716,6 @@ bool TabManager::shouldClose()
   return true;
 }
 
-void TabManager::saveError(const QIODevice& file, const std::string& msg, const QString& filepath)
-{
-  const std::string fileName = filepath.toStdString();
-  LOG("%1$s %2$s (%3$s)", msg.c_str(), fileName, file.errorString().toStdString());
-
-  const std::string dialogFormatStr = msg + "\n\"%1\"\n(%2)";
-  const QString dialogFormat(dialogFormatStr.c_str());
-  QMessageBox::warning(parent, parent->windowTitle(),
-                       dialogFormat.arg(filepath).arg(file.errorString()));
-}
-
 /*!
  * Save current document.
  * Should _always_ write to disk, since this is called by SaveAs - i.e. don't
@@ -741,57 +740,84 @@ bool TabManager::save(EditorInterface *edt, const QString& path)
 
 bool TabManager::saveDocument(EditorInterface *edt,const QString& path,bool copy,bool writeSource)
 {
+  using SourceEditing::DiskSourceState;
+  using SourceEditing::DiskReadStatus;
+  const auto observed = DiskSourceState::capture(path);
+  const bool sameDocument = !copy && path == edt->filepath && edt->sourceDiskBaseline.has_value();
+  auto expected = sameDocument ? *edt->sourceDiskBaseline : observed;
+  const bool conflict = sameDocument ? !expected.matches(observed) : observed.status != DiskReadStatus::Missing;
+  if (conflict) {
+    QMessageBox box(parent);
+    box.setObjectName("sourceSaveConflict");
+    box.setWindowTitle(tr("Source changed on disk"));
+    box.setIcon(QMessageBox::Warning);
+    box.setText(tr("The source destination differs from the version approved for this document."));
+    box.setInformativeText(tr("Your unsaved text is retained. Save As preserves both versions. Overwrite applies only to the observed destination version.\n%1").arg(path));
+    auto *saveAsButton = box.addButton(tr("Save As..."), QMessageBox::ActionRole);
+    auto *overwrite = box.addButton(tr("Overwrite observed version"), QMessageBox::DestructiveRole);
+    overwrite->setEnabled(observed.status != DiskReadStatus::Unreadable);
+    auto *cancel = box.addButton(QMessageBox::Cancel);
+    box.setDefaultButton(cancel);
+    box.setEscapeButton(cancel);
+    box.exec();
+    if (box.clickedButton() == saveAsButton) return copy ? saveACopy(edt) : saveAs(edt);
+    if (box.clickedButton() != overwrite) return false;
+    expected = observed;
+    writeSource = true;
+  }
+  // Authorization is a concrete snapshot. A dialog/companion preflight cannot extend it to a later write.
+  if (!expected.matches(DiskSourceState::capture(path))) {
+    QMessageBox::warning(parent, tr("Source was not saved"),
+      tr("The destination changed again. Retry Save to review its new version. No content was saved."));
+    return false;
+  }
   const bool annotationSave=copy || edt->annotations->dirty() || path!=edt->filepath;
   bool replace=false;
   if (annotationSave && !prepareAnnotationSave(edt,path,parent,replace)) return false;
   QString error;
+  bool sourceSaved = false;
   const bool ok=SavedViews::forEditor(edt)->save(path,copy,[&] {
-    if (!writeSource) return true;
-    return saveSource(edt,path,copy);
+    if (!writeSource) {
+      if (expected.matches(DiskSourceState::capture(path))) return true;
+      QMessageBox::warning(parent, tr("Source was not saved"),
+        tr("The source changed during save preparation. No companions were saved. Retry Save to review its new version."));
+      return false;
+    }
+    sourceSaved = saveSource(edt,path,copy,expected);
+    return sourceSaved;
   },error);
   onTabModified(edt);
   if (!error.isEmpty()) QMessageBox::warning(parent,tr("Saved views were not saved"),error);
-  return ok && (!annotationSave || writeAnnotations(edt,path,!copy,replace,parent));
+  return ok && (!annotationSave || writeAnnotations(edt,path,!copy,replace,sourceSaved,parent));
 }
 
-bool TabManager::saveSource(EditorInterface *edt, const QString& path, bool copy)
+bool TabManager::saveSource(EditorInterface *edt, const QString& path, bool copy,
+                            const SourceEditing::DiskSourceState& expected)
 {
-  // If available (>= Qt 5.1), use QSaveFile to ensure the file is not
-  // destroyed if the device is full. Unfortunately this is not working
-  // as advertised (at least in Qt 5.3) as it does not detect the device
-  // full properly and happily commits a 0 byte file.
-  // Checking the QTextStream status flag after flush() seems to catch
-  // this condition.
-  // FIXME jeff hayes - i have recently seen a better way to handle this, when i have found that note
-  // again i will revist this
-  QSaveFile file(path);
-  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
-    saveError(file, _("Failed to open file for writing"), path);
-    return false;
-  }
-
-  QTextStream writer(&file);
+  QByteArray bytes;
+  QBuffer buffer(&bytes);
+  buffer.open(QIODevice::WriteOnly | QIODevice::Text);
+  QTextStream writer(&buffer);
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   writer.setCodec("UTF-8");
 #endif
   writer << edt->toPlainText();
   writer.flush();
-  bool saveOk = writer.status() == QTextStream::Ok;
-  if (saveOk) {
-    saveOk = file.commit();
-  } else {
-    file.cancelWriting();
-  }
+  if (writer.status() != QTextStream::Ok) return false;
+  const auto result = SourceEditing::writeSource(path, bytes, expected);
+  const bool saveOk = result.saved;
   if (saveOk) {
     LOG("Saved design '%1$s'.", path.toStdString());
     if (copy) return true;
+    edt->sourceDiskBaseline = result.state;
+    edt->sourceDiskObserved = result.state;
     edt->parameterWidget->saveFile(path);
     edt->setContentModified(false);
     edt->parameterWidget->setModified(false);
     parent->updateRecentFiles(path);
     edt->filepath = path;
   } else {
-    saveError(file, _("Error saving design"), path);
+    QMessageBox::warning(parent, tr("Source was not saved"), result.error);
   }
   return saveOk;
 }
@@ -802,7 +828,8 @@ bool TabManager::saveAs(EditorInterface *edt)
 
   const auto dir = edt->filepath.isEmpty() ? _("Untitled.scad") : edt->filepath;
   auto filename =
-    QFileDialog::getSaveFileName(parent, _("Save File"), dir, _("OpenSCAD Designs (*.scad)"));
+    QFileDialog::getSaveFileName(parent, _("Save File"), dir, _("OpenSCAD Designs (*.scad)"),
+      nullptr, QFileDialog::DontConfirmOverwrite);
   if (filename.isEmpty()) {
     return false;
   }
@@ -812,17 +839,6 @@ bool TabManager::saveAs(EditorInterface *edt)
   if (QFileInfo(filename).suffix().isEmpty()) {
     filename.append(".scad");
 
-    // Manual overwrite check since Qt doesn't do it, when using the
-    // defaultSuffix property
-    const QFileInfo info(filename);
-    if (info.exists()) {
-      const auto text =
-        QString(_("%1 already exists.\nDo you want to replace it?")).arg(info.fileName());
-      if (QMessageBox::warning(parent, parent->windowTitle(), text, QMessageBox::Yes | QMessageBox::No,
-                               QMessageBox::No) != QMessageBox::Yes) {
-        return false;
-      }
-    }
   }
 
   return saveAs(edt, filename);
@@ -831,7 +847,8 @@ bool TabManager::saveAs(EditorInterface *edt)
 bool TabManager::saveAs(EditorInterface *edt, const QString& filepath)
 {
   bool saveOk = save(edt, filepath);
-  if (saveOk) {
+  // Source adoption is successful even if a following companion write failed.
+  if (edt->filepath == filepath) {
     auto [fname, fpath] = getEditorTabNameWithModifier(edt);
     setEditorTabName(fname, fpath, edt);
     parent->setWindowTitle(fname);
@@ -860,6 +877,7 @@ bool TabManager::saveACopy(EditorInterface *edt)
   }
 
   QFileDialog saveCopyDialog;
+  saveCopyDialog.setOption(QFileDialog::DontConfirmOverwrite);
   saveCopyDialog.setAcceptMode(QFileDialog::AcceptSave);  // Set the dialog to "Save" mode.
   saveCopyDialog.setWindowTitle("Save A Copy");
   saveCopyDialog.setNameFilter("OpenSCAD Designs (*.scad)");

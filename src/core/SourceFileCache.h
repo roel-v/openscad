@@ -5,6 +5,7 @@
 #include <unordered_map>
 
 class SourceFile;
+class EvaluationInputs;
 
 /*!
    Caches parsed SourceFiles based on their filenames and mtimes.
@@ -14,6 +15,7 @@ class SourceFileCache
 public:
   static SourceFileCache *instance()
   {
+    if (active) return active;
     if (!inst) inst = new SourceFileCache;
     return inst;
   }
@@ -24,11 +26,16 @@ public:
   size_t size() const { return this->entries.size(); }
   void clear();
   static void clear_markers();
+  explicit SourceFileCache(EvaluationInputs *inputs = nullptr) : inputs(inputs) {}
+  ~SourceFileCache();
+  SourceFileCache(const SourceFileCache&) = delete;
+  SourceFileCache& operator=(const SourceFileCache&) = delete;
+  static SourceFileCache *setActive(SourceFileCache *cache);
 
 private:
-  SourceFileCache() = default;
-
   static SourceFileCache *inst;
+  static thread_local SourceFileCache *active;
+  EvaluationInputs *inputs;
 
   struct cache_entry {
     SourceFile *file{};  // This is only valid if parsing succeeded?

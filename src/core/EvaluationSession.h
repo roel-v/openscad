@@ -2,6 +2,7 @@
 
 #include <boost/optional.hpp>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,11 +13,13 @@
 
 class Value;
 class ContextFrame;
+namespace Design { class Collector; }
 
 class EvaluationSession
 {
 public:
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}
+  std::shared_ptr<Design::Collector> designCollector;
 
   size_t push_frame(ContextFrame *frame);
   void replace_frame(size_t index, ContextFrame *frame);

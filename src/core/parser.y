@@ -26,6 +26,30 @@
 
 %expect 0
 
+%code requires {
+#include <filesystem>
+struct ParserSourceLocation {
+  int first_line, first_column, last_line, last_column;
+  const std::filesystem::path *first_file, *last_file;
+};
+#define YYLTYPE_IS_TRIVIAL 1
+#define YYLLOC_DEFAULT(Current, Rhs, N) do { \
+  if (N) { \
+    (Current).first_line = YYRHSLOC(Rhs, 1).first_line; \
+    (Current).first_column = YYRHSLOC(Rhs, 1).first_column; \
+    (Current).first_file = YYRHSLOC(Rhs, 1).first_file; \
+  } else { \
+    (Current).first_line = YYRHSLOC(Rhs, 0).last_line; \
+    (Current).first_column = YYRHSLOC(Rhs, 0).last_column; \
+    (Current).first_file = YYRHSLOC(Rhs, 0).last_file; \
+  } \
+  (Current).last_line = YYRHSLOC(Rhs, N).last_line; \
+  (Current).last_column = YYRHSLOC(Rhs, N).last_column; \
+  (Current).last_file = YYRHSLOC(Rhs, N).last_file; \
+} while (0)
+}
+%define api.location.type {ParserSourceLocation}
+
 %{
 
 #include <sys/types.h>
@@ -36,6 +60,7 @@
 #include <unistd.h>
 #endif
 
+#include "core/customizer/Annotation.h"
 #include "core/SourceFile.h"
 #include "core/UserModule.h"
 #include "core/ModuleInstantiation.h"
@@ -53,7 +78,9 @@
 namespace fs = std::filesystem;
 
 #define YYMAXDEPTH 200000
-#define LOC(loc) Location(loc.first_line, loc.first_column, loc.last_line, loc.last_column, sourcefile())
+#define LOC(loc) ((loc).first_file && (loc).last_file && *(loc).first_file == *(loc).last_file \
+  ? Location((loc).first_line, (loc).first_column, (loc).last_line, (loc).last_column, \
+             std::make_shared<fs::path>(*(loc).first_file)) : Location::NONE)
 #ifdef DEBUG
 static Location debug_location(const std::string& info, const struct YYLTYPE& loc);
 #define LOCD(str, loc) debug_location(str, loc)
@@ -72,7 +99,7 @@ std::shared_ptr<fs::path> sourcefile(void);
 void lexer_set_parser_sourcefile(const fs::path& path);
 int lexerlex_destroy(void);
 int lexerlex(void);
-static void handle_assignment(const std::string token, Expression *expr, const Location loc);
+static std::shared_ptr<Assignment> handle_assignment(const std::string token, Expression *expr, const Location loc);
 
 std::stack<std::shared_ptr<LocalScope>> scope_stack;
 SourceFile *rootfile;
@@ -100,6 +127,7 @@ ParserInspection *parserInspection = nullptr;
   double number;
   class Expression *expr;
   class Vector *vec;
+  class Object *obj;
   class ModuleInstantiation *inst;
   class IfElseModuleInstantiation *ifelse;
   class Assignment *arg;
@@ -119,6 +147,8 @@ ParserInspection *parserInspection = nullptr;
 %token TOK_ASSERT
 %token TOK_ECHO
 %token TOK_EACH
+
+%token TOK_AT
 
 %token <text> TOK_ID
 %token <text> TOK_STRING
@@ -149,15 +179,22 @@ ParserInspection *parserInspection = nullptr;
 %type <expr> unary
 %type <expr> primary
 %type <vec> vector_elements
+%type <expr> vector_element
 %type <expr> list_comprehension_elements
 %type <expr> list_comprehension_elements_p
-%type <expr> vector_element
+%type <obj> object_elements
+%type <obj> object_element
+%type <obj> object_comprehension_elements
+%type <expr> object_comprehension_each_arg;
 %type <expr> expr_or_empty
 
 %type <inst> module_instantiation
 %type <ifelse> if_statement
 %type <ifelse> ifelse_statement
 %type <inst> single_module_instantiation
+
+%type <expr> attribute_block
+%type <args> attribute_list
 
 %type <args> arguments
 %type <args> argument_list
@@ -167,6 +204,9 @@ ParserInspection *parserInspection = nullptr;
 %type <arg> argument
 %type <arg> parameter
 %type <text> module_id
+%type <text> reserved_but_allowed_in_module_name
+%type <text> reserved_but_allowed_in_object_key
+%type <expr> object_key
 
 %debug
 %locations
@@ -235,6 +275,21 @@ assignment
             {
                 handle_assignment($1, $3, LOCD("assignment", @$));
                 free($1);
+            }
+        | attribute_block TOK_ID '=' expr ';'
+            {
+                // Note: attribute_block is $1, ID is $2, expr is $4
+                auto occurrence = handle_assignment($2, $4, LOCD("assignment", @$));
+                if ($1) {
+                  Assignment *as = nullptr;
+                  for (auto &a : scope_stack.top()->assignments){
+                    if (a->getName() == $2) as = a.get();
+                  }
+                  auto attributes = std::shared_ptr<Expression>($1);
+                  occurrence->addAnnotations(new AnnotationList({Annotation("NativeAttributes", attributes)}));
+                  if (as && as != occurrence.get()) as->addAnnotations(new AnnotationList({Annotation("NativeAttributes", attributes)}));
+                }
+                free($2);
             }
         ;
 
@@ -326,13 +381,17 @@ child_statement
         ;
 
 // "for", "let" and "each" are valid module identifiers
-module_id
-        : TOK_ID  { $$ = $1; }
-        | TOK_FOR { $$ = strdup("for"); }
+reserved_but_allowed_in_module_name
+        : TOK_FOR { $$ = strdup("for"); }
         | TOK_LET { $$ = strdup("let"); }
         | TOK_ASSERT { $$ = strdup("assert"); }
         | TOK_ECHO { $$ = strdup("echo"); }
         | TOK_EACH { $$ = strdup("each"); }
+        ;
+
+module_id
+        : TOK_ID  { $$ = $1; }
+        | reserved_but_allowed_in_module_name
         ;
 
 single_module_instantiation
@@ -577,6 +636,14 @@ primary
             {
               $$ = $2;
             }
+        | '{' '}'
+            {
+              $$ = new Object(LOCD("object", @$));
+            }
+        | '{' object_elements optional_trailing_comma '}'
+            {
+              $$ = $2;
+            }
 		;
 
 expr_or_empty
@@ -655,6 +722,120 @@ vector_element
         | expr
         ;
 
+object_elements
+        : object_key ':' expr
+            {
+              $$ = new Object(LOCD("object", @$));
+              $$->addSetOp($1, $3);
+            }
+        | object_comprehension_elements
+            {
+              $$ = new Object(LOCD("object", @$));
+              $$->addIncludeOp($1);
+            }
+        | object_elements ',' object_key ':' expr
+            {
+              $$ = $1;
+              $$->addSetOp($3, $5);
+            }
+        | object_elements ',' object_comprehension_elements
+            {
+              $$ = $1;
+              $$->addIncludeOp($3);
+            }
+        ;
+
+object_element
+        : object_key ':' expr
+            {
+              $$ = new Object(LOCD("object", @$));
+              $$->addSetOp($1, $3);
+            }
+        | object_comprehension_elements
+        ;
+
+object_comprehension_each_arg
+        : object_comprehension_elements // NEEDSWORK not sure this is meaningful
+            {
+              $$ = $1;
+            }
+        | expr
+            {
+              $$ = $1;
+            }
+        ;
+
+object_comprehension_elements
+        : TOK_LET '(' arguments ')' object_element
+            {
+              $$ = new OcLet(*$3, $5, LOCD("oclet", @$));
+              delete $3;
+            }
+        | TOK_EACH object_comprehension_each_arg
+            {
+              $$ = new OcEach($2, LOCD("oceach", @$));
+            }
+        | TOK_FOR '(' arguments ')' object_element
+            {
+              $$ = new OcFor(*$3, $5, LOCD("ocfor", @$));
+              delete $3;
+            }
+        | TOK_FOR '(' arguments ';' expr ';' arguments ')' object_element
+            {
+              $$ = new OcForC(*$3, *$7, $5, $9, LOCD("ocforc", @$));
+              delete $3;
+              delete $7;
+            }
+        | TOK_IF '(' expr ')' object_element %prec NO_ELSE
+            {
+              $$ = new OcIf($3, $5, 0, LOCD("ocif", @$));
+            }
+        | TOK_IF '(' expr ')' object_element TOK_ELSE object_element
+            {
+              $$ = new OcIf($3, $5, $7, LOCD("ocifelse", @$));
+            }
+        | '(' object_comprehension_elements ')'
+            {
+              $$ = $2;
+            }
+        ;
+
+reserved_but_allowed_in_object_key
+        : reserved_but_allowed_in_module_name
+        | TOK_USE
+        | TOK_MODULE { $$ = strdup("module"); }
+        | TOK_FUNCTION { $$ = strdup("function"); }
+        | TOK_IF { $$ = strdup("if"); }
+        | TOK_ELSE { $$ = strdup("else"); }
+        // Maybe not these next three; maybe they should be reserved for indexed by bool
+        // and indexed by undef.
+        | TOK_TRUE { $$ = strdup("true"); }
+        | TOK_FALSE { $$ = strdup("false"); }
+        | TOK_UNDEF { $$ = strdup("undef"); }
+        ;
+
+object_key
+        : TOK_STRING
+            {
+              $$ = new Literal(std::string($1), LOCD("string", @$));
+              free($1);
+            }
+        | TOK_ID
+            {
+              $$ = new Literal(std::string($1), LOCD("string", @$));
+              free($1);
+            }
+        | reserved_but_allowed_in_object_key
+            {
+              $$ = new Literal(std::string($1), LOCD("string", @$));
+              free($1);
+            }
+        | '(' expr ')'
+            {
+              $$ = $2;
+            }
+        ;
+
 parameters
         : /* empty */
             {
@@ -722,6 +903,33 @@ argument
             }
         ;
 
+attribute_block
+        : TOK_AT '{' '}'
+            {
+                $$ = new ObjectExpression(AssignmentList{}, LOC(@$));
+            }
+        | TOK_AT '{' attribute_list optional_trailing_comma '}'
+            {
+                $$ = new ObjectExpression(*$3, LOC(@$));
+                delete $3;
+            }
+        ;
+
+attribute_list
+        : TOK_ID ':' expr
+            {
+                $$ = new AssignmentList();
+                $$->emplace_back(new Assignment($1, std::shared_ptr<Expression>($3), LOC(@1)));
+                free($1);
+            }
+        | attribute_list ',' TOK_ID ':' expr
+            {
+                $$ = $1;
+                $$->emplace_back(new Assignment($3, std::shared_ptr<Expression>($5), LOC(@3)));
+                free($3);
+            }
+        ;
+
 %%
 
 int parserlex(void)
@@ -778,10 +986,12 @@ static void warn_reassignment(const Location& loc, const std::shared_ptr<Assignm
 			path2);
 }
 
-void handle_assignment(const std::string token, Expression *expr, const Location loc)
+std::shared_ptr<Assignment> handle_assignment(const std::string token, Expression *expr, const Location loc)
 {
 	const auto parsedExpression = std::shared_ptr<Expression>(expr);
-	if (parserInspection) scope_stack.top()->syntaxOrder.push_back(assignment(token, parsedExpression, loc));
+	auto occurrence = assignment(token, parsedExpression, loc);
+	scope_stack.top()->assignmentOccurrences.push_back(occurrence);
+	if (parserInspection) scope_stack.top()->syntaxOrder.push_back(occurrence);
 	bool found = false;
 	for (auto &assignment : scope_stack.top()->assignments) {
 		if (assignment->getName() == token) {
@@ -813,8 +1023,9 @@ void handle_assignment(const std::string token, Expression *expr, const Location
 		}
 	}
 	if (!found) {
-		scope_stack.top()->addAssignment(assignment(token, parsedExpression, loc));
+		scope_stack.top()->addAssignment(occurrence);
 	}
+	return occurrence;
 }
 
 bool parse(SourceFile *&file, const std::string& text, const std::string &filename, const std::string &mainFile, int debug)
@@ -851,6 +1062,10 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
     parserretval = parserparse();
   }catch (const HardWarningException &e) {
     yyerror("stop on first warning");
+  }catch (const EvaluationInputError &e) {
+    yyerror(e.what());
+  }catch (const std::filesystem::filesystem_error &e) {
+    yyerror(e.what());
   }
 
   lexerdestroy();

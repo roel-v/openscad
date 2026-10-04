@@ -95,7 +95,7 @@ static DWORD WINAPI watchdog(LPVOID arg) {
 #undef info
 }
 
-#define EXE_NAME "openscad.exe"
+/* EXE_NAME is supplied by CMake from the GUI executable target. */
 #define ___WIDECHARTEXT(s) L##s
 #define W(x) ___WIDECHARTEXT(x)
 

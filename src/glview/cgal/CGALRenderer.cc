@@ -44,6 +44,8 @@
 #include "geometry/PolySetUtils.h"
 #include "glview/ColorMap.h"
 #include "glview/Renderer.h"
+#include "glview/PolySetRenderer.h"
+#include "geometry/cgal/cgalutils.h"
 #include "glview/ShaderUtils.h"
 #include "glview/system-gl.h"
 #include "glview/VBOBuilder.h"
@@ -256,8 +258,12 @@ void CGALRenderer::prepare(const ShaderUtils::ShaderInfo * /*shaderinfo*/)
   PRINTD("prepare() end");
 }
 
-void CGALRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo * /*shaderinfo*/) const
+void CGALRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const
 {
+  if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SURFACE_PICK) {
+    if (surfaceRenderer) surfaceRenderer->draw(false, shaderinfo);
+    return;
+  }
   PRINTD("draw()");
   // grab current state to restore after
   GLfloat current_point_size, current_line_width;
@@ -311,4 +317,23 @@ BoundingBox CGALRenderer::getBoundingBox() const
     bbox.extend(polygon->getBoundingBox());
   }
   return bbox;
+}
+
+Renderer::SurfaceContext CGALRenderer::prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader)
+{
+  if (!polygons_.empty()) return {false, "2D CGAL geometry does not provide 3D surface hits"};
+  if (!surfaceRenderer) {
+    Geometry::Geometries geometries;
+    for (const auto& polyset : polysets_) geometries.emplace_back(nullptr, polyset);
+#ifdef ENABLE_CGAL
+    for (const auto& nef : nefPolyhedrons_) {
+      if (!nef->p3->is_simple()) return {false, "Non-simple CGAL Nef cannot provide surface hits"};
+      auto mesh = CGALUtils::createPolySetFromNefPolyhedron3(*nef->p3);
+      if (!mesh) return {false, "CGAL Nef has no convertible pick mesh"};
+      geometries.emplace_back(nullptr, std::shared_ptr<const PolySet>(std::move(mesh)));
+    }
+#endif
+    surfaceRenderer = std::make_shared<PolySetRenderer>(std::make_shared<GeometryList>(std::move(geometries)));
+  }
+  return surfaceRenderer->prepareSurfacePick(displayShader);
 }

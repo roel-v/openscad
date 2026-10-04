@@ -54,6 +54,7 @@ signals:
   void sessionChanged();
   void changed();
   void commandAdded(int token);
+  void historyCleared();
 
 private:
   struct Command {

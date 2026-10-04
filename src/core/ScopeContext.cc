@@ -12,6 +12,7 @@
 #include "core/SourceFileCache.h"
 #include "core/UserModule.h"
 #include "core/Value.h"
+#include "core/design/DesignCollector.h"
 #include "core/callables.h"
 #include "utils/printutils.h"
 
@@ -39,6 +40,12 @@ void ScopeContext::init()
 
       throw;
     }
+  }
+  if (session()->designCollector) {
+    const auto *file = dynamic_cast<const FileContext *>(this);
+    session()->designCollector->collect(*this, *scope,
+      file ? Design::DeclarationScope::File : Design::DeclarationScope::Local,
+      file && file->isUseLibrary());
   }
 }
 
@@ -95,7 +102,7 @@ boost::optional<CallableFunction> FileContext::lookup_local_function(const std::
       if (const auto defined = usedmod->scope->lookup<UserFunction *>(name)) {
         // `use` can only be used in the top-level scope, so this next
         // line *should* be always passing the BuiltinContext as the new parent.
-        ContextHandle<FileContext> context{Context::create<FileContext>(this->parent, usedmod)};
+        ContextHandle<FileContext> context{Context::create<FileContext>(this->parent, usedmod, true)};
 #ifdef DEBUG
         PRINTDB("FileContext for function %s::%s:", m % name);
         PRINTDB("%s", context->dump());
@@ -123,7 +130,7 @@ boost::optional<InstantiableModule> FileContext::lookup_local_module(const std::
         // `use` can only be used in the top-level scope, so this next
         // line *should* be always passing the BuiltinContext as the new parent.
         // Improvement idea: puposefully get builtins from session() so this is never wrong.
-        ContextHandle<FileContext> context{Context::create<FileContext>(this->parent, usedmod)};
+        ContextHandle<FileContext> context{Context::create<FileContext>(this->parent, usedmod, true)};
 #ifdef DEBUG
         PRINTDB("FileContext for module %s::%s:", m % name);
         PRINTDB("%s", context->dump());

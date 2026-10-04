@@ -1,4 +1,5 @@
 #include "core/SourceFileCache.h"
+#include "core/EvaluationInputs.h"
 
 #include <sys/stat.h>
 
@@ -21,6 +22,17 @@
  */
 
 SourceFileCache *SourceFileCache::inst = nullptr;
+thread_local SourceFileCache *SourceFileCache::active = nullptr;
+SourceFileCache *SourceFileCache::setActive(SourceFileCache *cache)
+{
+  auto previous = active;
+  active = cache;
+  return previous;
+}
+SourceFileCache::~SourceFileCache()
+{
+  for (auto& entry : entries) delete entry.second.parsed_file;
+}
 
 /*!
    Reprocess the given file and all its dependencies and reparse anything
@@ -36,6 +48,18 @@ std::time_t SourceFileCache::process(const std::string& mainFile, const std::str
                                      SourceFile *& sourceFile)
 {
   sourceFile = nullptr;
+  if (inputs) {
+    const auto& input = inputs->read(std::filesystem::path(filename));
+    auto [entry, inserted] = entries.try_emplace(input.fileKey);
+    auto& cached = entry->second;
+    if (inserted) {
+      const auto text = STR(input.utf8, "\n\x03\n", commandline_commands);
+      cached.file = parse(cached.parsed_file, text, filename, mainFile, false) ? cached.parsed_file : nullptr;
+    }
+    sourceFile = cached.file;
+    if (sourceFile && !sourceFile->isHandlingDependencies()) sourceFile->handleDependencies(false);
+    return 0;
+  }
   auto entry = this->entries.find(filename);
   bool found{entry != this->entries.end()};
   SourceFile *file{found ? entry->second.file : nullptr};
@@ -132,7 +156,7 @@ void SourceFileCache::clear()
 
 SourceFile *SourceFileCache::lookup(const std::string& filename)
 {
-  auto it = this->entries.find(filename);
+  auto it = this->entries.find(inputs ? EvaluationInputs::fileKey(std::filesystem::path(filename)) : filename);
   return it != this->entries.end() ? it->second.file : nullptr;
 }
 

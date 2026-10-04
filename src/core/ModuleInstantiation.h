@@ -37,6 +37,8 @@ public:
   bool isRoot() const { return this->tag_root; }
 
   AssignmentList arguments;
+  std::shared_ptr<const Expression> nativeAttributes;
+  bool childrenSupplied = false;
   const std::shared_ptr<LocalScope> scope;
 
   bool tag_root{false};

@@ -18,6 +18,7 @@ class ScopeContext : public Context
 {
 public:
   void init() override;
+  const LocalScope *scopeIdentity() const { return scope.get(); }
   boost::optional<CallableFunction> lookup_local_function(const std::string& name,
                                                           const Location& loc) const override;
   boost::optional<InstantiableModule> lookup_local_module(const std::string& name,

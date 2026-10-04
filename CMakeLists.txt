@@ -1057,6 +1057,14 @@ target_compile_definitions(OpenSCADLibInternal PUBLIC DEFAULT_OFFSCREEN_CONTEXT=
 # NOTE: To keep HEADLESS builds working, do NOT add Qt-dependent sources here,
 #       see GUI_SOURCES list below for that.
 set(CORE_SOURCES
+  src/core/semantic/SemanticKinds.cc
+  src/core/semantic/SemanticScene.cc
+  src/core/semantic/SemanticPlacement.cc
+  src/core/semantic/SemanticEvaluation.cc
+  src/core/semantic/SemanticTargets.cc
+  src/core/semantic/SemanticVisibility.cc
+  src/core/semantic/SemanticSourceEdits.cc
+  src/core/semantic/SemanticCollector.cc
   src/Feature.cc
   src/FontCache.cc
   src/LibraryInfo.cc
@@ -1368,6 +1376,13 @@ set(INPUT_DRIVER_SOURCES
   ${INPUT_DRIVER_DBUS_SOURCES})
 
 set(GUI_SOURCES
+  src/gui/ExportOptions.cc
+  src/gui/semantic/SemanticExportJob.cc
+  src/gui/semantic/SemanticTargetService.cc
+  src/gui/semantic/ModelTreeModel.cc
+  src/gui/semantic/SemanticMeshJob.cc
+  src/gui/semantic/SemanticController.cc
+  src/gui/semantic/SemanticParameterPanel.cc
   src/gui/selection/EvaluationBinding.cc
   src/gui/source/EditorUndoRegistry.cc
   src/gui/design/DesignEdits.cc
@@ -1677,6 +1692,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestNavigation.h
     src/guitests/TestSelection.h
     src/guitests/TestProvenance.h
+    src/guitests/TestSemanticHierarchy.h
     src/guitests/UXTest.h
   )
 
@@ -1692,6 +1708,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestNavigation.cc
     src/guitests/TestSelection.cc
     src/guitests/TestProvenance.cc
+    src/guitests/TestSemanticHierarchy.cc
     src/guitests/UXTest.cc
   )
 
@@ -1957,6 +1974,9 @@ if(ENABLE_TESTS)
       add_executable(OpenSCADUnitTests ${TEST_SOURCES} ${GUI_TEST_SOURCES})
     endif()
     target_link_libraries(OpenSCADUnitTests PRIVATE Catch2::Catch2WithMain OpenSCADLibInternal svg)
+    get_target_property(native_unit_standard OpenSCADLibInternal CXX_STANDARD)
+    set_target_properties(OpenSCADUnitTests PROPERTIES
+      CXX_STANDARD ${native_unit_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     if(NOT HEADLESS)
       # Widget headers used by real-editor tests include the library's generated UI headers.
       target_include_directories(OpenSCADUnitTests PRIVATE

@@ -1,6 +1,8 @@
 #pragma once
 
 #include <initializer_list>
+#include <functional>
+#include <optional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -26,6 +28,12 @@ private:
 
 public:
   Parameters(Parameters&& other) noexcept;
+  struct Binding {
+    std::string name;
+    std::optional<size_t> argument;
+    bool ambiguous = false;
+  };
+  using BindingObserver = std::function<void(const Binding&, const Value&)>;
 
   /*
    * Matches arguments with parameters.
@@ -43,7 +51,8 @@ public:
    */
   static Parameters parse(Arguments arguments, const Location& loc,
                           const AssignmentList& required_parameters,
-                          const std::shared_ptr<const Context>& defining_context);
+                          const std::shared_ptr<const Context>& defining_context,
+                          BindingObserver observer = {});
 
   boost::optional<const Value&> lookup(const std::string& name) const;
 

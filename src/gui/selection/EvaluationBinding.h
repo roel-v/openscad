@@ -16,6 +16,7 @@ class FileContext;
 class Renderer;
 namespace SourceProvenance { class SyntaxTable; class Result; }
 namespace Design { struct Result; }
+namespace Semantic { struct Scene; }
 
 namespace Selection {
 // Destruction releases contexts before their session, and ASTs after the session.
@@ -29,6 +30,7 @@ struct EvaluationBacking {
   std::shared_ptr<const FileContext> file;
 };
 struct EvaluatedScene {
+  std::shared_ptr<const Semantic::Scene> semantic;
   std::shared_ptr<const Design::Result> designObjects;
   std::shared_ptr<const EvaluationBacking> backing;
   std::string documentPath;

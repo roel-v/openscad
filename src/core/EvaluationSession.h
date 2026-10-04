@@ -15,6 +15,7 @@ class Value;
 class ContextFrame;
 namespace SourceProvenance { class ProvenanceCollector; }
 namespace Design { class Collector; }
+namespace Semantic { class Collector; }
 
 class EvaluationSession
 {
@@ -22,6 +23,7 @@ public:
   std::shared_ptr<SourceProvenance::ProvenanceCollector> provenanceCollector;
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}
   std::shared_ptr<Design::Collector> designCollector;
+  std::shared_ptr<Semantic::Collector> semanticCollector;
 
   size_t push_frame(ContextFrame *frame);
   void replace_frame(size_t index, ContextFrame *frame);

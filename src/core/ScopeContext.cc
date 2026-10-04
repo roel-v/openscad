@@ -13,6 +13,7 @@
 #include "core/UserModule.h"
 #include "core/Value.h"
 #include "core/design/DesignCollector.h"
+#include "core/semantic/SemanticCollector.h"
 #include "core/callables.h"
 #include "utils/printutils.h"
 
@@ -76,8 +77,10 @@ UserModuleContext::UserModuleContext(const std::shared_ptr<const Context>& paren
 {
   set_variable("$children", Value(double(this->children.size())));
   set_variable("$parent_modules", Value(double(StaticModuleNameStack::size())));
-  apply_variables(
-    Parameters::parse(std::move(arguments), loc, module->parameters, parent).to_context_frame());
+  auto semantic = session()->semanticCollector;
+  if (semantic) semantic->bindScope(*this, *module);
+  apply_variables(Parameters::parse(std::move(arguments), loc, module->parameters, parent,
+    semantic ? semantic->parameterObserver(*module) : Parameters::BindingObserver{}).to_context_frame());
 }
 
 std::vector<const std::shared_ptr<const Context> *> UserModuleContext::list_referenced_contexts() const

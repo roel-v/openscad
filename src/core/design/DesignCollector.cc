@@ -78,7 +78,8 @@ void Collector::validateLocalDeclarations(const LocalScope& scope,bool file) {
 void Collector::dispatch(const std::string& name, const Value& value, const EvaluatedDeclaration& declaration, EvaluationSession& session) {
   auto handler = kind(name);
   if (!handler) { result.diagnostics.push_back({"unknown-kind", "Unknown design kind: " + name, declaration.source}); return; }
-  if (declaration.origin == SourceOrigin::UseLibrary && declaration.scope == DeclarationScope::File) return;
+  if (declaration.origin == SourceOrigin::UseLibrary && declaration.scope == DeclarationScope::File &&
+      declaration.source.host == DeclarationHost::Assignment) return;
   auto record = makeRecord(*handler, value, {declaration.source, declaration.scope}, result.diagnostics);
   if (!record) return;
   if (handler->destination == RecordDestination::Consumer) {

@@ -7,6 +7,7 @@
 
 #include "core/Context.h"
 #include "core/provenance/ProvenanceCollector.h"
+#include "core/semantic/SemanticCollector.h"
 #include "core/Expression.h"
 #include "core/callables.h"
 #include "core/module.h"
@@ -18,6 +19,7 @@ void ModuleInstantiation::print(std::ostream& stream, const std::string& indent,
                                 const bool inlined) const
 {
   if (!inlined) stream << indent;
+  if (nativeAttributes) stream << *nativeAttributes << "\n" << indent;
   stream << modname + "(";
   for (size_t i = 0; i < this->arguments.size(); ++i) {
     const auto& arg = this->arguments[i];
@@ -77,11 +79,17 @@ std::shared_ptr<AbstractNode> ModuleInstantiation::evaluate(
   SourceProvenance::ProvenanceCollector::Frame provenance(context->session()->provenanceCollector.get(), *this);
   boost::optional<InstantiableModule> module = context->lookup_module(this->name(), this->loc);
   if (!module) {
+    if (auto semantic = context->session()->semanticCollector) semantic->validateCall(*this, nullptr, context);
     return nullptr;
   }
 
   try {
+    if (auto semantic = context->session()->semanticCollector;
+        semantic && !semantic->validateCall(*this, module->module, context)) return nullptr;
+    Semantic::Collector::Frame semantic(context->session()->semanticCollector.get(), *this, module->module);
+    if (!semantic.valid()) return nullptr;
     auto node = module->module->instantiate(module->defining_context, this, context);
+    semantic.complete(node);
     return node;
   } catch (EvaluationException& e) {
     print_trace(e, this, context);

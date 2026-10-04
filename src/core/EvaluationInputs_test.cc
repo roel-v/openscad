@@ -1,6 +1,7 @@
 #include "core/EvaluationInputs.h"
 #include "core/SourceFileCache.h"
 #include "core/SourceFile.h"
+#include "core/UserModule.h"
 #include "openscad.h"
 #include <catch2/catch_test_macros.hpp>
 #include <filesystem>
@@ -116,4 +117,19 @@ TEST_CASE("Native include and use parsers consume one captured input request", "
   REQUIRE(inputs.read(include).utf8 == "//\xc3\xa9\r\nheight=7;\r\n");
   REQUIRE(inputs.read(library).utf8 == "function size_value()=11;");
   REQUIRE(cache.size() == 1);
+}
+
+TEST_CASE("Captured AST cache seeding owns native declarations and ignores later source files", "[evaluation-inputs]") {
+  InputFixture fixture; const auto root = fixture.write("root.scad", "module retained(size=2){cube(size);}");
+  EvaluationInputs inputs(fixture.input(root, EvaluationInputs::diskBytes(root)));
+  SourceFileCache original(&inputs); std::unique_ptr<SourceFile> parsed;
+  { NativeEvaluationScope native(inputs, original); SourceFile *file=nullptr;
+    REQUIRE(parse(file, inputs.root().utf8, root.string(), root.string(), false)); parsed.reset(file); }
+  inputs.freeze(); SourceFileCache seeded(&inputs); seeded.seedCaptured(inputs.root().fileKey, *parsed);
+  const auto scope = parsed->scope; parsed.reset(); fixture.write("root.scad", "module replacement(){}");
+  REQUIRE(seeded.lookup(root.string())); REQUIRE(seeded.lookup(root.string())->scope == scope);
+  REQUIRE(seeded.lookup(root.string())->scope->lookup<UserModule *>("retained"));
+  REQUIRE_THROWS_AS(seeded.seedCaptured(inputs.root().fileKey, *seeded.lookup(root.string())), EvaluationInputError);
+  SourceFile missing(root.parent_path().string(), "missing.scad"); REQUIRE_THROWS_AS(seeded.seedCaptured("uncaptured", missing), EvaluationInputError);
+  SourceFileCache global; REQUIRE_THROWS_AS(global.seedCaptured(inputs.root().fileKey, *seeded.lookup(root.string())), EvaluationInputError);
 }

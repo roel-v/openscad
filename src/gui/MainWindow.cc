@@ -1110,9 +1110,8 @@ void MainWindow::instantiateRoot()
     LOG("Compiling design (CSG Tree generation)...");
     this->processEvents();
 
-    AbstractNode::resetIndexCounter();
-
     NativeEvaluationScope inputScope(*evaluationInputs, *evaluationBacking->libraries);
+    AbstractNode::resetIndexCounter();
     SourceProvenance::ParseScope syntaxScope(evaluationBacking->syntax.get());
     evaluationBacking->session = std::make_shared<EvaluationSession>(doc.parent_path().string());
     evaluationBacking->session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(evaluationBacking->syntax);
@@ -2835,6 +2834,7 @@ void MainWindow::on_editActionCopyViewport_triggered()
 
 void MainWindow::on_designActionFlushCaches_triggered()
 {
+  NativeExecutionGuard execution;
   auto guard = scopedSetCurrentOutput();
   GeometryCache::instance()->clear();
   CGALCache::instance()->clear();

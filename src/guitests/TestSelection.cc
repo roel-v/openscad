@@ -497,7 +497,7 @@ void TestSelection::inspectionProviderLifetime()
   auto request=coordinator->requestMeshes("fixture request",lifetime.get());
   QCOMPARE(coordinator->status(),InspectionPresentationController::Status::Preparing); QCOMPARE(starts,1);
   const auto stale=rootDone;
-  auto high=coordinator->registerMeshProvider("high fixture",100,lifetime.get(),[&](auto,auto,auto done) {
+  auto high=coordinator->registerMeshProvider("high fixture",200,lifetime.get(),[&](auto,auto,auto done) {
     highDone=done; return InspectionPresentationController::Cancel([&] { ++cancelled; });
   });
   QCOMPARE(cancelled,1);

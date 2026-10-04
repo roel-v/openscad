@@ -148,7 +148,7 @@ TEST_CASE("Design reference outcomes protect cycles fingerprints unsupported dom
   auto context = resolveContext(f.result->records); Design::ReferenceToken reference{"design","a",Value::undefined.clone()};
   REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Invalid); REQUIRE(context.visitedIds.empty());
   reference.id="missing"; REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Missing);
-  reference.domain="semantic"; REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Unsupported);
+  reference.domain="unregistered-reference-test-domain"; REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Unsupported);
   ObjectType token(nullptr); token.set("inputsFingerprint",Value("old")); token.set("configurationFingerprint",Value("config"));
   Design::ReferenceToken geometric{"geometric","",Value(std::move(token))}; REQUIRE(Design::resolve(geometric,context).state == Design::ResolutionState::Changed);
 }

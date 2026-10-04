@@ -1,4 +1,5 @@
 #pragma once
+#include "core/NativeExecutionGuard.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -52,6 +53,7 @@ public:
   NativeEvaluationScope(const NativeEvaluationScope&) = delete;
   NativeEvaluationScope& operator=(const NativeEvaluationScope&) = delete;
 private:
+  NativeExecutionGuard execution;
   EvaluationInputs *previousInputs;
   SourceFileCache *previousCache;
 };

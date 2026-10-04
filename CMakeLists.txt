@@ -128,10 +128,18 @@ if(CLANG_TIDY)
 endif(CLANG_TIDY)
 
 add_executable(OpenSCADExe src/main_wrapper.cc)
+if(WIN32)
+  set(OPENSCAD_WINDOWS_OUTPUT_NAME "openscad" CACHE STRING "Windows application executable basename")
+  if(NOT OPENSCAD_WINDOWS_OUTPUT_NAME MATCHES "^[A-Za-z0-9_-]+$")
+    message(FATAL_ERROR "Invalid OPENSCAD_WINDOWS_OUTPUT_NAME")
+  endif()
+endif()
 if (APPLE)
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "OpenSCAD"
   )
+elseif(WIN32)
+  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME "${OPENSCAD_WINDOWS_OUTPUT_NAME}")
 else()
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "openscad"
@@ -1663,6 +1671,9 @@ if (APPLE)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE})
 elseif(WIN32)
   target_sources(OpenSCADExe PRIVATE ${WINDOWS_RESOURCE_PATH})
+  # RC dependency scanning does not track files embedded as resource data.
+  set_property(SOURCE ${WINDOWS_RESOURCE_PATH} APPEND PROPERTY OBJECT_DEPENDS
+               "${CMAKE_CURRENT_SOURCE_DIR}/scripts/winmanifest.xml")
   if(MSVC)
     # The resource script already embeds the application manifest.
     target_link_options(OpenSCADExe PRIVATE /MANIFEST:NO)
@@ -1779,7 +1790,9 @@ else()
 endif()
 
 if(NOT APPLE OR APPLE_UNIX)
-  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME openscad${SUFFIX_WITH_DASH})
+  if(NOT WIN32)
+    set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME openscad${SUFFIX_WITH_DASH})
+  endif()
   install(TARGETS OpenSCADExe RUNTIME DESTINATION "${OPENSCAD_BINDIR}")
   if(ENABLE_PYTHON)
     install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/openscad-python DESTINATION "${OPENSCAD_BINDIR}")
@@ -1813,7 +1826,7 @@ if(NOT APPLE OR APPLE_UNIX)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/templates DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*.json")
 
   if(ENABLE_GUI_TESTS)
-    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests)
+    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests/data)
   endif()
 
 else()

@@ -1,4 +1,5 @@
 #include <QTest>
+#include <QDir>
 #include <iostream>
 
 #include "TestMainWindow.h"
@@ -12,10 +13,14 @@ int runTests(MainWindow *window)
 {
   TestClass tc;
   tc.setWindow(window);
+  const auto output = qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT");
+  if (!output.isEmpty()) {
+    const auto log = QDir(output).filePath(QString::fromLatin1(tc.metaObject()->className()) + ".txt");
+    return QTest::qExec(&tc, QStringList{"gui-tests", "-o", log + ",txt"});
+  }
   const auto log = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG");
   if (!log.isEmpty()) return QTest::qExec(&tc, QStringList{"annotation-tests", "-o", log + ",txt"});
   return QTest::qExec(&tc);
-  return 0;
 }
 
 int runAllTest(MainWindow *window)

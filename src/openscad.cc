@@ -96,6 +96,7 @@
 #include "core/customizer/ParameterSet.h"
 #include "core/node.h"
 #include "core/parsersettings.h"
+#include "core/providers/ProviderCommands.h"
 #include "core/str_utf8_wrapper.h"
 #include "geometry/Geometry.h"
 #include "geometry/GeometryEvaluator.h"
@@ -854,6 +855,12 @@ int openscad_main(int argc, char **argv)
   po::options_description desc("Allowed options");
   // clang-format off
   desc.add_options()
+    ("provider-list", "list component provider availability as JSON")
+    ("provider-check", po::value<std::string>(), "validate a provider catalog and its library dependencies")
+    ("provider-emit", po::value<std::string>(), "generate a fragment for a qualified provider:item ID as JSON")
+    ("provider-values", po::value<std::string>(), "JSON scalar values for provider emission")
+    ("provider-source", po::value<std::string>(), "target source path for native library resolution")
+    ("provider-catalog", po::value<std::vector<std::string>>()->composing(), "additional provider catalog file or directory; repeatable")
     ("export-format", po::value<std::string>(),
       "overrides format of exported scad file when using option '-o', arg can be any of its supported "
       "file extensions.  For ASCII stl export, specify 'asciistl', and for binary stl export, specify "
@@ -966,11 +973,30 @@ int openscad_main(int argc, char **argv)
                 .run(),
               vm);
   } catch (const std::exception& e) {  // Catches e.g. unknown options
+    for(int index=1;index<argc;++index)if(std::string(argv[index]).rfind("--provider-",0)==0)
+      return Providers::providerUsageError(e.what(),std::cout);
     LOG("%1$s\n", e.what());
     help(argv[0], desc, true);
   }
 
   OpenSCAD::debug = "";
+  if(std::any_of(vm.begin(),vm.end(),[](const auto& option){return option.first.rfind("provider-",0)==0;})) {
+    const auto operations=vm.count("provider-list")+vm.count("provider-check")+vm.count("provider-emit");
+    if(operations!=1)return Providers::providerUsageError("Select exactly one provider-list, provider-check or provider-emit operation",std::cout);
+    for(const auto& [name,value]:vm)if(name.rfind("provider-",0)!=0)
+      return Providers::providerUsageError("Provider commands cannot be combined with ordinary model/GUI options: "+name,std::cout);
+    if(vm.count("provider-values")&&!vm.count("provider-emit"))return Providers::providerUsageError("provider-values requires provider-emit",std::cout);
+    Providers::ProviderCommand command;
+    command.mode=vm.count("provider-list")?Providers::ProviderCommand::Mode::List:vm.count("provider-check")?Providers::ProviderCommand::Mode::Check:Providers::ProviderCommand::Mode::Emit;
+    if(vm.count("provider-check"))command.checkCatalog=vm["provider-check"].as<std::string>();
+    if(vm.count("provider-emit"))command.qualifiedId=vm["provider-emit"].as<std::string>();
+    if(vm.count("provider-values"))command.valuesPath=vm["provider-values"].as<std::string>();
+    if(vm.count("provider-source"))command.sourcePath=vm["provider-source"].as<std::string>();
+    if(vm.count("provider-catalog"))command.extraCatalogs=vm["provider-catalog"].as<std::vector<std::string>>();
+    parser_init();
+    auto resources=PlatformUtils::resourcePath("providers");
+    return Providers::runProviderCommand(command,{resources.empty()?"":resources.generic_string(),PlatformUtils::userConfigPath(),original_path.generic_string()},std::cout);
+  }
   if (vm.count("debug")) {
     OpenSCAD::debug = vm["debug"].as<std::string>();
     LOG("Debug on. --debug=%1$s", OpenSCAD::debug);

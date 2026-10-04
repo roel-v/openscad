@@ -1,0 +1,8 @@
+Copy project-provider.json to your source directory's .scadmaxx/providers directory.
+Copy MyParts beside the target .scad document, or place its parent on OPENSCADPATH.
+Run scadmaxx.com --provider-list --provider-source your-model.scad.
+Emit example.my-parts:bracket with optional typed values from a JSON object.
+The example demonstrates number/integer/bool/string/enum parameters and a declared local contact frame.
+Editing bracket.scad requires an explicit provider-version and fingerprint update after validation.
+The fingerprint strips one leading UTF-8 BOM and normalizes CRLF/CR to LF before hashing.
+See doc/component-providers.md and providers/schemas/provider-v1.schema.json for the full contract.

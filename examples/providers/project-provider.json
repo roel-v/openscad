@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 1,
+  "providerId": "example.my-parts",
+  "providerVersion": "1.0.0",
+  "label": "My parts",
+  "libraries": [
+    {
+      "libraryId": "my-parts",
+      "label": "MyParts",
+      "defaultImportPrefix": "MyParts",
+      "profiles": [
+        {
+          "profileId": "bracket-1",
+          "releaseLabel": "1.0.0",
+          "revisionEvidence": "Authored example",
+          "fileHashes": [
+            {
+              "path": "bracket.scad",
+              "sha256": "e786523bb16ebb2b2adfd40401e2c4725cd3cafce40abb15e985be4f43f3ed9b"
+            }
+          ],
+          "importEdges": [],
+          "digest": "e262b61cdaec96a53de19fe6cdf4016a58007fd768935c3cda341541528f979a"
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": "bracket",
+      "label": "Bracket",
+      "category": [
+        "My parts"
+      ],
+      "description": "Authored block with optional round or square through-hole.",
+      "parameters": [
+        {
+          "id": "width",
+          "label": "width",
+          "type": "number",
+          "default": 20,
+          "unit": "mm",
+          "min": 0,
+          "exclusiveMin": true,
+          "max": 100000
+        },
+        {
+          "id": "depth",
+          "label": "depth",
+          "type": "number",
+          "default": 12,
+          "unit": "mm",
+          "min": 0,
+          "exclusiveMin": true,
+          "max": 100000
+        },
+        {
+          "id": "height",
+          "label": "height",
+          "type": "number",
+          "default": 5,
+          "unit": "mm",
+          "min": 0,
+          "exclusiveMin": true,
+          "max": 100000
+        },
+        {
+          "id": "diameter",
+          "label": "diameter",
+          "type": "number",
+          "default": 4,
+          "unit": "mm",
+          "min": 0,
+          "exclusiveMin": true,
+          "max": 100000
+        },
+        {
+          "id": "make_hole",
+          "label": "Make hole",
+          "type": "bool",
+          "default": true
+        },
+        {
+          "id": "segments",
+          "label": "Segments",
+          "type": "integer",
+          "default": 32,
+          "min": 12,
+          "max": 256
+        },
+        {
+          "id": "label",
+          "label": "Label",
+          "type": "string",
+          "default": "Bracket",
+          "maxLength": 80
+        },
+        {
+          "id": "hole_shape",
+          "label": "Hole shape",
+          "type": "enum",
+          "default": "round",
+          "enumValues": [
+            "round",
+            "square"
+          ]
+        }
+      ],
+      "operation": "additive",
+      "insertionRole": "geometry",
+      "recipes": [
+        {
+          "profileIds": [
+            "bracket-1"
+          ],
+          "imports": [
+            {
+              "libraryId": "my-parts",
+              "path": "bracket.scad",
+              "kind": "include",
+              "scope": "file"
+            }
+          ],
+          "helpers": [],
+          "moduleBindings": [
+            {
+              "module": "bracket",
+              "libraryId": "my-parts",
+              "path": "bracket.scad"
+            }
+          ],
+          "geometry": {
+            "module": "bracket",
+            "arguments": [
+              {
+                "name": "width",
+                "value": {
+                  "parameter": "width"
+                }
+              },
+              {
+                "name": "depth",
+                "value": {
+                  "parameter": "depth"
+                }
+              },
+              {
+                "name": "height",
+                "value": {
+                  "parameter": "height"
+                }
+              },
+              {
+                "name": "diameter",
+                "value": {
+                  "parameter": "diameter"
+                }
+              },
+              {
+                "name": "make_hole",
+                "value": {
+                  "parameter": "make_hole"
+                }
+              },
+              {
+                "name": "segments",
+                "value": {
+                  "parameter": "segments"
+                }
+              },
+              {
+                "name": "label",
+                "value": {
+                  "parameter": "label"
+                }
+              },
+              {
+                "name": "hole_shape",
+                "value": {
+                  "parameter": "hole_shape"
+                }
+              }
+            ]
+          },
+          "placement": {
+            "origin": [
+              {
+                "operator": "div",
+                "arguments": [
+                  {
+                    "parameter": "width"
+                  },
+                  {
+                    "constant": 2
+                  }
+                ]
+              },
+              {
+                "operator": "div",
+                "arguments": [
+                  {
+                    "parameter": "depth"
+                  },
+                  {
+                    "constant": 2
+                  }
+                ]
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "normal": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": -1
+              }
+            ],
+            "up": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 1
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "label": "Bottom centre"
+          }
+        }
+      ]
+    }
+  ]
+}

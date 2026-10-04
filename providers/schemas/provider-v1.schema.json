@@ -1,0 +1,631 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://scadmaxx.local/schemas/provider-v1.schema.json",
+  "title": "SCADMaxx component provider schema 1",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "providerId": {
+      "$ref": "#/$defs/id"
+    },
+    "providerVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "label": {
+      "type": "string"
+    },
+    "libraries": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/library"
+      },
+      "maxItems": 128
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      },
+      "maxItems": 1000
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "providerId",
+    "providerVersion",
+    "label",
+    "libraries",
+    "items"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "profileId": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z0-9][a-z0-9-]*)*$"
+    },
+    "identifier": {
+      "type": "string",
+      "pattern": "^[$]?[A-Za-z_][A-Za-z0-9_]*$",
+      "not": {
+        "enum": [
+          "module",
+          "function",
+          "if",
+          "else",
+          "for",
+          "intersection_for",
+          "let",
+          "each",
+          "true",
+          "false",
+          "undef",
+          "include",
+          "use"
+        ]
+      }
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[^\\\\:\\r\\n<>\\u0000]+$",
+      "allOf": [
+        {
+          "not": {
+            "pattern": "^/|/$|//|(^|/)\\.{1,2}(/|$)"
+          }
+        }
+      ]
+    },
+    "prefix": {
+      "anyOf": [
+        {
+          "const": ""
+        },
+        {
+          "$ref": "#/$defs/path"
+        }
+      ]
+    },
+    "hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scalar": {
+      "type": [
+        "number",
+        "integer",
+        "boolean",
+        "string"
+      ]
+    },
+    "expression": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "constant": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
+          "required": [
+            "constant"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "parameter": {
+              "$ref": "#/$defs/identifier"
+            }
+          },
+          "required": [
+            "parameter"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "vector": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 128
+            }
+          },
+          "required": [
+            "vector"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "operator": {
+              "enum": [
+                "add",
+                "sub",
+                "mul",
+                "div",
+                "neg"
+              ]
+            },
+            "arguments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/expression"
+              },
+              "maxItems": 2,
+              "minItems": 1
+            }
+          },
+          "required": [
+            "operator",
+            "arguments"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "statement": {
+      "type": "object",
+      "properties": {
+        "module": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/identifier"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "helper": {
+                  "$ref": "#/$defs/id"
+                }
+              },
+              "required": [
+                "helper"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "arguments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/identifier"
+              },
+              "value": {
+                "$ref": "#/$defs/expression"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 128
+        },
+        "children": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/statement"
+          },
+          "maxItems": 1000
+        }
+      },
+      "required": [
+        "module",
+        "arguments"
+      ],
+      "additionalProperties": false
+    },
+    "parameter": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/identifier"
+        },
+        "label": {
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "number",
+            "integer",
+            "bool",
+            "string",
+            "enum"
+          ]
+        },
+        "default": {
+          "$ref": "#/$defs/scalar"
+        },
+        "unit": {
+          "enum": [
+            "mm",
+            "deg"
+          ]
+        },
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        },
+        "exclusiveMin": {
+          "type": "boolean"
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4194304
+        },
+        "enumValues": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 1000,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "type",
+        "default"
+      ],
+      "additionalProperties": false
+    },
+    "import": {
+      "type": "object",
+      "properties": {
+        "libraryId": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "kind": {
+          "enum": [
+            "include",
+            "use"
+          ]
+        },
+        "scope": {
+          "enum": [
+            "file",
+            "helper"
+          ]
+        },
+        "helperId": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "libraryId",
+        "path",
+        "kind",
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    "helper": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/identifier"
+          },
+          "maxItems": 128,
+          "uniqueItems": true
+        },
+        "body": {
+          "$ref": "#/$defs/statement"
+        }
+      },
+      "required": [
+        "id",
+        "parameters",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "moduleBinding": {
+      "type": "object",
+      "properties": {
+        "module": {
+          "$ref": "#/$defs/identifier"
+        },
+        "libraryId": {
+          "$ref": "#/$defs/id"
+        },
+        "path": {
+          "$ref": "#/$defs/path"
+        }
+      },
+      "required": [
+        "module",
+        "libraryId",
+        "path"
+      ],
+      "additionalProperties": false
+    },
+    "frame": {
+      "type": "object",
+      "properties": {
+        "origin": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/expression"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "normal": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/expression"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "up": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/expression"
+          },
+          "maxItems": 3,
+          "minItems": 3
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "origin",
+        "normal",
+        "up",
+        "label"
+      ],
+      "additionalProperties": false
+    },
+    "recipe": {
+      "type": "object",
+      "properties": {
+        "profileIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/profileId"
+          },
+          "maxItems": 1000
+        },
+        "imports": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/import"
+          },
+          "maxItems": 128
+        },
+        "helpers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/helper"
+          },
+          "maxItems": 128
+        },
+        "moduleBindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/moduleBinding"
+          },
+          "maxItems": 128
+        },
+        "geometry": {
+          "$ref": "#/$defs/statement"
+        },
+        "placement": {
+          "$ref": "#/$defs/frame"
+        }
+      },
+      "required": [
+        "profileIds",
+        "imports",
+        "helpers",
+        "moduleBindings",
+        "geometry",
+        "placement"
+      ],
+      "additionalProperties": false
+    },
+    "item": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string"
+        },
+        "category": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 32
+        },
+        "description": {
+          "type": "string"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parameter"
+          },
+          "maxItems": 128
+        },
+        "operation": {
+          "enum": [
+            "additive",
+            "subtractive"
+          ]
+        },
+        "insertionRole": {
+          "enum": [
+            "geometry",
+            "component"
+          ],
+          "default": "geometry"
+        },
+        "recipes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/recipe"
+          },
+          "maxItems": 128,
+          "minItems": 1
+        }
+      },
+      "required": [
+        "id",
+        "label",
+        "category",
+        "description",
+        "parameters",
+        "operation",
+        "recipes"
+      ],
+      "additionalProperties": false
+    },
+    "edge": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/path"
+        },
+        "kind": {
+          "enum": [
+            "include",
+            "use"
+          ]
+        },
+        "import": {
+          "$ref": "#/$defs/path"
+        },
+        "to": {
+          "$ref": "#/$defs/path"
+        }
+      },
+      "required": [
+        "from",
+        "kind",
+        "import",
+        "to"
+      ],
+      "additionalProperties": false
+    },
+    "fileHash": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/path"
+        },
+        "sha256": {
+          "$ref": "#/$defs/hash"
+        }
+      },
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "additionalProperties": false
+    },
+    "profile": {
+      "type": "object",
+      "properties": {
+        "profileId": {
+          "$ref": "#/$defs/profileId"
+        },
+        "releaseLabel": {
+          "type": "string"
+        },
+        "revisionEvidence": {
+          "type": "string"
+        },
+        "fileHashes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/fileHash"
+          },
+          "maxItems": 4096,
+          "minItems": 1
+        },
+        "importEdges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/edge"
+          },
+          "maxItems": 16384
+        },
+        "digest": {
+          "$ref": "#/$defs/hash"
+        }
+      },
+      "required": [
+        "profileId",
+        "releaseLabel",
+        "revisionEvidence",
+        "fileHashes",
+        "importEdges",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "library": {
+      "type": "object",
+      "properties": {
+        "libraryId": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string"
+        },
+        "defaultImportPrefix": {
+          "$ref": "#/$defs/prefix"
+        },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/profile"
+          },
+          "maxItems": 1000,
+          "minItems": 1
+        }
+      },
+      "required": [
+        "libraryId",
+        "label",
+        "defaultImportPrefix",
+        "profiles"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

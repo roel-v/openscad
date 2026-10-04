@@ -71,6 +71,7 @@
 #include <QProgressDialog>
 #include <QScreen>
 #include <QSettings>  //Include QSettings for direct operations on settings arrays
+#include "gui/clipping/ClippingController.h"
 #include <QSignalMapper>
 #include <QSoundEffect>
 #include <QSplitter>
@@ -326,6 +327,7 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   inspectionPresentation = new InspectionPresentationController(this);
   inspectorDock = new Selection::InspectorDock(this);
   Design::SavedViewContribution::forWindow(*this);
+  Clipping::Controller::forWindow(*this);
   setupDocks();
   auto agentAccess = menuWindow->addAction(tr("Agent Access..."));
   connect(agentAccess, &QAction::triggered, this,
@@ -654,6 +656,7 @@ MainWindow::~MainWindow()
   // destruction can trigger another window's freshness checks.
   scadApp->windowManager.remove(this);
   viewportTools->cancel(viewportTools->active(),Selection::CancelReason::OwnerDestroyed);
+  for(auto *child:children())if(auto *service=dynamic_cast<Clipping::Controller *>(child))delete service;
   for(auto *child:children())if(auto *service=dynamic_cast<Design::SavedViewContribution *>(child))delete service;
   delete inspectorDock;
   inspectorDock = nullptr;

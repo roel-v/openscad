@@ -1,9 +1,11 @@
 #version 120
+#include "ClipDiscard.glsl"
 uniform vec3 frag_idcolor;
 uniform float normal_sign;
 uniform bool normal_pass;
 varying vec3 world_normal;
 void main() {
+  if (!clipRetained()) discard;
   if (normal_pass) {
     float length_squared = dot(world_normal, world_normal);
     gl_FragColor = length_squared > 0.0

@@ -81,6 +81,7 @@ InspectionPresentationController::~InspectionPresentationController()
   meshRenderer.reset(); defaultRenderer.reset();
 }
 Selection::Stamp InspectionPresentationController::stamp() const { return window->evaluationBinding->stamp(); }
+uint64_t InspectionPresentationController::meshUploadCount() const { return meshRenderer ? meshRenderer->uploadCount() : 0; }
 bool InspectionPresentationController::contains(Kind kind,uint64_t id) const
 {
   return kind==Kind::Provider ? providers.count(id)!=0 : kind==Kind::Effect ? effects.count(id)!=0 : requests.count(id)!=0;

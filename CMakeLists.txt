@@ -1058,6 +1058,7 @@ target_compile_definitions(OpenSCADLibInternal PUBLIC DEFAULT_OFFSCREEN_CONTEXT=
 #       see GUI_SOURCES list below for that.
 set(CORE_SOURCES
   src/Feature.cc
+  src/glview/ClippingState.cc
   src/FontCache.cc
   src/LibraryInfo.cc
   src/RenderStatistic.cc
@@ -1334,6 +1335,7 @@ else()
     src/glview/ShaderUtils.cc
     src/glview/SurfacePick.cc
     src/glview/InspectionMeshRenderer.cc
+    src/glview/ClippedMeshRenderer.cc
     src/glview/system-gl.cc
     src/glview/VBOBuilder.cc
     src/glview/VertexState.cc
@@ -1366,6 +1368,10 @@ set(INPUT_DRIVER_SOURCES
   ${INPUT_DRIVER_DBUS_SOURCES})
 
 set(GUI_SOURCES
+  src/gui/clipping/ClipMeshJob.cc
+  src/gui/clipping/SectionManipulator.cc
+  src/gui/clipping/ClippingController.cc
+  src/gui/clipping/ClippingDock.cc
   src/gui/selection/EvaluationBinding.cc
   src/gui/source/EditorUndoRegistry.cc
   src/gui/design/DesignEdits.cc
@@ -1670,6 +1676,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestTabManager.h
     src/guitests/TestSourceTransactions.h
     src/guitests/TestDesignObjects.h
+    src/guitests/TestClipping.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
     src/guitests/TestSelection.h
@@ -1684,6 +1691,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestTabManager.cc
     src/guitests/TestSourceTransactions.cc
     src/guitests/TestDesignObjects.cc
+    src/guitests/TestClipping.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
     src/guitests/TestSelection.cc
@@ -1731,6 +1739,7 @@ file(GLOB_RECURSE GUI_TEST_SOURCES
   "src/gui/*_test.cc"
 )
 list(APPEND TEST_SOURCES src/glview/SurfacePickMath_test.cc src/glview/InspectionPresentation_test.cc src/glview/SelectionRouter_test.cc)
+list(APPEND TEST_SOURCES src/glview/ClippingState_test.cc)
 list(FILTER Sources EXCLUDE REGEX ".*_test[.]cc")
 list(REMOVE_ITEM Sources "src/main_wrapper.cc")
 

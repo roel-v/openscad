@@ -33,6 +33,7 @@ void InspectionMeshRenderer::prepare(const ShaderUtils::ShaderInfo *shader)
     const Transform3d recenter(Eigen::Translation3d(-origin));
     builder.create_surface(*piece.mesh,recenter*piece.localToWorld,color,true,true);
     builder.createInterleavedVBOs();
+    ++uploads;
     containers.push_back(std::move(container));
   }
 }

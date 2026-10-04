@@ -12,10 +12,12 @@ public:
   SurfaceContext prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader) override;
   void setVisible(std::set<uint64_t> ids) { visible=std::move(ids); }
   Vector3d positionOrigin() const { return origin; }
+  uint64_t uploadCount() const { return uploads; }
 private:
   std::shared_ptr<const InspectionMeshSet> meshes;
   BoundingBox bounds;
   Vector3d origin=Vector3d::Zero();
+  uint64_t uploads=0;
   std::set<uint64_t> visible;
   std::vector<std::unique_ptr<VertexStateContainer>> containers;
 };

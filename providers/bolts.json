@@ -1,0 +1,801 @@
+{
+  "schemaVersion": 1,
+  "providerId": "scadmaxx.bolts",
+  "providerVersion": "1.0.0",
+  "label": "BOLTS",
+  "libraries": [
+    {
+      "libraryId": "bolts",
+      "label": "BOLTS",
+      "defaultImportPrefix": "BOLTS",
+      "profiles": [
+        {
+          "profileId": "boltsos-0.4.1",
+          "releaseLabel": "0.4.1",
+          "revisionEvidence": "official boltsos_0.4.1.tar.gz",
+          "fileHashes": [
+            {
+              "path": "BOLTS.scad",
+              "sha256": "372f7af6ba7a9ed366d71d461d391c88a644f599f8ab216ecf5772017a84ddb6"
+            },
+            {
+              "path": "base/batteries/batteries.scad",
+              "sha256": "eae6f0aea494b3bf8dff9b684aa4e2ebd69b03db85b94922e2b002311faaa165"
+            },
+            {
+              "path": "base/bearings/bearings.scad",
+              "sha256": "feecffc26b60cba6eeb072d83dbea2cfebcf38901e323a5a8b1e501113e3dfe2"
+            },
+            {
+              "path": "base/extrusions/aluminiumProfiles.scad",
+              "sha256": "d5aeafe5aa6563cc2e116d7c90e0498f28d3d74b9481fcda119d5ba3fae8d44a"
+            },
+            {
+              "path": "base/hex/hex.scad",
+              "sha256": "6c731734348454a91de40d5ac92d669d00b5c4548f590c7f089a773ef738a86a"
+            },
+            {
+              "path": "base/hex_socket/hex_socket.scad",
+              "sha256": "0349a57ce545af59e2a1155ee779f82af4a4ea15fbea43a827aca28275bfcb99"
+            },
+            {
+              "path": "base/nut/nut.scad",
+              "sha256": "8e7c2cb6bf03ff45b5b778c87ed721d861198b89be6a3c145ac949bf3e14ea9e"
+            },
+            {
+              "path": "base/pipes/pipe.scad",
+              "sha256": "a0a2946f5e05308dbfc68f349f9acbd5817b59c2abc5462a638673a0dfb0a158"
+            },
+            {
+              "path": "base/washer/washer.scad",
+              "sha256": "6127c97d4470ac2cd0195b291f11fca983ca24aa02ed5629455b9c7dcbe0e80f"
+            },
+            {
+              "path": "classes/axialthrustbearing.scad",
+              "sha256": "0b0aa103e9cdc8d79b53ec9e288932c3dcf9b1f692d8c33e89d34088db8bd849"
+            },
+            {
+              "path": "classes/din11850range2.scad",
+              "sha256": "931eee6f2e92644a1c383bdabb14349517289cc318f2d9f9eee0494f6e792cca"
+            },
+            {
+              "path": "classes/genericpipe.scad",
+              "sha256": "5558ef8709229ecf59cdce234f843e50717d8869fbaea7763d07e79605a036e7"
+            },
+            {
+              "path": "classes/heavydutyplainwasher.scad",
+              "sha256": "c644770fbeab11c8cc022cdc13dd9b859490055dd30b9440e7f2ee3fc001908c"
+            },
+            {
+              "path": "classes/hexagonnut1.scad",
+              "sha256": "44b6bd5312e8778a07684320312da2e184e3b24b1fde135d4c878303633eeddf"
+            },
+            {
+              "path": "classes/hexagonnut2.scad",
+              "sha256": "ca14d1b653a0105f564df0ba90811b4e436dbda5680ef14073248127e3ca707a"
+            },
+            {
+              "path": "classes/hexagonnut3.scad",
+              "sha256": "12b3257889021717e06206c16c04dc8a53727cd6f6a993fc648dfa760b7bd61c"
+            },
+            {
+              "path": "classes/hexagonthinnut1.scad",
+              "sha256": "1aaf1457f8dbd7b1db7e23dd2fa4b7ce939be89035770404f3a5e5ba09679f05"
+            },
+            {
+              "path": "classes/hexagonthinnut2.scad",
+              "sha256": "a7178ae827ef288aa84feab64b9256890e4989ed3d6bbea62641cd20d096e204"
+            },
+            {
+              "path": "classes/hexbolt1.scad",
+              "sha256": "dcdffc5460eba96f3cf8f41fcae381d1494ebcc32b3fa9b2c13cf513801b166a"
+            },
+            {
+              "path": "classes/hexbolt2.scad",
+              "sha256": "ad4a45a934ea686df81aae2ba259429e90f58020e9a0e9308176b01d5af7c3d3"
+            },
+            {
+              "path": "classes/hexscrew1.scad",
+              "sha256": "ab14fb12bdeedd0e5fe49cd35d49272099f225da3b986e732c089ddda1268ec7"
+            },
+            {
+              "path": "classes/hexscrew2.scad",
+              "sha256": "cd8f9071a241778ac59f95ae58c86a887f4efc66342e337fba5febb59859db8c"
+            },
+            {
+              "path": "classes/hexsocketcountersunk.scad",
+              "sha256": "283c73956dd3613489681ac7d18d77bb1bb026ee30e5c441aec000aaf4b3f66c"
+            },
+            {
+              "path": "classes/hexsocketheadcap.scad",
+              "sha256": "67d6cdc1bee0baa6f9747ae24f56e27d31b47c55214d9f65b9bc9a4b28bf374a"
+            },
+            {
+              "path": "classes/nominalpipesize.scad",
+              "sha256": "39f979f9aeb9b6e84287efa9633c5d6245d18222b8b105119fa95b4d61a7f5ce"
+            },
+            {
+              "path": "classes/plainwasher1.scad",
+              "sha256": "09760a5c1e452a0f7c9280a228b3ac57310506b72c8f561dfbcfde0b3041b0b0"
+            },
+            {
+              "path": "classes/plainwasher2.scad",
+              "sha256": "0ad179100c6965ecd905349655f97088e0c95f30a48791a7abd418fe746f8d8f"
+            },
+            {
+              "path": "classes/plainwasherchamfered.scad",
+              "sha256": "f81791a2064b4fab768e31bc2aef252aba48b1a8d9c0a89150ebdaeeb61cbb3b"
+            },
+            {
+              "path": "classes/plainwasherforcheesehead.scad",
+              "sha256": "79fd3f5b83a1c41864988e3f1cb0436d302b41bb8e01d6dc1d82be2a58f631be"
+            },
+            {
+              "path": "classes/round_battery.scad",
+              "sha256": "3597596be40790da4df19c652a75ea5977f36eaff10f179f12ebdf4f77c5c6dc"
+            },
+            {
+              "path": "classes/singlerowradialbearing.scad",
+              "sha256": "17b923b2aa96b87dae305deaf99fe378dadc26f60cd4fa159deb6fd862d4f023"
+            },
+            {
+              "path": "classes/singlerowradialbearingimperial.scad",
+              "sha256": "14342b5ecc74d6656324c2416e71e0e8ca045b61031af2c49081fb84e51ff427"
+            },
+            {
+              "path": "classes/tslot20x20.scad",
+              "sha256": "44b87addd21323d38a087f12ecd822bcd9532a89e1a933758e3f2a19d7bcf3c8"
+            },
+            {
+              "path": "classes/tslot20x20_1s.scad",
+              "sha256": "f39278d36df0c55d6ae379a17a8c0798d610bdf40a5ff918be448038522f91f0"
+            },
+            {
+              "path": "classes/tslot20x20_2s.scad",
+              "sha256": "63cf40a447508c33e72b2891078de6670ed547bd9874d253b1ac3073758fe1b1"
+            },
+            {
+              "path": "classes/tslot20x20_2sa.scad",
+              "sha256": "c53c4cbe4ab737b0400bac70f0d7d573253bc0550f1d349cfa5539f5af0b393e"
+            },
+            {
+              "path": "classes/tslot20x20_3s.scad",
+              "sha256": "5377fbfb17f5030fca694937bacce4f546f348e22419fa51818381f9a3664d82"
+            },
+            {
+              "path": "common/common.scad",
+              "sha256": "f73e4916ae3f8797b14c080c29bd272b486ad7b91b15f30e0641a1dd3ffb466c"
+            },
+            {
+              "path": "common/conf.scad",
+              "sha256": "822fa34d975fdea2c2b8e972f5ee6858fd6ad377f8226ab88d29651ff0a03cf7"
+            },
+            {
+              "path": "common/local.scad",
+              "sha256": "d9251734778c9f75510f4c97aa08feda0cc78d8e51eb2d28d5def976b8163b3f"
+            },
+            {
+              "path": "common/version.scad",
+              "sha256": "21a643e2b192580c5c2c8c54f32df16b2d488289766259d002869d58ad21ed41"
+            }
+          ],
+          "importEdges": [
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "common/local.scad",
+              "to": "common/local.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "common/conf.scad",
+              "to": "common/conf.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "common/common.scad",
+              "to": "common/common.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "common/version.scad",
+              "to": "common/version.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "base/pipes/pipe.scad",
+              "to": "base/pipes/pipe.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/genericpipe.scad",
+              "to": "classes/genericpipe.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/din11850range2.scad",
+              "to": "classes/din11850range2.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/nominalpipesize.scad",
+              "to": "classes/nominalpipesize.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "base/nut/nut.scad",
+              "to": "base/nut/nut.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexagonthinnut1.scad",
+              "to": "classes/hexagonthinnut1.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexagonthinnut2.scad",
+              "to": "classes/hexagonthinnut2.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexagonnut1.scad",
+              "to": "classes/hexagonnut1.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexagonnut2.scad",
+              "to": "classes/hexagonnut2.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexagonnut3.scad",
+              "to": "classes/hexagonnut3.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "base/washer/washer.scad",
+              "to": "base/washer/washer.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/plainwasher1.scad",
+              "to": "classes/plainwasher1.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/plainwasherchamfered.scad",
+              "to": "classes/plainwasherchamfered.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/plainwasher2.scad",
+              "to": "classes/plainwasher2.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/plainwasherforcheesehead.scad",
+              "to": "classes/plainwasherforcheesehead.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/heavydutyplainwasher.scad",
+              "to": "classes/heavydutyplainwasher.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "base/bearings/bearings.scad",
+              "to": "base/bearings/bearings.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/singlerowradialbearing.scad",
+              "to": "classes/singlerowradialbearing.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/singlerowradialbearingimperial.scad",
+              "to": "classes/singlerowradialbearingimperial.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/axialthrustbearing.scad",
+              "to": "classes/axialthrustbearing.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "base/extrusions/aluminiumProfiles.scad",
+              "to": "base/extrusions/aluminiumProfiles.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/tslot20x20.scad",
+              "to": "classes/tslot20x20.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/tslot20x20_1s.scad",
+              "to": "classes/tslot20x20_1s.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/tslot20x20_2s.scad",
+              "to": "classes/tslot20x20_2s.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/tslot20x20_2sa.scad",
+              "to": "classes/tslot20x20_2sa.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/tslot20x20_3s.scad",
+              "to": "classes/tslot20x20_3s.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "base/hex_socket/hex_socket.scad",
+              "to": "base/hex_socket/hex_socket.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexsocketcountersunk.scad",
+              "to": "classes/hexsocketcountersunk.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexsocketheadcap.scad",
+              "to": "classes/hexsocketheadcap.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "base/hex/hex.scad",
+              "to": "base/hex/hex.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexscrew1.scad",
+              "to": "classes/hexscrew1.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexscrew2.scad",
+              "to": "classes/hexscrew2.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexbolt1.scad",
+              "to": "classes/hexbolt1.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/hexbolt2.scad",
+              "to": "classes/hexbolt2.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "base/batteries/batteries.scad",
+              "to": "base/batteries/batteries.scad"
+            },
+            {
+              "from": "BOLTS.scad",
+              "kind": "include",
+              "import": "classes/round_battery.scad",
+              "to": "classes/round_battery.scad"
+            }
+          ],
+          "digest": "d08ca4bd8bc2eb2a6c0a94fc93aad0d3f6c522da620a6d31aeab74f1809795e6"
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": "iso4017",
+      "label": "ISO4017 screw",
+      "category": [
+        "Hardware"
+      ],
+      "description": "Millimetre reference geometry from BOLTS 0.4.1, with simplified threads. Library mode and units remain local to the generated helper.",
+      "parameters": [
+        {
+          "id": "size",
+          "label": "Metric size",
+          "type": "enum",
+          "default": "M4",
+          "enumValues": [
+            "M3",
+            "M4",
+            "M5",
+            "M6",
+            "M8"
+          ]
+        },
+        {
+          "id": "length",
+          "label": "Length under head",
+          "type": "number",
+          "default": 20,
+          "unit": "mm",
+          "min": 10,
+          "max": 100
+        }
+      ],
+      "operation": "additive",
+      "insertionRole": "component",
+      "recipes": [
+        {
+          "profileIds": [
+            "boltsos-0.4.1"
+          ],
+          "imports": [
+            {
+              "libraryId": "bolts",
+              "path": "BOLTS.scad",
+              "kind": "include",
+              "scope": "helper",
+              "helperId": "hardware"
+            }
+          ],
+          "helpers": [
+            {
+              "id": "hardware",
+              "parameters": [
+                "size",
+                "length"
+              ],
+              "body": {
+                "module": "ISO4017",
+                "arguments": [
+                  {
+                    "name": "key",
+                    "value": {
+                      "parameter": "size"
+                    }
+                  },
+                  {
+                    "name": "l",
+                    "value": {
+                      "parameter": "length"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "moduleBindings": [
+            {
+              "module": "ISO4017",
+              "libraryId": "bolts",
+              "path": "classes/hexscrew2.scad"
+            }
+          ],
+          "geometry": {
+            "module": {
+              "helper": "hardware"
+            },
+            "arguments": [
+              {
+                "name": "size",
+                "value": {
+                  "parameter": "size"
+                }
+              },
+              {
+                "name": "length",
+                "value": {
+                  "parameter": "length"
+                }
+              }
+            ]
+          },
+          "placement": {
+            "origin": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "normal": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": 1
+              }
+            ],
+            "up": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 1
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "label": "Contact"
+          }
+        }
+      ]
+    },
+    {
+      "id": "iso4032",
+      "label": "ISO4032 nut",
+      "category": [
+        "Hardware"
+      ],
+      "description": "Millimetre reference geometry from BOLTS 0.4.1, with simplified threads. Library mode and units remain local to the generated helper.",
+      "parameters": [
+        {
+          "id": "size",
+          "label": "Metric size",
+          "type": "enum",
+          "default": "M4",
+          "enumValues": [
+            "M3",
+            "M4",
+            "M5",
+            "M6",
+            "M8"
+          ]
+        }
+      ],
+      "operation": "additive",
+      "insertionRole": "component",
+      "recipes": [
+        {
+          "profileIds": [
+            "boltsos-0.4.1"
+          ],
+          "imports": [
+            {
+              "libraryId": "bolts",
+              "path": "BOLTS.scad",
+              "kind": "include",
+              "scope": "helper",
+              "helperId": "hardware"
+            }
+          ],
+          "helpers": [
+            {
+              "id": "hardware",
+              "parameters": [
+                "size"
+              ],
+              "body": {
+                "module": "ISO4032",
+                "arguments": [
+                  {
+                    "name": "key",
+                    "value": {
+                      "parameter": "size"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "moduleBindings": [
+            {
+              "module": "ISO4032",
+              "libraryId": "bolts",
+              "path": "classes/hexagonnut1.scad"
+            }
+          ],
+          "geometry": {
+            "module": {
+              "helper": "hardware"
+            },
+            "arguments": [
+              {
+                "name": "size",
+                "value": {
+                  "parameter": "size"
+                }
+              }
+            ]
+          },
+          "placement": {
+            "origin": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "normal": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": -1
+              }
+            ],
+            "up": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 1
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "label": "Contact"
+          }
+        }
+      ]
+    },
+    {
+      "id": "iso7089",
+      "label": "ISO7089 washer",
+      "category": [
+        "Hardware"
+      ],
+      "description": "Millimetre reference geometry from BOLTS 0.4.1, with simplified threads. Library mode and units remain local to the generated helper.",
+      "parameters": [
+        {
+          "id": "size",
+          "label": "Metric size",
+          "type": "enum",
+          "default": "M4",
+          "enumValues": [
+            "M3",
+            "M4",
+            "M5",
+            "M6",
+            "M8"
+          ]
+        }
+      ],
+      "operation": "additive",
+      "insertionRole": "component",
+      "recipes": [
+        {
+          "profileIds": [
+            "boltsos-0.4.1"
+          ],
+          "imports": [
+            {
+              "libraryId": "bolts",
+              "path": "BOLTS.scad",
+              "kind": "include",
+              "scope": "helper",
+              "helperId": "hardware"
+            }
+          ],
+          "helpers": [
+            {
+              "id": "hardware",
+              "parameters": [
+                "size"
+              ],
+              "body": {
+                "module": "ISO7089",
+                "arguments": [
+                  {
+                    "name": "key",
+                    "value": {
+                      "parameter": "size"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          "moduleBindings": [
+            {
+              "module": "ISO7089",
+              "libraryId": "bolts",
+              "path": "classes/plainwasher1.scad"
+            }
+          ],
+          "geometry": {
+            "module": {
+              "helper": "hardware"
+            },
+            "arguments": [
+              {
+                "name": "size",
+                "value": {
+                  "parameter": "size"
+                }
+              }
+            ]
+          },
+          "placement": {
+            "origin": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "normal": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": -1
+              }
+            ],
+            "up": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 1
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "label": "Contact"
+          }
+        }
+      ]
+    }
+  ]
+}

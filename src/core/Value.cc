@@ -25,6 +25,7 @@
  */
 
 #include "core/Value.h"
+#include <algorithm>
 
 #include <double-conversion/double-conversion.h>
 #include <double-conversion/ieee.h>
@@ -432,13 +433,7 @@ public:
     if (StackCheck::inst().check()) {
       throw VectorEchoStringException::create();
     }
-    stream << "{ ";
-    for (auto& key : v.keys()) {
-      stream << key << " = ";
-      std::visit(*this, v.get(key).getVariant());
-      stream << "; ";
-    }
-    stream << '}';
+    stream << v;
   }
 
   void operator()(const str_utf8_wrapper& v) const { stream << '"' << v.toString() << '"'; }
@@ -1454,6 +1449,15 @@ bool ObjectType::empty() const
 {
   return ptr->values.empty();
 }
+const std::vector<std::string>& ObjectType::literalDuplicateKeys() const
+{
+  return ptr->literalDuplicates;
+}
+void ObjectType::recordLiteralDuplicateKey(const std::string& key)
+{
+  for(const auto& existing:ptr->literalDuplicates)if(existing==key)return;
+  ptr->literalDuplicates.push_back(key);
+}
 const std::vector<std::string>& ObjectType::keys() const
 {
   return ptr->keys;
@@ -1461,6 +1465,10 @@ const std::vector<std::string>& ObjectType::keys() const
 const std::vector<Value>& ObjectType::values() const
 {
   return ptr->values;
+}
+void ObjectType::merge(Value&& value, const Location& loc)
+{
+  ptr->merge(std::move(value), loc);
 }
 
 const Value& ObjectType::operator[](const str_utf8_wrapper& v) const
@@ -1474,17 +1482,64 @@ ObjectType ObjectType::clone() const
   return ObjectType(this->ptr);
 }
 
-std::ostream& operator<<(std::ostream& stream, const ObjectType& v)
+// NEEDSWORK perhaps "true", "false", "undef", and maybe a couple of others
+// should be reserved for non-string keys, when they become available.
+bool ObjectType::keyIsIdentifier(const std::string& k)
 {
-  stream << "{ ";
-  auto iter = v.ptr->keys.begin();
-  if (iter != v.ptr->keys.end()) {
-    str_utf8_wrapper k(*iter);
-    for (; iter != v.ptr->keys.end(); ++iter) {
-      str_utf8_wrapper k2(*iter);
-      stream << k2.toString() << " = " << v[k2] << "; ";
+  bool first = true;
+  for (auto c: k) {
+    if (!isascii(c)) {
+      return false;
+    }
+    if (first) {
+      first = false;
+      if (!isalpha(c) && c != '$' && c != '_') {
+        return false;
+      }
+    } else {
+      if (!isalnum(c) && c != '_') {
+        return false;
+      }
     }
   }
-  stream << "}";
+  return true;
+}
+
+// This is used for echo() and str().
+std::ostream& operator<<(std::ostream& stream, const ObjectType& v)
+{
+  std::string sep = " ";
+
+  stream << "{";
+  for (auto & k : v.keys()) {
+    stream << sep;
+    if (ObjectType::keyIsIdentifier(k)) {
+      stream << k;
+    } else {
+      stream << QuotedString(k);
+    }
+    stream << " : " << v[k];
+    sep = ", ";
+  }
+  stream << " }";
   return stream;
+}
+
+void ObjectType::ObjectObject::merge(Value&& value, const Location& loc)
+{
+  if (value.type() != Value::Type::OBJECT) {
+    std::stringstream message;
+    message << "inclusion is " << value.typeName() << ", must be object.";
+    LOG(message_group::Warning, loc, "", "%1$s", message.str());
+    return;
+  }
+
+  ObjectType o = value.toObject();
+  for(const auto& key:o.literalDuplicateKeys()){
+    if(std::find(literalDuplicates.begin(),literalDuplicates.end(),key)==literalDuplicates.end())literalDuplicates.push_back(key);
+  }
+  for (auto iter = o.ptr->keys.begin(); iter != o.ptr->keys.end(); ++iter) {
+    const auto& k = *iter;
+    this->set(k, o[k].clone());
+  }
 }

@@ -26,6 +26,12 @@ public:
   void print(std::ostream& stream, const std::string& indent) const override;
   const std::string& getName() const { return name; }
   const std::shared_ptr<Expression>& getExpr() const { return expr; }
+  const Location& sourceNameLocation() const { return sourceName; }
+  const Location& sourceExpressionLocation() const { return sourceExpression; }
+  void setSourceLocations(const Location& name, const Location& expression) {
+    sourceName = name;
+    sourceExpression = expression;
+  }
   const AnnotationMap& getAnnotations() const { return annotations; }
   // setExpr used by customizer ParameterObject etc.
   void setExpr(std::shared_ptr<Expression> e) { expr = std::move(e); }
@@ -42,6 +48,7 @@ protected:
   std::shared_ptr<class Expression> expr;
   AnnotationMap annotations;
   Location locOfOverwrite;
+  Location sourceName = Location::NONE, sourceExpression = Location::NONE;
 };
 
 template <class... Args>

@@ -1,4 +1,5 @@
 #include "core/Builtins.h"
+#include "core/anchors/ReferenceKinds.h"
 
 #include <memory>
 #include <string>
@@ -73,6 +74,7 @@ extern void initialize_builtin_dxf_dim();
  */
 void Builtins::initialize()
 {
+  Anchors::registerKinds();
   initKeywordList();
 
   register_builtin_functions();

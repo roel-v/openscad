@@ -39,6 +39,8 @@ public:
   std::optional<T> lookup(const std::string& name) const;
 
   AssignmentList assignments;
+  // Original declarations, before effective assignment replacement.
+  AssignmentList assignmentOccurrences;
   // Populated only for isolated inspection; keeps lexical ordering and overwritten assignments.
   std::vector<std::shared_ptr<ASTNode>> syntaxOrder;
   std::vector<std::shared_ptr<ModuleInstantiation>> moduleInstantiations;
@@ -51,6 +53,9 @@ public:
   inline const std::unordered_map<std::string, std::shared_ptr<UserModule>>& getUserModules() const
   {
     return modules;
+  }
+  const std::vector<std::pair<std::string, std::shared_ptr<UserModule>>>& getModuleDeclarations() const {
+    return astModules;
   }
 
 private:

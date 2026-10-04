@@ -128,10 +128,18 @@ if(CLANG_TIDY)
 endif(CLANG_TIDY)
 
 add_executable(OpenSCADExe src/main_wrapper.cc)
+if(WIN32)
+  set(OPENSCAD_WINDOWS_OUTPUT_NAME "openscad" CACHE STRING "Windows application executable basename")
+  if(NOT OPENSCAD_WINDOWS_OUTPUT_NAME MATCHES "^[A-Za-z0-9_-]+$")
+    message(FATAL_ERROR "Invalid OPENSCAD_WINDOWS_OUTPUT_NAME")
+  endif()
+endif()
 if (APPLE)
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "OpenSCAD"
   )
+elseif(WIN32)
+  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME "${OPENSCAD_WINDOWS_OUTPUT_NAME}")
 else()
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "openscad"
@@ -822,6 +830,15 @@ FLEX_TARGET(comment_lexer src/core/customizer/comment_lexer.l ${OPENSCAD_LIB_OUT
 BISON_TARGET(comment_parser src/core/customizer/comment_parser.y ${OPENSCAD_LIB_OUTPUT_DIR}/comment_parser.cxx DEFINES_FILE ${OPENSCAD_LIB_OUTPUT_DIR}/comment_parser.hxx COMPILE_FLAGS "-d -p comment_parser")
 ADD_FLEX_BISON_DEPENDENCY(comment_lexer comment_parser)
 
+# Provider hashing uses Core even in command-only builds.
+if(HEADLESS)
+  if(USE_QT6)
+    find_package(Qt6 COMPONENTS Core REQUIRED)
+  else()
+    find_package(Qt5 5.12 COMPONENTS Core REQUIRED)
+  endif()
+endif()
+
 if(NOT HEADLESS)
   if (APPLE AND EXISTS /usr/local/opt/qt)
     list(APPEND CMAKE_PREFIX_PATH "/usr/local/opt/qt")
@@ -1049,6 +1066,30 @@ target_compile_definitions(OpenSCADLibInternal PUBLIC DEFAULT_OFFSCREEN_CONTEXT=
 # NOTE: To keep HEADLESS builds working, do NOT add Qt-dependent sources here,
 #       see GUI_SOURCES list below for that.
 set(CORE_SOURCES
+  src/core/semantic/SemanticKinds.cc
+  src/core/anchors/ReferenceKinds.cc
+  src/core/anchors/ReferenceCollector.cc
+  src/core/anchors/ReferenceScene.cc
+  src/core/anchors/AnchorFrames.cc
+  src/core/anchors/AttachmentGraph.cc
+  src/core/anchors/AttachmentSolver.cc
+  src/core/anchors/AnchorOperations.cc
+  src/core/anchors/AnchorResolver.cc
+  src/core/anchors/AnchorSourceEdits.cc
+  src/core/semantic/SemanticScene.cc
+  src/core/semantic/SemanticPlacement.cc
+  src/core/semantic/SemanticEvaluation.cc
+  src/core/semantic/SemanticTargets.cc
+  src/core/semantic/SemanticVisibility.cc
+  src/core/semantic/SemanticSourceEdits.cc
+  src/core/semantic/SemanticCollector.cc
+  src/core/providers/ProviderCommands.cc
+  src/core/providers/LibraryMatcher.cc
+  src/core/providers/LibraryResolution.cc
+  src/core/providers/CatalogLoader.cc
+  src/core/providers/ContentDigest.cc
+  src/core/providers/ProviderRegistry.cc
+  src/core/providers/ScadFragmentWriter.cc
   src/Feature.cc
   src/FontCache.cc
   src/LibraryInfo.cc
@@ -1071,6 +1112,18 @@ set(CORE_SOURCES
   src/core/CurveDiscretizer.cc
   src/core/DrawingCallback.cc
   src/core/EvaluationSession.cc
+  src/core/EvaluationInputs.cc
+  src/core/provenance/SourceProvenance.cc
+  src/core/provenance/ProvenanceCollector.cc
+  src/core/design/DesignObjects.cc
+  src/core/design/DesignKinds.cc
+  src/core/design/DesignCollector.cc
+  src/core/design/DesignReferences.cc
+  src/core/design/DesignSourceMap.cc
+  src/core/design/DesignSourceFields.cc
+  src/glview/SurfacePickMath.cc
+  src/glview/InspectionPresentation.cc
+  src/glview/SelectionRouter.cc
   src/core/Expression.cc
   src/core/FreetypeRenderer.cc
   src/core/FunctionType.cc
@@ -1314,6 +1367,8 @@ else()
     src/glview/fbo.cc
     src/glview/Renderer.cc
     src/glview/ShaderUtils.cc
+    src/glview/SurfacePick.cc
+    src/glview/InspectionMeshRenderer.cc
     src/glview/system-gl.cc
     src/glview/VBOBuilder.cc
     src/glview/VertexState.cc
@@ -1346,6 +1401,27 @@ set(INPUT_DRIVER_SOURCES
   ${INPUT_DRIVER_DBUS_SOURCES})
 
 set(GUI_SOURCES
+  src/gui/ExportOptions.cc
+  src/gui/semantic/SemanticExportJob.cc
+  src/gui/semantic/SemanticTargetService.cc
+  src/gui/semantic/ModelTreeModel.cc
+  src/gui/semantic/SemanticMeshJob.cc
+  src/gui/semantic/SemanticController.cc
+  src/gui/anchors/AnchorController.cc
+  src/gui/anchors/AnchorInspectorContribution.cc
+  src/gui/anchors/AnchorOverlay.cc
+  src/gui/semantic/SemanticParameterPanel.cc
+  src/gui/selection/EvaluationBinding.cc
+  src/gui/source/EditorUndoRegistry.cc
+  src/gui/design/DesignEdits.cc
+  src/gui/design/DesignDocument.cc
+  src/gui/design/SavedViewContribution.cc
+  src/gui/selection/SelectionService.cc
+  src/gui/InspectionPresentationController.cc
+  src/gui/selection/ViewportToolRouter.cc
+  src/gui/selection/ViewportOverlays.cc
+  src/gui/selection/InspectorDock.cc
+  src/gui/selection/ProvenanceService.cc
   src/gui/annotations/AgentSyntax.cc
   src/gui/annotations/AgentModel.cc
   src/gui/annotations/AnnotationTransport.cc
@@ -1412,10 +1488,15 @@ set(GUI_SOURCES
   src/gui/ScadApi.cc
   src/gui/ScadLexer.cc
   src/gui/ScintillaEditor.cc
+  src/gui/source/SourceEditTransaction.cc
+  src/gui/source/SourceEditTransaction.h
+  src/gui/source/DiskSourceState.cc
+  src/gui/source/DiskSourceState.h
   src/gui/SettingsWriter.cc
   src/gui/TabManager.cc
   src/gui/UIUtils.cc
   src/gui/WindowManager.cc
+  src/gui/ShortcutConfigurator.cc
   src/gui/IgnoreWheelWhenNotFocused.cc
   src/gui/input/AxisConfigWidget.cc
   src/gui/input/ButtonConfigWidget.cc
@@ -1448,6 +1529,17 @@ set(GUI_HEADER_ONLY
 
 # To be added in Source for QtCreator to show them in project tree
 set(GUI_HEADERS
+  src/gui/selection/EvaluationBinding.h
+  src/gui/source/EditorUndoRegistry.h
+  src/gui/design/DesignEdits.h
+  src/gui/design/DesignDocument.h
+  src/gui/design/SavedViewContribution.h
+  src/gui/anchors/AnchorController.h
+  src/gui/selection/SelectionService.h
+  src/gui/InspectionPresentationController.h
+  src/gui/selection/ViewportToolRouter.h
+  src/gui/selection/InspectorDock.h
+  src/gui/selection/SelectionTypes.h
   src/gui/annotations/AnnotationTransport.h
   src/gui/annotations/AnnotationBridge.h
   src/gui/annotations/AnnotationController.h
@@ -1624,8 +1716,14 @@ if(ENABLE_GUI_TESTS)
     src/guitests/guitests.h
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
+    src/guitests/TestSourceTransactions.h
+    src/guitests/TestDesignObjects.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
+    src/guitests/TestSelection.h
+    src/guitests/TestProvenance.h
+    src/guitests/TestSemanticHierarchy.h
+    src/guitests/TestAnchors.h
     src/guitests/UXTest.h
   )
 
@@ -1635,8 +1733,14 @@ if(ENABLE_GUI_TESTS)
     src/guitests/guitests.cc
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
+    src/guitests/TestSourceTransactions.cc
+    src/guitests/TestDesignObjects.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
+    src/guitests/TestSelection.cc
+    src/guitests/TestProvenance.cc
+    src/guitests/TestSemanticHierarchy.cc
+    src/guitests/TestAnchors.cc
     src/guitests/UXTest.cc
   )
 
@@ -1663,6 +1767,9 @@ if (APPLE)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE})
 elseif(WIN32)
   target_sources(OpenSCADExe PRIVATE ${WINDOWS_RESOURCE_PATH})
+  # RC dependency scanning does not track files embedded as resource data.
+  set_property(SOURCE ${WINDOWS_RESOURCE_PATH} APPEND PROPERTY OBJECT_DEPENDS
+               "${CMAKE_CURRENT_SOURCE_DIR}/scripts/winmanifest.xml")
   if(MSVC)
     # The resource script already embeds the application manifest.
     target_link_options(OpenSCADExe PRIVATE /MANIFEST:NO)
@@ -1677,6 +1784,7 @@ file(GLOB_RECURSE TEST_SOURCES
 file(GLOB_RECURSE GUI_TEST_SOURCES
   "src/gui/*_test.cc"
 )
+list(APPEND TEST_SOURCES src/glview/SurfacePickMath_test.cc src/glview/InspectionPresentation_test.cc src/glview/SelectionRouter_test.cc)
 list(FILTER Sources EXCLUDE REGEX ".*_test[.]cc")
 list(REMOVE_ITEM Sources "src/main_wrapper.cc")
 
@@ -1779,7 +1887,9 @@ else()
 endif()
 
 if(NOT APPLE OR APPLE_UNIX)
-  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME openscad${SUFFIX_WITH_DASH})
+  if(NOT WIN32)
+    set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME openscad${SUFFIX_WITH_DASH})
+  endif()
   install(TARGETS OpenSCADExe RUNTIME DESTINATION "${OPENSCAD_BINDIR}")
   if(ENABLE_PYTHON)
     install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/openscad-python DESTINATION "${OPENSCAD_BINDIR}")
@@ -1808,12 +1918,15 @@ if(NOT APPLE OR APPLE_UNIX)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/examples DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/fonts DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" PATTERN ".uuid" EXCLUDE)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/libraries DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" PATTERN ".git*" EXCLUDE)
+  install(FILES ${CMAKE_CURRENT_LIST_DIR}/doc/anchors-and-attachments.md DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}/doc")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/locale DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*/LC_MESSAGES/openscad.mo")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/shaders DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/templates DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*.json")
+  install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/providers DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}")
+  install(FILES ${CMAKE_CURRENT_LIST_DIR}/doc/component-providers.md DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}/doc")
 
   if(ENABLE_GUI_TESTS)
-    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests)
+    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests/data)
   endif()
 
 else()
@@ -1896,7 +2009,19 @@ if(ENABLE_TESTS)
       add_executable(OpenSCADUnitTests ${TEST_SOURCES} ${GUI_TEST_SOURCES})
     endif()
     target_link_libraries(OpenSCADUnitTests PRIVATE Catch2::Catch2WithMain OpenSCADLibInternal svg)
+    get_target_property(native_unit_standard OpenSCADLibInternal CXX_STANDARD)
+    set_target_properties(OpenSCADUnitTests PROPERTIES
+      CXX_STANDARD ${native_unit_standard} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+    if(NOT HEADLESS)
+      # Widget headers used by real-editor tests include the library's generated UI headers.
+      target_include_directories(OpenSCADUnitTests PRIVATE
+        "${CMAKE_BINARY_DIR}/OpenSCADLibInternal_autogen/include")
+    endif()
+    add_dependencies(OpenSCADUnitTests OpenSCADExe)
     target_compile_definitions(OpenSCADUnitTests PRIVATE
+      OPENSCAD_PROVIDER_TEST_DIR="${CMAKE_SOURCE_DIR}/providers"
+      OPENSCAD_PROVIDER_TEST_EXE="$<TARGET_FILE:OpenSCADExe>"
+      OPENSCAD_PROVIDER_TEST_OUTPUT_DIR="${CMAKE_BINARY_DIR}/providers-generated"
       OPENSCAD_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
     include(CTest)
     include(Catch)
@@ -1912,9 +2037,26 @@ if(OFFLINE_DOCS)
   add_subdirectory(resources)
 endif()
 
+file(GLOB_RECURSE PROVIDER_RESOURCE_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/providers/*.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PROVIDER_RESOURCE_FILES})
+if(APPLE AND NOT APPLE_UNIX)
+  file(COPY providers DESTINATION "${BUNDLE_RESOURCES_DIR}")
+  file(COPY doc/component-providers.md DESTINATION "${BUNDLE_RESOURCES_DIR}/doc")
+else()
+  file(COPY providers DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+endif()
+
 configure_file(${RESOURCE_DIR}/openscad_win32${SNAPSHOT_SUFFIX}.rc.in
 	       ${CMAKE_BINARY_DIR}/openscad_win32${SNAPSHOT_SUFFIX}.rc)
 include(CPack)
+
+if(HEADLESS)
+  if(USE_QT6)
+    target_link_libraries(OpenSCADLibInternal PUBLIC Qt6::Core)
+  else()
+    target_link_libraries(OpenSCADLibInternal PUBLIC Qt5::Core)
+  endif()
+endif()
 
 add_sanitizers(OpenSCADLibInternal)
 

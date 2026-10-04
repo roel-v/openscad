@@ -1,0 +1,580 @@
+{
+  "schemaVersion": 1,
+  "providerId": "scadmaxx.bosl2",
+  "providerVersion": "1.0.0",
+  "label": "BOSL2",
+  "libraries": [
+    {
+      "libraryId": "bosl2",
+      "label": "BOSL2",
+      "defaultImportPrefix": "BOSL2",
+      "profiles": [
+        {
+          "profileId": "bosl2-2.0.766-e173fa0",
+          "releaseLabel": "2.0.766",
+          "revisionEvidence": "e173fa0ae45f9e2082e0d8c0382dae98621b7c20",
+          "fileHashes": [
+            {
+              "path": "affine.scad",
+              "sha256": "035629bc49574b7b745afd2cb493efb1ff8d7bdf6f7fa7cf0abe92d6f99b76c8"
+            },
+            {
+              "path": "attachments.scad",
+              "sha256": "d7eb1f2d0ec74b713ceb14532bcb2b3ec7bc04c28ff0ef12eaf1c886562cc8cb"
+            },
+            {
+              "path": "beziers.scad",
+              "sha256": "54b6f1938c10b59c9998dce97a163d5482dcb2f4f002019872ee1d93ab90b96c"
+            },
+            {
+              "path": "builtins.scad",
+              "sha256": "8e3b0aacadb648d143348ba19e3f07997f06d5bc3edfd85c4d9d7fc03f417f1f"
+            },
+            {
+              "path": "color.scad",
+              "sha256": "052e3d3e6f422a31dd6af38f52f23ba0cee3f29b2f157e2b20f998e5dd2a4d99"
+            },
+            {
+              "path": "comparisons.scad",
+              "sha256": "7df1cb0a72bd1eb0d416165101e48b7de66e02e94d5e5ba10693c0e87ee882d0"
+            },
+            {
+              "path": "constants.scad",
+              "sha256": "b2012b882a41be9d127904989e1b4be5fa627a3971aae17681613d7f39981392"
+            },
+            {
+              "path": "coords.scad",
+              "sha256": "f0af54b84722a447cb0d34390962cd0913cb213fe14d479a014bc5a0cd02d116"
+            },
+            {
+              "path": "distributors.scad",
+              "sha256": "636ada5a6b2f9259415d9b1256629a8f3326697d84ecbf0ebfaeda5ed72b204c"
+            },
+            {
+              "path": "drawing.scad",
+              "sha256": "b0f01f1dca062bf8ddb1ea37768fc4252ec15b493ce113d4e358d8a8385bc92e"
+            },
+            {
+              "path": "geometry.scad",
+              "sha256": "c6afef6a9e4e21052235f5eab7c370bffceafc2e47eb3ef8d58ab0281335dddb"
+            },
+            {
+              "path": "linalg.scad",
+              "sha256": "89541cd77089ca9cde978957ee18c3fbadc18b731fdf8ac0a290f7c7692337bd"
+            },
+            {
+              "path": "lists.scad",
+              "sha256": "2a48070fb8c326429d99539256c8f435fd1ac633ac34b8a2e783f4cbebd997c8"
+            },
+            {
+              "path": "masks.scad",
+              "sha256": "b30f6b069d5847561a4febff958e55d78bb7c0ac8e32288b150bcb37257c1a2e"
+            },
+            {
+              "path": "math.scad",
+              "sha256": "e86863ba2314abcaa4f7add60d56006be9c6f96928d00115b83fcc362b4a8f98"
+            },
+            {
+              "path": "miscellaneous.scad",
+              "sha256": "696ad3f5939dd7f30bb257f1e057a230578d5912aa1be3a67a20bd83133e52d9"
+            },
+            {
+              "path": "partitions.scad",
+              "sha256": "044fa31c38c46b98035ec467f9959a5797295b66eb160987a6172805d7db718b"
+            },
+            {
+              "path": "paths.scad",
+              "sha256": "7221787a912f35bd719a579c1d20a063a384077b623a75a5ddc4e86d34bea34f"
+            },
+            {
+              "path": "regions.scad",
+              "sha256": "8693307de69a28645bfacbfd9329e995940103f101956739a5607aaba1f12cf1"
+            },
+            {
+              "path": "rounding.scad",
+              "sha256": "b6a70c5a50842619734b749a4b9a88b5de5d74999faa2228a70732fdf08e7ce9"
+            },
+            {
+              "path": "screw_drive.scad",
+              "sha256": "e7c301d928f7061616de59935aaffacc57eea22b55448d829b7a2779b3c1fcec"
+            },
+            {
+              "path": "screws.scad",
+              "sha256": "e35cdacf7f9eec1ffdf4ec4d6ec0b0cb38878e5457b3d0b0e468203c4f0613e9"
+            },
+            {
+              "path": "shapes2d.scad",
+              "sha256": "7c80e65adef8a88a91846ae6d6a171e506aab2ce3a90bac00f8abf4ca3b1daf7"
+            },
+            {
+              "path": "shapes3d.scad",
+              "sha256": "8f46a6c845ae4799f781e2a9bb78f336998df41407e3c341051664cb8c180326"
+            },
+            {
+              "path": "skin.scad",
+              "sha256": "0669c768eab0cdba10e35a251e8ef78aa85692a3d3b0b28837e7aaf4dd8a0085"
+            },
+            {
+              "path": "std.scad",
+              "sha256": "bcddc3093863ab322cd8503f4f784a67a6c706423a27669e64ddeb13e4d355a2"
+            },
+            {
+              "path": "strings.scad",
+              "sha256": "b5ea8ba57b13a0a2d9c68a880d16f533a3063776f42709e69024cf410a449278"
+            },
+            {
+              "path": "structs.scad",
+              "sha256": "62638486c7e10c54c92784c6858c1ed1ccfa25be657973b8a901ae52762cc41a"
+            },
+            {
+              "path": "threading.scad",
+              "sha256": "895481e465754412f29ffe32113d20debc74aef735eb44c77a9565ff276fa253"
+            },
+            {
+              "path": "transforms.scad",
+              "sha256": "6e0f58ac40a52fe3d4ed202746cbe26a293487e7b47b50e9d661b9d51ef9c810"
+            },
+            {
+              "path": "trigonometry.scad",
+              "sha256": "63553ca2a297c633ed6a8aca99bae9b6db91a335c720a92d529b433955b3ac7e"
+            },
+            {
+              "path": "utility.scad",
+              "sha256": "1ee2f63d4f8eca1be1612c36042896334f2f01ba0314ef870c95513dadf606db"
+            },
+            {
+              "path": "vectors.scad",
+              "sha256": "ef1fcd02b7d5cce86719d25d3fd1b2f57683180d002c585f44994cc6198fd7cb"
+            },
+            {
+              "path": "version.scad",
+              "sha256": "5919420c6986908eacc3ccea21fb0a6e0dfdb82af5323c733b314ef5272b6edd"
+            },
+            {
+              "path": "vnf.scad",
+              "sha256": "f4bae873b2d9c85f3bf1d45ad286f43d99891b71a09b04e75406b55959f94566"
+            }
+          ],
+          "importEdges": [
+            {
+              "from": "color.scad",
+              "kind": "use",
+              "import": "builtins.scad",
+              "to": "builtins.scad"
+            },
+            {
+              "from": "screw_drive.scad",
+              "kind": "include",
+              "import": "structs.scad",
+              "to": "structs.scad"
+            },
+            {
+              "from": "screws.scad",
+              "kind": "include",
+              "import": "structs.scad",
+              "to": "structs.scad"
+            },
+            {
+              "from": "screws.scad",
+              "kind": "include",
+              "import": "threading.scad",
+              "to": "threading.scad"
+            },
+            {
+              "from": "screws.scad",
+              "kind": "include",
+              "import": "screw_drive.scad",
+              "to": "screw_drive.scad"
+            },
+            {
+              "from": "shapes2d.scad",
+              "kind": "use",
+              "import": "builtins.scad",
+              "to": "builtins.scad"
+            },
+            {
+              "from": "shapes3d.scad",
+              "kind": "use",
+              "import": "builtins.scad",
+              "to": "builtins.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "version.scad",
+              "to": "version.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "constants.scad",
+              "to": "constants.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "transforms.scad",
+              "to": "transforms.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "distributors.scad",
+              "to": "distributors.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "miscellaneous.scad",
+              "to": "miscellaneous.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "color.scad",
+              "to": "color.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "attachments.scad",
+              "to": "attachments.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "beziers.scad",
+              "to": "beziers.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "shapes3d.scad",
+              "to": "shapes3d.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "shapes2d.scad",
+              "to": "shapes2d.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "drawing.scad",
+              "to": "drawing.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "masks.scad",
+              "to": "masks.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "math.scad",
+              "to": "math.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "paths.scad",
+              "to": "paths.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "lists.scad",
+              "to": "lists.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "comparisons.scad",
+              "to": "comparisons.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "linalg.scad",
+              "to": "linalg.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "trigonometry.scad",
+              "to": "trigonometry.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "vectors.scad",
+              "to": "vectors.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "affine.scad",
+              "to": "affine.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "coords.scad",
+              "to": "coords.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "geometry.scad",
+              "to": "geometry.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "regions.scad",
+              "to": "regions.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "strings.scad",
+              "to": "strings.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "vnf.scad",
+              "to": "vnf.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "structs.scad",
+              "to": "structs.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "rounding.scad",
+              "to": "rounding.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "skin.scad",
+              "to": "skin.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "utility.scad",
+              "to": "utility.scad"
+            },
+            {
+              "from": "std.scad",
+              "kind": "include",
+              "import": "partitions.scad",
+              "to": "partitions.scad"
+            }
+          ],
+          "digest": "af99ecc69d19198e63794f952c491c162f1039dbbad0cc1cd4c1da8035d25f27"
+        }
+      ]
+    }
+  ],
+  "items": [
+    {
+      "id": "threaded-hole",
+      "label": "Metric threaded hole",
+      "category": [
+        "Holes",
+        "Threads"
+      ],
+      "description": "BOSL2 modeled metric thread mask, tolerance 6H and $slop 0. Nominal depth includes the pinned lead-in extension.",
+      "parameters": [
+        {
+          "id": "size",
+          "label": "Metric size",
+          "type": "enum",
+          "default": "M4",
+          "enumValues": [
+            "M3",
+            "M4",
+            "M5",
+            "M6",
+            "M8"
+          ]
+        },
+        {
+          "id": "depth",
+          "label": "Depth",
+          "type": "number",
+          "default": 12,
+          "unit": "mm",
+          "min": 2,
+          "max": 100
+        }
+      ],
+      "operation": "subtractive",
+      "insertionRole": "geometry",
+      "recipes": [
+        {
+          "profileIds": [
+            "bosl2-2.0.766-e173fa0"
+          ],
+          "imports": [
+            {
+              "libraryId": "bosl2",
+              "path": "std.scad",
+              "kind": "include",
+              "scope": "file"
+            },
+            {
+              "libraryId": "bosl2",
+              "path": "screws.scad",
+              "kind": "include",
+              "scope": "file"
+            }
+          ],
+          "helpers": [],
+          "moduleBindings": [
+            {
+              "module": "screw_hole",
+              "libraryId": "bosl2",
+              "path": "screws.scad"
+            }
+          ],
+          "geometry": {
+            "module": "screw_hole",
+            "arguments": [
+              {
+                "name": "spec",
+                "value": {
+                  "parameter": "size"
+                }
+              },
+              {
+                "name": "head",
+                "value": {
+                  "constant": "none"
+                }
+              },
+              {
+                "name": "thread",
+                "value": {
+                  "constant": true
+                }
+              },
+              {
+                "name": "length",
+                "value": {
+                  "parameter": "depth"
+                }
+              },
+              {
+                "name": "tolerance",
+                "value": {
+                  "constant": "6H"
+                }
+              },
+              {
+                "name": "counterbore",
+                "value": {
+                  "constant": 0
+                }
+              },
+              {
+                "name": "bevel",
+                "value": {
+                  "constant": false
+                }
+              },
+              {
+                "name": "anchor",
+                "value": {
+                  "vector": [
+                    {
+                      "constant": 0
+                    },
+                    {
+                      "constant": 0
+                    },
+                    {
+                      "constant": -1
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "atype",
+                "value": {
+                  "constant": "shaft"
+                }
+              },
+              {
+                "name": "orient",
+                "value": {
+                  "vector": [
+                    {
+                      "constant": 0
+                    },
+                    {
+                      "constant": 0
+                    },
+                    {
+                      "constant": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "$slop",
+                "value": {
+                  "constant": 0
+                }
+              }
+            ]
+          },
+          "placement": {
+            "origin": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "normal": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 0
+              },
+              {
+                "constant": 1
+              }
+            ],
+            "up": [
+              {
+                "constant": 0
+              },
+              {
+                "constant": 1
+              },
+              {
+                "constant": 0
+              }
+            ],
+            "label": "Contact"
+          }
+        }
+      ]
+    }
+  ]
+}

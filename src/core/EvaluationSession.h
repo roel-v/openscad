@@ -2,6 +2,8 @@
 
 #include <boost/optional.hpp>
 #include <cstddef>
+#include <memory>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,11 +14,19 @@
 
 class Value;
 class ContextFrame;
+namespace SourceProvenance { class ProvenanceCollector; }
+namespace Design { class Collector; struct Payload; }
+namespace Semantic { class Collector; }
 
 class EvaluationSession
 {
 public:
+  std::shared_ptr<SourceProvenance::ProvenanceCollector> provenanceCollector;
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}
+  std::shared_ptr<Design::Collector> designCollector;
+  std::shared_ptr<Semantic::Collector> semanticCollector;
+  // Evaluation-local, move-owned consumer data; no borrowed native Context is retained.
+  std::map<std::string, std::shared_ptr<Design::Payload>> consumerStates;
 
   size_t push_frame(ContextFrame *frame);
   void replace_frame(size_t index, ContextFrame *frame);

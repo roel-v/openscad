@@ -71,7 +71,7 @@ void InspectorDock::refresh()
 {
   const auto state=window->selectionService->state(); const auto stamp=window->evaluationBinding->stamp();
   auto vector=[](const Vector3d& point) { return QString("[%1, %2, %3]").arg(point.x(),0,'g',10).arg(point.y(),0,'g',10).arg(point.z(),0,'g',10); };
-  QString text=tr("Evaluation: %1\nResult: %2\nObject: %3\nWorld point: %4\nOutward normal: %5\nLocal point: %6\nLocal frame: %7\nSource provenance: unavailable\nSemantic ownership: unavailable")
+  QString text=tr("Evaluation: %1\nResult: %2\nObject: %3\nWorld point: %4\nOutward normal: %5\nLocal point: %6\nLocal frame: %7\nSemantic ownership: unavailable")
     .arg(window->evaluationBinding->current() ? tr("current") : tr("stale or unavailable"),stamp.resultId.isEmpty() ? tr("unavailable") : stamp.resultId,
       state.object ? QString::number(state.object->drawId) : tr("unavailable"),state.surface ? vector(state.surface->worldPoint) : tr("unavailable"),
       state.surface ? vector(state.surface->outwardNormal) : tr("unavailable"),state.surface && state.surface->localPoint ? vector(*state.surface->localPoint) : tr("unavailable"),

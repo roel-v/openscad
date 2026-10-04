@@ -6,10 +6,10 @@
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
 #include "TestSourceTransactions.h"
-#include "TestSourceTransactions.h"
 #include "TestAnnotations.h"
 #include "TestNavigation.h"
 #include "TestSelection.h"
+#include "TestProvenance.h"
 
 template <typename TestClass>
 int runTests(MainWindow *window)
@@ -37,6 +37,7 @@ int runAllTest(MainWindow *window)
     return QTest::qExec(&test, arguments);
   }
   int totalTestFailures = 0;
+  if (qEnvironmentVariableIsSet("OPENSCAD_PROVENANCE_TESTS_ONLY")) return runTests<TestProvenance>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_SELECTION_TESTS_ONLY")) return runTests<TestSelection>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_ANNOTATION_TESTS_ONLY")) return runTests<TestAnnotations>(window);
   std::cout << "******************************* RUN UX TESTS ********************************"
@@ -48,6 +49,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestAnnotations>(window);
   totalTestFailures += runTests<TestNavigation>(window);
   totalTestFailures += runTests<TestSelection>(window);
+  totalTestFailures += runTests<TestProvenance>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;
   std::cout << "Failures: " << totalTestFailures << std::endl;

@@ -26,6 +26,30 @@
 
 %expect 0
 
+%code requires {
+#include <filesystem>
+struct ParserSourceLocation {
+  int first_line, first_column, last_line, last_column;
+  const std::filesystem::path *first_file, *last_file;
+};
+#define YYLTYPE_IS_TRIVIAL 1
+#define YYLLOC_DEFAULT(Current, Rhs, N) do { \
+  if (N) { \
+    (Current).first_line = YYRHSLOC(Rhs, 1).first_line; \
+    (Current).first_column = YYRHSLOC(Rhs, 1).first_column; \
+    (Current).first_file = YYRHSLOC(Rhs, 1).first_file; \
+  } else { \
+    (Current).first_line = YYRHSLOC(Rhs, 0).last_line; \
+    (Current).first_column = YYRHSLOC(Rhs, 0).last_column; \
+    (Current).first_file = YYRHSLOC(Rhs, 0).last_file; \
+  } \
+  (Current).last_line = YYRHSLOC(Rhs, N).last_line; \
+  (Current).last_column = YYRHSLOC(Rhs, N).last_column; \
+  (Current).last_file = YYRHSLOC(Rhs, N).last_file; \
+} while (0)
+}
+%define api.location.type {ParserSourceLocation}
+
 %{
 
 #include <sys/types.h>
@@ -43,6 +67,7 @@
 #include "core/Assignment.h"
 #include "core/Expression.h"
 #include "core/ParserInspection.h"
+#include "core/provenance/SourceProvenance.h"
 #include "core/function.h"
 #include "io/fileutils.h"
 #include "utils/printutils.h"
@@ -54,7 +79,9 @@
 namespace fs = std::filesystem;
 
 #define YYMAXDEPTH 200000
-#define LOC(loc) Location(loc.first_line, loc.first_column, loc.last_line, loc.last_column, sourcefile())
+#define LOC(loc) ((loc).first_file && (loc).last_file && *(loc).first_file == *(loc).last_file \
+  ? Location((loc).first_line, (loc).first_column, (loc).last_line, (loc).last_column, \
+             std::make_shared<fs::path>(*(loc).first_file)) : Location::NONE)
 #ifdef DEBUG
 static Location debug_location(const std::string& info, const struct YYLTYPE& loc);
 #define LOCD(str, loc) debug_location(str, loc)
@@ -73,7 +100,8 @@ std::shared_ptr<fs::path> sourcefile(void);
 void lexer_set_parser_sourcefile(const fs::path& path);
 int lexerlex_destroy(void);
 int lexerlex(void);
-static void handle_assignment(const std::string token, Expression *expr, const Location loc);
+static void handle_assignment(const std::string token, Expression *expr, const Location loc,
+                              const Location nameLocation, const Location expressionLocation);
 
 std::stack<std::shared_ptr<LocalScope>> scope_stack;
 SourceFile *rootfile;
@@ -94,6 +122,7 @@ ParserInspection *parserInspection = nullptr;
   @$.first_column = 1;
   @$.last_column = 1;
   @$.last_line = 1;
+  @$.first_file = @$.last_file = sourcefile().get();
 };
 
 %union {
@@ -105,6 +134,7 @@ ParserInspection *parserInspection = nullptr;
   class ModuleInstantiation *inst;
   class IfElseModuleInstantiation *ifelse;
   class Assignment *arg;
+  class UserModule *umod;
   AssignmentList *args;
 }
 
@@ -211,8 +241,15 @@ statement
         | assignment
         | TOK_MODULE TOK_ID '(' parameters ')'
             {
-              UserModule *newmodule = new UserModule($2, LOCD("module", @$));
+              auto header = @1;
+              header.last_line = @5.last_line;
+              header.last_column = @5.last_column;
+              header.last_file = @5.last_file;
+              UserModule *newmodule = new UserModule($2, LOCD("module", header));
+              $<umod>$ = newmodule;
               newmodule->parameters = *$4;
+              if (SourceProvenance::nativeSyntaxTable)
+                SourceProvenance::nativeSyntaxTable->record(*newmodule, SourceProvenance::SiteKind::ModuleDefinition, $2, *$4);
               auto top = scope_stack.top();
               scope_stack.push(newmodule->body);
               top->addModule(std::shared_ptr<UserModule>(newmodule));
@@ -224,12 +261,15 @@ statement
           statement
             {
                 scope_stack.pop();
+                if (SourceProvenance::nativeSyntaxTable)
+                  SourceProvenance::nativeSyntaxTable->updateWhole(*$<umod>6, LOC(@$));
             }
         | TOK_FUNCTION TOK_ID '(' parameters ')' '=' expr ';'
             {
-              scope_stack.top()->addFunction(
-                std::make_shared<UserFunction>($2, *$4, std::shared_ptr<Expression>($7), LOCD("function", @$))
-              );
+              auto function = std::make_shared<UserFunction>($2, *$4, std::shared_ptr<Expression>($7), LOCD("function", @$));
+              scope_stack.top()->addFunction(function);
+              if (SourceProvenance::nativeSyntaxTable)
+                SourceProvenance::nativeSyntaxTable->record(*function, SourceProvenance::SiteKind::FunctionDefinition, $2, *$4);
               free($2);
               delete $4;
             }
@@ -247,13 +287,13 @@ inner_input
 assignment
         : TOK_ID '=' expr ';'
             {
-                handle_assignment($1, $3, LOCD("assignment", @$));
+                handle_assignment($1, $3, LOCD("assignment", @$), LOC(@1), LOC(@3));
                 free($1);
             }
         | attribute_block TOK_ID '=' expr ';'
             {
                 // Note: attribute_block is $1, ID is $2, expr is $4
-                handle_assignment($2, $4, LOCD("assignment", @$));
+                handle_assignment($2, $4, LOCD("assignment", @$), LOC(@2), LOC(@4));
                 if ($1) {
                   Assignment *as = nullptr;
                   for (auto &a : scope_stack.top()->assignments){
@@ -270,19 +310,23 @@ module_instantiation
             {
                 $$ = $2;
                 if ($$) $$->tag_root = true;
+                if ($$ && SourceProvenance::nativeSyntaxTable) SourceProvenance::nativeSyntaxTable->updateWhole(*$$, LOC(@$));
             }
         | '#' module_instantiation
             {
                 $$ = $2;
                 if ($$) $$->tag_highlight = true;
+                if ($$ && SourceProvenance::nativeSyntaxTable) SourceProvenance::nativeSyntaxTable->updateWhole(*$$, LOC(@$));
             }
         | '%' module_instantiation
             {
                 $$ = $2;
                 if ($$) $$->tag_background = true;
+                if ($$ && SourceProvenance::nativeSyntaxTable) SourceProvenance::nativeSyntaxTable->updateWhole(*$$, LOC(@$));
             }
         | '*' module_instantiation
             {
+                if ($2 && SourceProvenance::nativeSyntaxTable) SourceProvenance::nativeSyntaxTable->updateWhole(*$2, LOC(@$));
                 if (parserInspection) {
                   $$ = $2;
                   if ($$) $$->tag_disabled = true;
@@ -300,6 +344,7 @@ module_instantiation
             {
                 scope_stack.pop();
                 $$ = $<inst>2;
+                if (SourceProvenance::nativeSyntaxTable) SourceProvenance::nativeSyntaxTable->updateWhole(*$$, LOC(@$));
             }
         | ifelse_statement
             {
@@ -320,6 +365,7 @@ ifelse_statement
             {
                 scope_stack.pop();
                 $$ = $1;
+                if (SourceProvenance::nativeSyntaxTable) SourceProvenance::nativeSyntaxTable->updateWhole(*$$, LOC(@$));
             }
         ;
 
@@ -327,6 +373,10 @@ if_statement
         : TOK_IF '(' expr ')' <ifelse>
             {
                 $$ = new IfElseModuleInstantiation(std::shared_ptr<Expression>($3), LOCD("if", @$));
+                $$->arguments[0]->setLocation(LOC(@3));
+                $$->arguments[0]->setSourceLocations(Location::NONE, LOC(@3));
+                if (SourceProvenance::nativeSyntaxTable)
+                  SourceProvenance::nativeSyntaxTable->record(*$$, SourceProvenance::SiteKind::ModuleCall, "if", $$->arguments);
                 $3 = nullptr;
                 scope_stack.push($$->scope);
             }
@@ -334,6 +384,7 @@ if_statement
             {
                 scope_stack.pop();
                 $$ = $<ifelse>5;
+                if (SourceProvenance::nativeSyntaxTable) SourceProvenance::nativeSyntaxTable->updateWhole(*$$, LOC(@$));
             }
         ;
 
@@ -370,6 +421,8 @@ single_module_instantiation
         : module_id '(' arguments ')'
             {
                 $$ = new ModuleInstantiation($1, *$3, LOCD("modulecall", @$));
+                if (SourceProvenance::nativeSyntaxTable)
+                  SourceProvenance::nativeSyntaxTable->record(*$$, SourceProvenance::SiteKind::ModuleCall, $1, *$3);
                 free($1);
                 delete $3;
             }
@@ -833,11 +886,13 @@ parameter
         : TOK_ID
             {
                 $$ = new Assignment($1, LOCD("assignment", @$));
+                $$->setSourceLocations(LOC(@1), Location::NONE);
                 free($1);
             }
         | TOK_ID '=' expr
             {
               $$ = new Assignment($1, std::shared_ptr<Expression>($3), LOCD("assignment", @$));
+              $$->setSourceLocations(LOC(@1), LOC(@3));
                 free($1);
             }
         ;
@@ -867,10 +922,12 @@ argument
         : expr
             {
                 $$ = new Assignment("", std::shared_ptr<Expression>($1), LOCD("argumentcall", @$));
+                $$->setSourceLocations(Location::NONE, LOC(@1));
             }
         | TOK_ID '=' expr
             {
                 $$ = new Assignment($1, std::shared_ptr<Expression>($3), LOCD("argumentcall", @$));
+                $$->setSourceLocations(LOC(@1), LOC(@3));
                 free($1);
             }
         ;
@@ -958,9 +1015,14 @@ static void warn_reassignment(const Location& loc, const std::shared_ptr<Assignm
 			path2);
 }
 
-void handle_assignment(const std::string token, Expression *expr, const Location loc)
+void handle_assignment(const std::string token, Expression *expr, const Location loc,
+                       const Location nameLocation, const Location expressionLocation)
 {
 	const auto parsedExpression = std::shared_ptr<Expression>(expr);
+	auto occurrence = assignment(token, parsedExpression, loc);
+	occurrence->setSourceLocations(nameLocation, expressionLocation);
+	if (SourceProvenance::nativeSyntaxTable)
+		SourceProvenance::nativeSyntaxTable->record(*occurrence, SourceProvenance::SiteKind::Assignment, token, {occurrence});
 	if (parserInspection) scope_stack.top()->syntaxOrder.push_back(assignment(token, parsedExpression, loc));
 	bool found = false;
 	for (auto &assignment : scope_stack.top()->assignments) {
@@ -993,7 +1055,7 @@ void handle_assignment(const std::string token, Expression *expr, const Location
 		}
 	}
 	if (!found) {
-		scope_stack.top()->addAssignment(assignment(token, parsedExpression, loc));
+		scope_stack.top()->addAssignment(occurrence);
 	}
 }
 
@@ -1015,6 +1077,8 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
   parsingMainFile = mainFilePath == filepath;
   fs::path parser_sourcefile = fs::path(filepath).generic_string();
   lexer_set_parser_sourcefile(parser_sourcefile);
+  if (SourceProvenance::nativeSyntaxTable)
+    SourceProvenance::nativeSyntaxTable->bindParseFile(parser_sourcefile.generic_string(), text);
 
   lexerin = NULL;
   parser_error_pos = -1;
@@ -1060,6 +1124,7 @@ bool parseInspection(SourceFile *&file, const std::string& text, const std::stri
 {
   // A native parser frame cannot be suspended. The caller must hold the GUI compile lock.
   if (parserInspection || !scope_stack.empty()) return false;
+  SourceProvenance::ParseScope noNativeProvenance(nullptr);
   extern std::function<void()> preserveLexerInspectionState();
   const auto restoreLexer = preserveLexerInspectionState();
   const auto oldRoot = rootfile;

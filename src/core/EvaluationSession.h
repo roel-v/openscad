@@ -2,6 +2,7 @@
 
 #include <boost/optional.hpp>
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -12,10 +13,12 @@
 
 class Value;
 class ContextFrame;
+namespace SourceProvenance { class ProvenanceCollector; }
 
 class EvaluationSession
 {
 public:
+  std::shared_ptr<SourceProvenance::ProvenanceCollector> provenanceCollector;
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}
 
   size_t push_frame(ContextFrame *frame);

@@ -6,6 +6,7 @@
 #include <string>
 
 #include "core/Context.h"
+#include "core/provenance/ProvenanceCollector.h"
 #include "core/Expression.h"
 #include "core/callables.h"
 #include "core/module.h"
@@ -73,6 +74,7 @@ static void NOINLINE print_trace(EvaluationException& e, const ModuleInstantiati
 std::shared_ptr<AbstractNode> ModuleInstantiation::evaluate(
   const std::shared_ptr<const Context>& context) const
 {
+  SourceProvenance::ProvenanceCollector::Frame provenance(context->session()->provenanceCollector.get(), *this);
   boost::optional<InstantiableModule> module = context->lookup_module(this->name(), this->loc);
   if (!module) {
     return nullptr;

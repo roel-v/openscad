@@ -1080,6 +1080,8 @@ set(CORE_SOURCES
   src/core/DrawingCallback.cc
   src/core/EvaluationSession.cc
   src/core/EvaluationInputs.cc
+  src/core/provenance/SourceProvenance.cc
+  src/core/provenance/ProvenanceCollector.cc
   src/glview/SurfacePickMath.cc
   src/glview/InspectionPresentation.cc
   src/glview/SelectionRouter.cc
@@ -1366,6 +1368,7 @@ set(GUI_SOURCES
   src/gui/selection/ViewportToolRouter.cc
   src/gui/selection/ViewportOverlays.cc
   src/gui/selection/InspectorDock.cc
+  src/gui/selection/ProvenanceService.cc
   src/gui/annotations/AgentSyntax.cc
   src/gui/annotations/AgentModel.cc
   src/gui/annotations/AnnotationTransport.cc
@@ -1659,6 +1662,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
     src/guitests/TestSelection.h
+    src/guitests/TestProvenance.h
     src/guitests/UXTest.h
   )
 
@@ -1673,6 +1677,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
     src/guitests/TestSelection.cc
+    src/guitests/TestProvenance.cc
     src/guitests/UXTest.cc
   )
 

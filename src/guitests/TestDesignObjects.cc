@@ -160,6 +160,38 @@ void TestDesignObjects::scopedLifecycleAdapters(){
   QVERIFY(compile(*window));stamp=window->evaluationBinding->stamp();two=document->beginConsumerEdit("NativeLifecycle","owner_two",stamp);QVERIFY(two);delete lifetime;QVERIFY(document->drafts().empty());QVERIFY(!document->consumerRecord("NativeLifecycle","owner_one",stamp));
   editor->setContentModified(false);window->tabManager->closeCurrentTab();
 }
+void TestDesignObjects::consumerTransientDraftValidationAndJointUndo(){
+  struct State {std::map<std::string,std::shared_ptr<const Design::Record>> records;};
+  auto state=std::make_shared<State>();std::weak_ptr<State> weak=state;
+  QVERIFY(Design::registerKind({"NativeDraft",{Design::DeclarationHost::Assignment},{Design::DeclarationScope::File},Design::decodeSection,Design::RecordDestination::Consumer,
+    [weak](Design::Record record,const Design::EvaluatedDeclaration& declaration,EvaluationSession&){if(auto state=weak.lock())state->records.insert_or_assign(declaration.source.hostName,copy(record));}}));
+  window->tabManager->actionNew();auto *editor=window->activeEditor;editor->setPlainText("cube(1);\n");editor->clearUndoHistory();QVERIFY(compile(*window));
+  auto document=Design::DesignDocument::forEditor(*editor,*window);auto lifetime=new QObject(document);
+  Design::LifecycleCallbacks callbacks;
+  callbacks.resolveConsumerRecord=[weak](const std::string& key,const Selection::Stamp&){auto state=weak.lock();if(!state)return std::shared_ptr<const Design::Record>();auto found=state->records.find(key);return found==state->records.end()?nullptr:found->second;};
+  callbacks.prepareInsert=[editor](const Design::Draft& draft,const Selection::Stamp&){auto bytes=editor->toPlainText().toUtf8();std::ostringstream text;text<<"@{type:NativeDraft} "<<draft.key<<"="<<draft.preview->definition<<";\n";return Design::PreparedEdit{editor,{editor->documentId(),editor->sourceRevision,editor->sourceFingerprint,{{bytes.size(),bytes.size(),{},QByteArray::fromStdString(text.str())}}},{}};};
+  callbacks.prepareEdit=[](const auto&,const auto&,const auto&){return Design::PreparedEdit{{},{},"Creation fixture"};};
+  callbacks.locatePromotedRecord=[weak](const Design::Draft& draft,const Selection::Stamp&){auto state=weak.lock();if(!state)return std::shared_ptr<const Design::Record>();auto found=state->records.find(draft.key);return found==state->records.end()?nullptr:found->second;};
+  callbacks.previewConsumerRecord=[](const Design::Record& before,const std::vector<Design::FieldChange>& changes,std::string& error)->std::shared_ptr<const Design::Record>{
+    auto object=before.definition.toObject().clone();ObjectType adjustment(nullptr);
+    for(const auto& change:changes){double value=0;if(change.kind!=Design::ChangeKind::LiteralField || change.fieldPath!="adjust.offset" || !change.literal || !change.literal->getFiniteDouble(value)){error="Fixture requires one finite offset literal";return {}; }adjustment.set("offset",Value(value));}
+    object.set("adjust",Value(std::move(adjustment)));std::vector<Design::Diagnostic> diagnostics;auto decoded=Design::makeRecord(*Design::kind("NativeDraft"),Value(std::move(object)),{},diagnostics);return decoded?copy(*decoded,false):nullptr;
+  };
+  auto registration=document->registerLifecycleAdapter("NativeDraft",lifetime,callbacks);QVERIFY(registration);auto stamp=window->evaluationBinding->stamp();std::string error;
+  auto one=document->createConsumerTransient("NativeDraft","one",definition("stable"),stamp,&error);QVERIFY2(one,qPrintable(QString::fromStdString(error)));
+  auto two=document->createConsumerTransient("NativeDraft","two",definition("stable"),stamp,&error);QVERIFY(two);QVERIFY(!document->createConsumerTransient("NativeDraft","one",definition("stable"),stamp));
+  QVERIFY(!document->createConsumerTransient("Section","invalid",definition("invalid"),stamp));QVERIFY(!document->drafts().at(*one).before->source);
+  Design::FieldChange change{Design::ChangeKind::LiteralField};change.fieldPath="invalid";change.literal=std::make_shared<const Value>(Value(3.));
+  auto previous=document->drafts().at(*one).preview;QVERIFY(!document->updateDraft(*one,{change}));QVERIFY(document->drafts().at(*one).preview==previous);
+  change.fieldPath="adjust.offset";QVERIFY(document->updateDraft(*one,{change}));QCOMPARE(std::dynamic_pointer_cast<const Design::Section>(document->drafts().at(*one).preview->evaluated)->offset,3.);
+  QVERIFY(!document->drafts().at(*one).before->definition.toObject().contains("adjust"));
+  QCOMPARE(editor->toPlainText(),QString("cube(1);\n"));QVERIFY(document->promoteConsumer(*one));auto promoted=editor->toPlainText();QVERIFY(promoted.contains("offset : 3"));QVERIFY(document->drafts().empty());
+  editor->undo();QCOMPARE(editor->toPlainText(),QString("cube(1);\n"));QVERIFY(document->drafts().count(*one));QCOMPARE(std::dynamic_pointer_cast<const Design::Section>(document->drafts().at(*one).preview->evaluated)->offset,3.);
+  editor->redo();QCOMPARE(editor->toPlainText(),promoted);QVERIFY(document->drafts().empty());QVERIFY(compile(*window));
+  stamp=window->evaluationBinding->stamp();QVERIFY(!document->createConsumerTransient("NativeDraft","one",definition("stable"),stamp));
+  auto fresh=document->createConsumerTransient("NativeDraft","new",definition("stable"),stamp);QVERIFY(fresh);delete lifetime;QVERIFY(document->drafts().empty());QVERIFY(!document->promoteConsumer(*fresh));
+  editor->setContentModified(false);window->tabManager->closeCurrentTab();
+}
 void TestDesignObjects::personalViewsPromotionAndCamera(){
   window->tabManager->actionNew();auto *editor=window->activeEditor;editor->setPlainText("@{type: View} front={id:\"source-view\",direction:[0,1,0],up:[0,0,1]};cube([20,30,40]);\n");QVERIFY(compile(*window));
   auto scene=window->evaluationBinding->scene(window->evaluationBinding->stamp());Tree tree(scene->root,scene->documentPath);GeometryEvaluator evaluator(tree);auto geometry=evaluator.evaluateGeometry(*scene->root,false);QVERIFY(geometry);

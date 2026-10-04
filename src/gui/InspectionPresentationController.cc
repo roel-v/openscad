@@ -64,7 +64,10 @@ InspectionPresentationController::InspectionPresentationController(MainWindow *w
   window->statusBar()->addPermanentWidget(label); window->statusBar()->addPermanentWidget(cancelButton);
   connect(cancelButton,&QPushButton::clicked,this,&InspectionPresentationController::cancelPreparation);
   connect(window->evaluationBinding,&Selection::EvaluationBinding::installed,this,[this] {
-    QTimer::singleShot(0,this,[this] { refresh(true); });
+    // Capture the newly installed native renderer before a queued consumer releases its request.
+    // Sampling it in refresh() can instead retain an earlier presentation or a null restore.
+    if(registry.requested())defaultRenderer=this->window->qglview->renderer;
+    QTimer::singleShot(0,this,[this] { refresh(); });
   });
   connect(window->evaluationBinding,&Selection::EvaluationBinding::invalidated,this,[this] {
     if (replacing || !registry.requested()) return;

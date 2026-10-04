@@ -48,6 +48,7 @@ struct Piece {
 struct Scene {
   bool marked = false;
   std::string documentPath;
+  std::string defaultDefinitionId; // Empty for a live document evaluation.
   std::map<std::string, Definition> definitions;
   std::map<std::string, Instance> instances;
   std::map<SourceProvenance::SyntaxKey, std::vector<std::string>> callInstances;
@@ -57,6 +58,7 @@ struct Scene {
   std::vector<std::shared_ptr<const SourceFile>> sourceFiles;
   std::shared_ptr<const EvaluationInputs> inputs;
   std::shared_ptr<const SourceProvenance::SyntaxTable> syntax;
+  std::map<std::string, std::shared_ptr<const Design::Payload>> extensions;
   std::vector<Design::Diagnostic> diagnostics;
   std::set<std::string> invalidIds;
   bool valid() const { return diagnostics.empty() && invalidIds.empty(); }

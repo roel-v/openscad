@@ -43,6 +43,14 @@ std::optional<ScopeOwner> currentScope(const EvaluationSession& session, const C
 }
 PlacementContext::PlacementContext(EvaluationSession& session, Scene& scene, std::shared_ptr<AbstractNode> root)
   : session(session), scene(scene), evaluatedRoot(std::move(root)) {}
+std::shared_ptr<Design::Payload> PlacementContext::consumerState(const std::string& id) const {
+  auto found=session.consumerStates.find(id);return found==session.consumerStates.end()?nullptr:found->second;
+}
+PlacementOutcome PlacementContext::publishExtension(std::string id,std::shared_ptr<const Design::Payload> value) {
+  if(id.empty() || !value || scene.extensions.count(id))
+    return PlacementOutcome::failure("placement-extension-id","An extension requires one nonempty unique id and owned data");
+  scene.extensions.emplace(std::move(id),std::move(value));return {};
+}
 PlacementOutcome PlacementContext::insertTransform(const std::string& path, const Transform3d& correction) {
   auto found = scene.instances.find(path);
   if (found == scene.instances.end() || !found->second.localRoot)

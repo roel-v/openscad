@@ -414,7 +414,8 @@ Value Object::evaluate(const std::shared_ptr<const Context>& context) const
     if (keyExpr) {
       Value key = this->keys[i]->evaluate(context);
       if (key.type() == Value::Type::STRING) {
-        obj.set(key.toString(), this->values[i]->evaluate(context));
+        if (!obj.set(key.toString(), this->values[i]->evaluate(context)))
+          obj.recordLiteralDuplicateKey(key.toString());
       } else {
         std::stringstream message;
         message << "Key is " << key.typeName() << ", must be string.";
@@ -1258,7 +1259,7 @@ Value ObjectExpression::evaluate(const std::shared_ptr<const Context>& context) 
   Value::ObjectType obj(context->session());
   for (const auto& member : members) {
     Value val = member->getExpr()->evaluate(context);
-    obj.set(member->getName(), std::move(val));
+    if(!obj.set(member->getName(), std::move(val)))obj.recordLiteralDuplicateKey(member->getName());
   }
   return Value(std::move(obj));
 }

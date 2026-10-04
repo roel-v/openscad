@@ -17,8 +17,10 @@ private slots:
   void recenteredSurface();
   void inspectionMeshes();
   void inspectionProviderLifetime();
+  void inspectionReleaseDuringNewResultInstallation();
   void toolLifecycle();
   void inspectorExtensions();
+  void inspectorDynamicContentScrolls();
   void overlayIsolation();
   void dragAndMeasurementOwnership();
   void resizedBordersAndInstances();

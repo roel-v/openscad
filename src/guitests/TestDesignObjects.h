@@ -8,6 +8,7 @@ private slots:
   void transactionFailureHistoryAndLifetime();
   void dirtyIncludeGuardsAndSourceOnlyFields();
   void scopedLifecycleAdapters();
+  void consumerTransientDraftValidationAndJointUndo();
   void personalViewsPromotionAndCamera();
   void documentSavesConflictsAndPartialOutcomes();
 };

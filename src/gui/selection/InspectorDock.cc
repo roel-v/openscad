@@ -24,6 +24,7 @@ InspectorDock::InspectorDock(MainWindow *window) : QDockWidget(tr("Inspector"),w
 {
   setObjectName("inspectorDock");
   auto body=new QWidget(this); auto layout=new QVBoxLayout(body);
+  layout->setSizeConstraint(QLayout::SetMinAndMaxSize);
   auto select=new QPushButton(tr("Select geometry"),body); select->setObjectName("selectGeometry"); layout->addWidget(select);
   auto clear=new QPushButton(tr("Clear selection"),body); layout->addWidget(clear);
   message=new QLabel(body); message->setWordWrap(true); layout->addWidget(message);

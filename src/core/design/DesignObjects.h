@@ -65,6 +65,8 @@ struct KindHandler {
   std::function<DecodeResult(const Value&, const DeclarationContext&)> decode;
   RecordDestination destination = RecordDestination::DocumentRegistry;
   std::function<void(Record, const EvaluatedDeclaration&, EvaluationSession&)> consume;
+  // Decode failures notify the owning consumer separately; no invalid Record is delivered.
+  std::function<void(const std::vector<Diagnostic>&, const EvaluatedDeclaration&, EvaluationSession&)> reject;
 };
 // Published definitions contain data only, with no evaluator/session bookkeeping pointers.
 Value ownedValue(const Value& value);

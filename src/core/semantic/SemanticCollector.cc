@@ -45,6 +45,7 @@ void Collector::discover(const SourceFile& root) {
 }
 std::shared_ptr<AbstractNode> Collector::instantiateDefaults(const Definition& target, const std::shared_ptr<const Context>& lexicalContext) {
   if (!stack.empty() || finalized) throw std::logic_error("Definition defaults require a fresh evaluation");
+  scene.defaultDefinitionId = target.id;
   auto root = std::make_shared<RootNode>();
   auto call = std::make_shared<ModuleInstantiation>(target.moduleName, AssignmentList{}, target.module->location());
   if (SourceProvenance::nativeSyntaxTable)
@@ -207,13 +208,13 @@ Parameters::BindingObserver Collector::parameterObserver(const UserModule& modul
 std::optional<ScopeOwner> Collector::currentScope(const Context *context, const LocalScope *scope) const {
   if (!context || !scope) return {};
   if (const auto *file = dynamic_cast<const FileContext *>(context); file && file->scopeIdentity() == scope && !file->isUseLibrary())
-    return ScopeOwner{document, "", "", "", 0, false};
+    return ScopeOwner{document, "", "", "", 0, false, scene.defaultDefinitionId};
   if (stack.empty() || stack.back().path.empty()) return {};
   const auto& active = stack.back();
   const auto& instance = scene.instances.at(active.path);
   const auto assembly = scene.definitions.at(instance.definitionId).kind == DefinitionKind::Assembly ? instance.path : instance.parentPath;
   ScopeOwner owner{document, instance.definitionId, instance.path, assembly, instance.invocationId,
-    active.direct && active.context == context && active.module->body.get() == scope};
+    active.direct && active.context == context && active.module->body.get() == scope, scene.defaultDefinitionId};
   return owner;
 }
 void Collector::partition(const std::shared_ptr<AbstractNode>& root, bool original) {
@@ -283,12 +284,11 @@ bool Collector::finalize(const std::shared_ptr<AbstractNode>& root) {
   if (finalized || !stack.empty()) throw std::logic_error("Semantic finalization requires one closed native evaluation");
   finalized = true;
   if (SourceProvenance::nativeSyntaxTable) scene.syntax = std::make_shared<const SourceProvenance::SyntaxTable>(*SourceProvenance::nativeSyntaxTable);
-  if (!scene.marked) { partition(root, false); return true; }
   partition(root, true);
   if (!finish()->valid()) return false;
   PlacementContext context(session, scene, root);
   auto outcome = runPlacementPasses(context);
-  if (!outcome.success) { error(outcome.code, outcome.message, Design::DeclarationKey{document}); return false; }
+  if (!outcome.success) { scene.extensions.clear(); error(outcome.code, outcome.message, Design::DeclarationKey{document}); return false; }
   partition(root, false);
   return finish()->valid();
 }

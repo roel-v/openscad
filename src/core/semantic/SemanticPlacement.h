@@ -9,6 +9,7 @@ struct ScopeOwner {
   std::string document, definitionId, instancePath, declaringAssemblyPath;
   uint64_t invocationId = 0;
   bool isDirectModuleBody = false;
+  std::string defaultDefinitionId;
 };
 std::optional<ScopeOwner> currentScope(const EvaluationSession&, const Context *, const LocalScope *);
 struct PlacementOutcome {
@@ -26,6 +27,8 @@ public:
   // A correction in the Component's local frame, outside its returned module group.
   // Authored envelope M followed by this K becomes M*K. No inverse is computed here.
   PlacementOutcome insertTransform(const std::string& instancePath, const Transform3d& correction);
+  std::shared_ptr<Design::Payload> consumerState(const std::string& id) const;
+  PlacementOutcome publishExtension(std::string id, std::shared_ptr<const Design::Payload>);
 private:
   friend class Collector;
   PlacementContext(EvaluationSession&, Scene&, std::shared_ptr<AbstractNode>);

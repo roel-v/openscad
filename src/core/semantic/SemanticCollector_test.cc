@@ -1,4 +1,5 @@
 #include "core/semantic/SemanticTestFixture.h"
+#include "core/semantic/SemanticEvaluation.h"
 #include "core/design/DesignKinds.h"
 #include "core/design/DesignCollector.h"
 #include "utils/printutils.h"
@@ -7,6 +8,33 @@ using SemanticTest::Fixture;
 using SemanticTest::part;
 using SemanticTest::pairDefinition;
 using SemanticTest::pair;
+
+namespace {struct ExtensionProbe : Design::Payload {std::vector<std::string> owners,defaultContexts;};}
+TEST_CASE("Consumer evaluation state publishes owned extensions for ordinary and semantic results", "[semantic-evaluation]") {
+  Design::KindHandler handler;handler.name="SemanticExtensionProbe";handler.hosts={Design::DeclarationHost::Assignment};handler.scopes={Design::DeclarationScope::File,Design::DeclarationScope::Local};
+  handler.decode=[](const Value&,const Design::DeclarationContext&){Design::DecodeResult result;result.payload=std::make_shared<Design::Payload>();return result;};handler.destination=Design::RecordDestination::Consumer;
+  handler.consume=[](Design::Record,const Design::EvaluatedDeclaration& declaration,EvaluationSession& session){
+    auto& state=session.consumerStates["extension-probe"];if(!state)state=std::make_shared<ExtensionProbe>();
+    auto owner=Semantic::currentScope(session,declaration.nativeContext,declaration.localScope);REQUIRE(owner);std::static_pointer_cast<ExtensionProbe>(state)->owners.push_back(owner->instancePath);std::static_pointer_cast<ExtensionProbe>(state)->defaultContexts.push_back(owner->defaultDefinitionId);
+  };REQUIRE(Design::registerKind(std::move(handler)));
+  auto pass=Semantic::registerPlacementPass("extension-probe",900,[](Semantic::PlacementContext& context){
+    auto state=std::dynamic_pointer_cast<ExtensionProbe>(context.consumerState("extension-probe"));if(!state)return Semantic::PlacementOutcome{};
+    return context.publishExtension("extension-probe",std::make_shared<const ExtensionProbe>(*state));
+  });REQUIRE(pass);
+  std::shared_ptr<const ExtensionProbe> retained;
+  {Fixture fixture;fixture.evaluate("@{type:SemanticExtensionProbe} a={id:\"a\"}; cube(3);");REQUIRE(fixture.node);REQUIRE_FALSE(fixture.scene->marked);retained=std::dynamic_pointer_cast<const ExtensionProbe>(fixture.scene->extensions.at("extension-probe"));REQUIRE(retained->owners==std::vector<std::string>{""});}
+  REQUIRE(retained->owners.size()==1);
+  Fixture placed;placed.evaluate("@{type:Part,id:\"p\"} module p(){@{type:SemanticExtensionProbe} a={id:\"a\"};cube(1);} @{type:Component,id:\"a\"} p(); @{type:Component,id:\"b\"} p();");REQUIRE(placed.node);
+  auto payload=std::dynamic_pointer_cast<const ExtensionProbe>(placed.scene->extensions.at("extension-probe"));REQUIRE(payload->owners==std::vector<std::string>{"/a","/b"});REQUIRE(placed.scene->defaultDefinitionId.empty());
+  auto defaults=Semantic::evaluateDefaults(*placed.scene,"p");REQUIRE(defaults.valid());REQUIRE(defaults.scene->defaultDefinitionId=="p");auto defaultPayload=std::dynamic_pointer_cast<const ExtensionProbe>(defaults.scene->extensions.at("extension-probe"));REQUIRE(defaultPayload->owners==std::vector<std::string>{"/p"});REQUIRE(defaultPayload->defaultContexts==std::vector<std::string>{"p"});
+}
+TEST_CASE("A failed ordinary extension pass aborts before exposing usable geometry", "[semantic-evaluation]") {
+  auto pass=Semantic::registerPlacementPass("ordinary-extension-failure",901,[](Semantic::PlacementContext& context){
+    auto first=context.publishExtension("duplicate-probe",std::make_shared<const Design::Payload>());REQUIRE(first.success);
+    return context.publishExtension("duplicate-probe",std::make_shared<const Design::Payload>());
+  });REQUIRE(pass);Fixture fixture;fixture.evaluate("cube(1);");REQUIRE_FALSE(fixture.node);REQUIRE(fixture.diagnostic("placement-extension-id"));REQUIRE(fixture.scene->extensions.empty());
+}
+
 TEST_CASE("Semantic native instances own full paths exact parameter bindings and finished Part roots", "[semantic-evaluation][semantic-partition]") {
   Fixture fixture; fixture.evaluate(pair); REQUIRE(fixture.scene->valid()); REQUIRE(fixture.node);
   REQUIRE(fixture.scene->instances.size() == 3); REQUIRE(fixture.scene->parts.size() == 2); REQUIRE(fixture.scene->residual.empty());

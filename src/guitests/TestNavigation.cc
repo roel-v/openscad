@@ -29,6 +29,9 @@
 #include <QJsonArray>
 #include <QLineEdit>
 #include <QDateTime>
+#include <QAbstractButton>
+#include <QMessageBox>
+#include <QTimer>
 
 void TestNavigation::settingsOnStartup()
 {
@@ -72,9 +75,9 @@ void TestNavigation::savedViewTransactions()
   SavedViews reopened;
   QVERIFY(reopened.load(path));
   QCOMPARE(reopened.entries().size(),2);
-  QVERIFY(reopened.find(second)->camera==pose);
-  QCOMPARE(reopened.find(first)->name,reopened.find(second)->name);
-  QVERIFY(reopened.find(first)->camera.projection==Camera::ProjectionType::ORTHOGONAL);
+  QVERIFY(reopened.find(second)->pose()==pose);
+  QCOMPARE(reopened.find(first)->name(),reopened.find(second)->name());
+  QVERIFY(reopened.find(first)->pose().projection==Camera::ProjectionType::ORTHOGONAL);
   store.rename(first,"Changed");
   QLockFile lock(SavedViews::companion(path)+".lock"); QVERIFY(lock.tryLock());
   QVERIFY(!store.save(path,false,write,error)); QCOMPARE(sourceWrites,1); QVERIFY(store.dirty());
@@ -131,6 +134,32 @@ void TestNavigation::savedViewTransactions()
 
 void TestNavigation::savedViewDocumentLifecycle()
 {
+  // Earlier annotation cases intentionally leave dirty metadata in temporary documents.
+  // Close those test-owned tabs before this case exercises Save All on its own document.
+  QTimer discard, deadline;
+  bool unexpectedDialog = false, timedOut = false;
+  discard.setInterval(20);
+  deadline.setSingleShot(true); deadline.setInterval(4000);
+  connect(&discard, &QTimer::timeout, window, [&] {
+    auto widget = QApplication::activeModalWidget();
+    if (!widget) return;
+    auto box = qobject_cast<QMessageBox *>(widget);
+    if (box && box->standardButtons().testFlag(QMessageBox::Discard)) {
+      box->button(QMessageBox::Discard)->click();
+    } else {
+      unexpectedDialog = true;
+      if (auto dialog = qobject_cast<QDialog *>(widget)) dialog->reject();
+    }
+  });
+  connect(&deadline, &QTimer::timeout, window, [&] {
+    timedOut = true;
+    if (auto dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+  });
+  discard.start(); deadline.start();
+  restoreWindowInitialState();
+  discard.stop(); deadline.stop();
+  QVERIFY(!unexpectedDialog && !timedOut);
+  QCOMPARE(window->tabManager->count(), size_t(1));
   QTemporaryDir directory;
   window->tabManager->createTab("");
   auto editor=window->activeEditor;
@@ -151,7 +180,7 @@ void TestNavigation::savedViewDocumentLifecycle()
   QVERIFY(window->tabManager->saveACopy(editor,directory.filePath("copy.scad")));
   QCOMPARE(editor->filepath,path); QVERIFY(editor->hasViewChanges());
   QVERIFY(window->tabManager->refreshDocument()); QVERIFY(editor->hasViewChanges());
-  QCOMPARE(store->find(id)->name,QString("Unsaved copy"));
+  QCOMPARE(store->find(id)->name(),QString("Unsaved copy"));
   QVERIFY(window->tabManager->saveAll()); QVERIFY(!editor->hasViewChanges());
   window->actionRenderPreview();
   QTRY_COMPARE(window->displayedDocument(),editor);
@@ -161,7 +190,7 @@ void TestNavigation::savedViewDocumentLifecycle()
   QTRY_COMPARE(store->entries().size(),2);
   auto edit=popup->views->findChild<QLineEdit *>(); QVERIFY(edit);
   edit->setText("Named camera"); QTest::keyClick(edit,Qt::Key_Return);
-  QTRY_COMPARE(store->entries().last().name,QString("Named camera"));
+  QTRY_COMPARE(store->entries().last().name(),QString("Named camera"));
   QTest::qWait(20);
   auto changed=pose; changed.rotation.z()+=39;
   window->qglview->navigation()->apply(changed,false);
@@ -560,7 +589,7 @@ void TestNavigation::visualCalibrationAndClose()
   QTest::mouseClick(popup->findChild<QRadioButton *>("viewportPerspective"),Qt::LeftButton);
   QTRY_VERIFY(popup->findChild<QRadioButton *>("viewportPerspective")->isChecked());
   QVERIFY(!view->orthoMode());
-  QTRY_COMPARE(store->entries().last().name,QString("Focus-loss name"));
+  QTRY_COMPARE(store->entries().last().name(),QString("Focus-loss name"));
   const auto output=qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
   const auto oldSize=window->size();
   const auto oldFont=popup->font();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <cstdint>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -59,9 +60,14 @@ public:
   [[nodiscard]] std::string dump(const std::string& indent) const;
   [[nodiscard]] const Location& location() const { return loc; }
   void setLocation(const Location& loc) { this->loc = loc; }
+  uint64_t syntaxOrdinal() const { return sourceSyntaxOrdinal; }
+  void setSyntaxOrdinal(uint64_t ordinal) { sourceSyntaxOrdinal = ordinal; }
 
 protected:
   Location loc;
+private:
+  // Scoped to the captured parse table. This is not a persistent semantic identity.
+  uint64_t sourceSyntaxOrdinal = 0;
 };
 
 std::ostream& operator<<(std::ostream& stream, const ASTNode& ast);

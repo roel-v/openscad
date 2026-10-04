@@ -25,6 +25,8 @@
  */
 
 #include "openscad.h"
+#include "core/EvaluationInputs.h"
+#include "core/SourceFileCache.h"
 
 #include "version.h"
 
@@ -614,6 +616,9 @@ int cmdline(const CommandLine& cmd)
   text += "\n\x03\n" + commandline_commands;
 
   SourceFile *root_file = nullptr;
+  EvaluationInputs designInputs(SourceInput{cmd.is_stdin ? "session:stdin" : EvaluationInputs::fileKey(std::filesystem::u8path(cmd.filename)), text, {}, {}, {}});
+  SourceFileCache designLibraries(&designInputs);
+  NativeEvaluationScope designInputScope(designInputs, designLibraries);
   if (!parse(root_file, text, cmd.filename, cmd.filename, false)) {
     delete root_file;  // parse failed
     root_file = nullptr;

@@ -25,6 +25,8 @@
  */
 
 #include "gui/QGLView.h"
+#include "gui/selection/ViewportToolRouter.h"
+#include "gui/selection/ViewportOverlays.h"
 #include "gui/CameraNavigation.h"
 #include "gui/NavigationCube.h"
 #include "gui/ViewportStatistics.h"
@@ -234,7 +236,8 @@ void QGLView::display_opencsg_warning_dialog()
 
 void QGLView::resizeGL(int w, int h)
 {
-  GLView::resizeGL(w, h);
+  // QOpenGLWidget supplies logical sizes; camera and GPU passes use framebuffer pixels.
+  GLView::resizeGL(qRound(w*devicePixelRatioF()), qRound(h*devicePixelRatioF()));
   emit resized();
 }
 
@@ -244,6 +247,7 @@ void QGLView::paintGL()
   if (annotationCameraLock) cam = *annotationCameraLock;
   cameraNavigation->observe();
   GLView::paintGL();
+  if (!capturing && overlays) overlays->draw();
   if (cube && !capturing) cube->updateContrast();
   if (!capturing && stats) { stats->frameCompleted(); emit viewportPaintCompleted(); }
   if (!capturing) emit frameRendered();
@@ -259,6 +263,7 @@ void QGLView::paintGL()
 
 void QGLView::mousePressEvent(QMouseEvent *event)
 {
+  if (toolRouter && toolRouter->route(*event)) return;
   cameraNavigation->cancel();
   if (!mouse_drag_active) {
     mouse_drag_moved = false;
@@ -369,6 +374,7 @@ void QGLView::normalizeAngle(GLdouble& angle)
 
 void QGLView::mouseMoveEvent(QMouseEvent *event)
 {
+  if (toolRouter && toolRouter->route(*event)) return;
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   auto this_mouse = event->globalPosition();
 #else
@@ -466,6 +472,7 @@ void QGLView::mouseReleaseEvent(QMouseEvent *event)
 {
   mouse_drag_active = false;
   releaseMouse();
+  if (toolRouter && toolRouter->route(*event)) { mouse_drag_moved=false; return; }
 
   if (!mouse_drag_moved) {
     if (event->button() == Qt::RightButton) {

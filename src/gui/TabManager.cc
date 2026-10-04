@@ -37,6 +37,7 @@
 #include "gui/MainWindow.h"
 #include "gui/Preferences.h"
 #include "gui/ScintillaEditor.h"
+#include "gui/vim/VimEditorController.h"
 #include "gui/annotations/AnnotationController.h"
 #include "utils/printutils.h"
 
@@ -44,13 +45,14 @@ namespace {
 bool prepareAnnotationSave(EditorInterface *editor, const QString& sourcePath, QWidget *parent,
                            bool& replace)
 {
+  QPointer<EditorInterface> guard(editor);
   replace = false;
   const QString companion = sourcePath + ".annotations";
   if (sourcePath != editor->filepath && QFileInfo::exists(companion)) {
     replace = QMessageBox::question(parent, "Replace annotations?",
       "The destination has an annotation companion. Replace its evidence with this document's annotations?",
       QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes;
-    if (!replace) return false;
+    if (!replace || !guard) return false;
   }
   QString error;
   if (!editor->annotations->canSave(companion, &error, replace)) {
@@ -137,20 +139,49 @@ void TabManager::tabSwitched(int x)
 
 void TabManager::closeTabRequested(int x)
 {
-  assert(tabWidget != nullptr);
-  if (!maybeSave(x)) return;
+  closeDocument(qobject_cast<EditorInterface *>(tabWidget->widget(x)));
+}
 
-  auto *closingEditor = qobject_cast<EditorInterface *>(tabWidget->widget(x));
-  assert(closingEditor != nullptr);
-
-  emit editorAboutToClose(closingEditor);
-
-  editorList.remove(closingEditor);
-  tabWidget->removeTab(x);
+Vim::HostResult TabManager::closeDocument(EditorInterface *target)
+{
+  QPointer<TabManager> self(this);
+  QPointer<EditorInterface> closing(target);
+  if (!closing || tabWidget->indexOf(closing) < 0) return Vim::HostResult::Failed;
+  if (tabWidget->count() == 1)
+    return parent->close() ? Vim::HostResult::Success : Vim::HostResult::Cancelled;
+  if (!maybeSave(closing)) return Vim::HostResult::Cancelled;
+  // Modal save dialogs may switch, move or close tabs. Re-resolve the captured
+  // document rather than using an index or the current editor after the dialog.
+  if (!self || !closing) return Vim::HostResult::Failed;
+  auto index = tabWidget->indexOf(closing);
+  if (index < 0) return Vim::HostResult::Failed;
+  emit editorAboutToClose(closing);
+  if (!self || !closing) return Vim::HostResult::Failed;
+  index = tabWidget->indexOf(closing);
+  if (index < 0) return Vim::HostResult::Failed;
+  editorList.remove(closing);
+  tabWidget->removeTab(index);
   emit tabCountChanged(editorList.size());
+  if (!closing) return Vim::HostResult::Success;
+  delete closing->parameterWidget;
+  delete closing;
+  return Vim::HostResult::Success;
+}
 
-  delete closingEditor->parameterWidget;
-  delete closingEditor;
+Vim::HostResult TabManager::reloadDocument(EditorInterface *target)
+{
+  QPointer<TabManager> self(this);
+  QPointer<EditorInterface> captured(target);
+  if (!captured || captured->filepath.isEmpty() || tabWidget->indexOf(captured) < 0)
+    return Vim::HostResult::Failed;
+  if (!maybeSave(captured)) return Vim::HostResult::Cancelled;
+  if (!self || !captured || tabWidget->indexOf(captured) < 0) return Vim::HostResult::Failed;
+  if (!refreshDocument(captured)) return Vim::HostResult::Failed;
+  if (!self || !captured) return Vim::HostResult::Failed;
+  captured->setContentModified(false);
+  emit editorContentReloaded(captured);
+  onTabModified(captured);
+  return Vim::HostResult::Success;
 }
 
 void TabManager::closeCurrentTab()
@@ -205,6 +236,36 @@ void TabManager::createTab(const QString& filename)
   assert(parent != nullptr);
 
   auto scintillaEditor = new ScintillaEditor(tabWidget);
+  QPointer<TabManager> manager(this);
+  QPointer<ScintillaEditor> origin(scintillaEditor);
+  scintillaEditor->vimController->bindHost([manager, origin](const Vim::HostRequest& request) {
+    if (!manager || !origin || !manager->editorList.contains(origin)) return Vim::HostResult::Failed;
+    switch (request.command) {
+    case Vim::HostCommand::Save:
+      return manager->save(origin) ? Vim::HostResult::Success : Vim::HostResult::Cancelled;
+    case Vim::HostCommand::Close: return manager->closeDocument(origin);
+    case Vim::HostCommand::Reload: return manager->reloadDocument(origin);
+    case Vim::HostCommand::Open: {
+      const QFileInfo path(request.path);
+      if (!path.isFile() || !path.isReadable() || !Importer::knownFileExtensions.contains(path.suffix().toLower()))
+        return Vim::HostResult::Failed;
+      const auto absolute = path.absoluteFilePath();
+      manager->open(absolute);
+      if (!manager) return Vim::HostResult::Failed;
+      if (!Importer::knownFileExtensions[path.suffix().toLower()].isEmpty())
+        return Vim::HostResult::Success; // Existing import machinery creates a source wrapper.
+      return manager->editor && manager->editor->filepath == absolute && manager->editor->sourceDiskObserved
+        ? Vim::HostResult::Success : Vim::HostResult::Failed;
+    }
+    }
+    return Vim::HostResult::Failed;
+  });
+  connect(this, &TabManager::currentEditorChanged, scintillaEditor, [origin](EditorInterface *current) {
+    if (origin && origin != current) origin->vimController->cancel();
+  });
+  connect(this, &TabManager::editorAboutToClose, scintillaEditor, [origin](EditorInterface *closing) {
+    if (origin && origin == closing) origin->vimController->cancel();
+  });
   editor = scintillaEditor;
   parent->activeEditor = editor;
   editor->parameterWidget = new ParameterWidget(parent->parameterDock);
@@ -623,6 +684,13 @@ void TabManager::setEditorTabName(const QString& tabName, const QString& tabTool
 
 bool TabManager::refreshDocument()
 {
+  return refreshDocument(editor);
+}
+
+bool TabManager::refreshDocument(EditorInterface *document)
+{
+  QPointer<EditorInterface> editor(document);
+  if (!editor) return false;
   bool file_opened = false;
   if (!editor->filepath.isEmpty()) {
     QByteArray bytes;
@@ -642,14 +710,17 @@ bool TabManager::refreshDocument()
       LOG("Loaded design '%1$s'.", editor->filepath.toStdString());
       if (editor->toPlainText() != text) {
         editor->setPlainText(text);
-        setContentRenderState();  // since last render
+        if (!editor) return false;
+        if (editor == parent->displayedDocument()) parent->qglview->statistics()->setStale(true);
+        editor->contentsRendered = false;
+        editor->parameterWidget->setEnabled(false);
       }
       file_opened = true;
       editor->sourceDiskBaseline = disk;
       editor->sourceDiskObserved = disk;
     }
   }
-  if (file_opened) {
+  if (file_opened && editor && editor == this->editor) {
     this->parent->fileChangedOnDisk();
   }
   return file_opened;
@@ -657,7 +728,14 @@ bool TabManager::refreshDocument()
 
 bool TabManager::maybeSave(int x)
 {
-  auto *edt = (EditorInterface *)tabWidget->widget(x);
+  return maybeSave(qobject_cast<EditorInterface *>(tabWidget->widget(x)));
+}
+
+bool TabManager::maybeSave(EditorInterface *target)
+{
+  QPointer<TabManager> self(this);
+  QPointer<EditorInterface> edt(target);
+  if (!edt) return false;
   if (edt->isContentModified() || edt->parameterWidget->isModified() || (edt->hasViewChanges() || edt->annotations->dirty())) {
     QMessageBox box(parent);
     box.setText(_("The document has been modified."));
@@ -672,6 +750,7 @@ bool TabManager::maybeSave(int x)
     box.button(QMessageBox::Discard)->setShortcutEnabled(true);
 #endif
     auto ret = (QMessageBox::StandardButton)box.exec();
+    if (!self || !edt || tabWidget->indexOf(edt) < 0) return false;
 
     if (ret == QMessageBox::Save) {
       return save(edt);
@@ -740,6 +819,8 @@ bool TabManager::save(EditorInterface *edt, const QString& path)
 
 bool TabManager::saveDocument(EditorInterface *edt,const QString& path,bool copy,bool writeSource)
 {
+  QPointer<TabManager> self(this);
+  QPointer<EditorInterface> captured(edt);
   using SourceEditing::DiskSourceState;
   using SourceEditing::DiskReadStatus;
   const auto observed = DiskSourceState::capture(path);
@@ -760,6 +841,7 @@ bool TabManager::saveDocument(EditorInterface *edt,const QString& path,bool copy
     box.setDefaultButton(cancel);
     box.setEscapeButton(cancel);
     box.exec();
+    if (!self || !captured) return false;
     if (box.clickedButton() == saveAsButton) return copy ? saveACopy(edt) : saveAs(edt);
     if (box.clickedButton() != overwrite) return false;
     expected = observed;
@@ -774,9 +856,11 @@ bool TabManager::saveDocument(EditorInterface *edt,const QString& path,bool copy
   const bool annotationSave=copy || edt->annotations->dirty() || path!=edt->filepath;
   bool replace=false;
   if (annotationSave && !prepareAnnotationSave(edt,path,parent,replace)) return false;
+  if (!self || !captured) return false;
   QString error;
   bool sourceSaved = false;
   const bool ok=SavedViews::forEditor(edt)->save(path,copy,[&] {
+    if (!self || !captured) return false;
     if (!writeSource) {
       if (expected.matches(DiskSourceState::capture(path))) return true;
       QMessageBox::warning(parent, tr("Source was not saved"),
@@ -786,8 +870,10 @@ bool TabManager::saveDocument(EditorInterface *edt,const QString& path,bool copy
     sourceSaved = saveSource(edt,path,copy,expected);
     return sourceSaved;
   },error);
+  if (!self || !captured) return false;
   onTabModified(edt);
   if (!error.isEmpty()) QMessageBox::warning(parent,tr("Saved views were not saved"),error);
+  if (!self || !captured) return false;
   return ok && (!annotationSave || writeAnnotations(edt,path,!copy,replace,sourceSaved,parent));
 }
 
@@ -825,12 +911,14 @@ bool TabManager::saveSource(EditorInterface *edt, const QString& path, bool copy
 bool TabManager::saveAs(EditorInterface *edt)
 {
   assert(edt != nullptr);
+  QPointer<TabManager> self(this);
+  QPointer<EditorInterface> captured(edt);
 
   const auto dir = edt->filepath.isEmpty() ? _("Untitled.scad") : edt->filepath;
   auto filename =
     QFileDialog::getSaveFileName(parent, _("Save File"), dir, _("OpenSCAD Designs (*.scad)"),
       nullptr, QFileDialog::DontConfirmOverwrite);
-  if (filename.isEmpty()) {
+  if (filename.isEmpty() || !self || !captured) {
     return false;
   }
 
@@ -846,7 +934,10 @@ bool TabManager::saveAs(EditorInterface *edt)
 
 bool TabManager::saveAs(EditorInterface *edt, const QString& filepath)
 {
+  QPointer<TabManager> self(this);
+  QPointer<EditorInterface> captured(edt);
   bool saveOk = save(edt, filepath);
+  if (!self || !captured) return false;
   // Source adoption is successful even if a following companion write failed.
   if (edt->filepath == filepath) {
     auto [fname, fpath] = getEditorTabNameWithModifier(edt);

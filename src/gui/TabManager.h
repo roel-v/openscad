@@ -8,6 +8,7 @@
 #include <tuple>
 
 #include "gui/Editor.h"
+#include "gui/vim/engine/Context.h"
 
 class MainWindow;  // for circular dependency
 
@@ -36,6 +37,8 @@ public:
   void setEditorTabName(const QString& tabName, const QString& tabTooltip,
                         EditorInterface *edt = nullptr);
   bool refreshDocument();  // returns false if the file could not be opened
+  Vim::HostResult closeDocument(EditorInterface *);
+  Vim::HostResult reloadDocument(EditorInterface *);
   bool shouldClose();
   bool save(EditorInterface *edt);
   bool saveAs(EditorInterface *edt);
@@ -67,6 +70,8 @@ private:
   QTabWidget *tabWidget;
 
   bool maybeSave(int);
+  bool maybeSave(EditorInterface *);
+  bool refreshDocument(EditorInterface *);
   bool save(EditorInterface *edt, const QString& path);
   bool saveSource(EditorInterface *edt, const QString& path, bool copy,
                   const SourceEditing::DiskSourceState& expected);

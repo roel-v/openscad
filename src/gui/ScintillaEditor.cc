@@ -1,4 +1,6 @@
 #include "gui/ScintillaEditor.h"
+#include "gui/vim/VimScintilla.h"
+#include "gui/vim/VimEditorController.h"
 
 #include <QColor>
 #include <QCursor>
@@ -109,7 +111,7 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
   api = nullptr;
   lexer = nullptr;
   scintillaLayout = new QVBoxLayout(this);
-  qsci = new QsciScintilla(this);
+  qsci = new Vim::Scintilla(this);
 
   contentsRendered = false;
   findState = 0;  // FIND_HIDDEN
@@ -251,6 +253,13 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
 
   // Disabling buffered drawing resolves non-integer HiDPI scaling.
   qsci->SendScintilla(QsciScintillaBase::SCI_SETBUFFEREDDRAW, false);
+  vimController = new Vim::EditorController(this);
+}
+
+ScintillaEditor::~ScintillaEditor()
+{
+  // Detach callbacks and close the insertion group before QObject destroys qsci.
+  delete vimController;
 }
 
 QPoint ScintillaEditor::mapToGlobal(const QPoint& pos)
@@ -314,6 +323,7 @@ void ScintillaEditor::foldUnfold()
  */
 void ScintillaEditor::applySettings()
 {
+  vimController->setEnabled(Settings::Settings::vimMode.value());
   SettingsConverter conv;
 
   qsci->setIndentationWidth(Settings::Settings::indentationWidth.value());
@@ -1110,6 +1120,10 @@ QString ScintillaEditor::selectedText()
 
 bool ScintillaEditor::eventFilter(QObject *obj, QEvent *e)
 {
+  if (obj == qsci && vimController->engine().enabled() &&
+      (e->type() == QEvent::KeyPress || e->type() == QEvent::KeyRelease) &&
+      vimController->engine().claimsShortcut(Vim::fromEvent(*static_cast<QKeyEvent *>(e))))
+    return false; // VimScintilla handles this before the legacy editor bindings.
   QPointer<ScintillaEditor> guard(this);
   if (e->type() == QEvent::KeyPress) {
     auto keyEvent = static_cast<QKeyEvent *>(e);
@@ -1499,7 +1513,10 @@ void ScintillaEditor::onUserListSelected(const int, const QString& text)
     }
   }
 
-  if (!prepareExternalEdit()) return;
+  Vim::NativeInput input(vimController);
+  const bool nativeInsertion = vimController->engine().enabled() &&
+    vimController->engine().mode() == Vim::Mode::Insert;
+  if (nativeInsertion ? isSourceReadOnly() : !prepareExternalEdit()) return;
   qsci->insert(content);
 
   int line, index;

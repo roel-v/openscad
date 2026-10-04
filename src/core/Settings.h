@@ -405,6 +405,7 @@ public:
   static SettingsEntryBool enableBraceMatching;
   static SettingsEntryBool enableLineNumbers;
   static SettingsEntryBool enableNumberScrollWheel;
+  static SettingsEntryBool vimMode;
   static SettingsEntryEnum<std::string> modifierNumberScrollWheel;
 
   static SettingsEntryString defaultPrintService;

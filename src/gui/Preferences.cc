@@ -146,6 +146,14 @@ class SettingsReader : public Settings::SettingsVisitor
 Preferences::Preferences(QWidget *parent) : QMainWindow(parent)
 {
   setupUi(this);
+  vimModeCheckBox = new QCheckBox(tr("Enable Vim editor mode"), pageEditor);
+  vimModeCheckBox->setObjectName("vimModeCheckBox");
+  vimModeCheckBox->setToolTip(tr("Normal, Insert and Visual modes. Escape returns to Normal. "
+    "Supported commands appear in the editor mode indicator's help."));
+  pageEditor->layout()->addWidget(vimModeCheckBox);
+  connect(vimModeCheckBox, &QCheckBox::toggled, this, [this](bool value) {
+    Settings::Settings::vimMode.setValue(value); writeSettings();
+  });
   page3DView->layout()->addWidget(NavigationSettings::preferenceControls(page3DView));
 
   std::list<std::string> names = ColorMap::instance().colorSchemeNames(true);
@@ -1892,6 +1900,7 @@ QVariant Preferences::getValue(const QString& key) const
 
 void Preferences::updateGUI()
 {
+  initUpdateCheckBox(vimModeCheckBox, Settings::Settings::vimMode);
   const auto found =
     this->colorSchemeChooser->findItems(getValue("3dview/colorscheme").toString(), Qt::MatchExactly);
   if (!found.isEmpty())

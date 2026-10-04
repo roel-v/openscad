@@ -24,6 +24,7 @@
 // don't need the full definition, because it confuses Qt
 class ScadLexer;
 class ScadLexer2;
+namespace Vim { class EditorController; }
 
 #define ENABLE_LEXERTL 1
 
@@ -33,7 +34,9 @@ class ScintillaEditor : public EditorInterface
 
 public:
   ScintillaEditor(QWidget *parent);
+  ~ScintillaEditor() override;
   QsciScintilla *qsci;
+  Vim::EditorController *vimController;
   bool isSourceReadOnly() const override { return qsci->isReadOnly(); }
   void applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits) override;
   void appendAnnotationUndo(int token) override;

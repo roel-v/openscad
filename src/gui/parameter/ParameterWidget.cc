@@ -658,3 +658,22 @@ void ParameterWidget::updateDependentAttributes(ParameterObject *parameter,
     updateDependentAttributes(dependentParam, visited);
   }
 }
+
+ParameterSet ParameterWidget::evaluationValues() const
+{
+  ParameterSet values;
+  for (const auto& parameter : parameters) values.emplace(parameter->name(), parameter->exportValue());
+  return values;
+}
+
+bool ParameterWidget::applyEvaluationValues(const ParameterSet& values,SourceFile *sourceFile)
+{
+  // Validate every captured field before changing any native value or widget.
+  for(const auto& [name,encoded]:values){
+    auto found=std::find_if(parameters.begin(),parameters.end(),[&](const auto& parameter){return parameter->name()==name;});
+    if(found==parameters.end() || !(*found)->importValue(encoded,false))return false;
+  }
+  parameters.importValues(values);
+  for(const auto& [parameter,fields]:widgets)for(auto *field:fields)field->setValue();
+  updateParameterStates();parameters.apply(sourceFile);return true;
+}

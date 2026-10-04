@@ -3,7 +3,7 @@
 #include "glview/SurfacePickMath.h"
 #include "glview/TriangleStatistics.h"
 
-InspectionMeshRenderer::InspectionMeshRenderer(std::shared_ptr<const InspectionMeshSet> meshes) : meshes(std::move(meshes))
+InspectionMeshRenderer::InspectionMeshRenderer(std::shared_ptr<const InspectionMeshSet> meshes, bool surfacePicking) : surfacePicking(surfacePicking), meshes(std::move(meshes))
 {
   std::optional<uint64_t> count=0;
   for (const auto& piece : this->meshes->pieces) {
@@ -60,6 +60,7 @@ void InspectionMeshRenderer::draw(bool edges,const ShaderUtils::ShaderInfo *shad
 }
 Renderer::SurfaceContext InspectionMeshRenderer::prepareSurfacePick(const ShaderUtils::ShaderInfo *shader)
 {
+  if(!surfacePicking)return {false,"Draft geometry is unavailable for live surface picking",Vector3d::Zero(),{}};
   prepare(shader);
   SurfaceContext result{true,{},origin,{}};
   for (size_t index=0;index<meshes->pieces.size();++index) {

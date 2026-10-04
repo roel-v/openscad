@@ -45,7 +45,7 @@ std::shared_ptr<EvaluationInputs> EvaluationBinding::capture(MainWindow& window,
   std::vector<SourceInput> editors;
   for (auto editor : openEditors(window))
     if (!editor->filepath.isEmpty() || editor == &root) editors.push_back(editorInput(*editor));
-  return std::make_shared<EvaluationInputs>(editorInput(root), std::move(editors));
+  return std::make_shared<EvaluationInputs>(editorInput(root), std::move(editors), EvaluationInputs::ReadPolicy::CaptureMissing);
 }
 
 bool EvaluationBinding::inputsCurrent(const EvaluationInputs& inputs, MainWindow& window, QString *detail)
@@ -53,7 +53,7 @@ bool EvaluationBinding::inputsCurrent(const EvaluationInputs& inputs, MainWindow
   auto fail = [detail](const QString& message) { if (detail) *detail = message; return false; };
   const auto editors = openEditors(window);
   try {
-    for (const auto& [key, input] : inputs.consumed()) {
+    for (const auto& [key, input] : inputs.validationInputs()) {
       bool matched = false;
       for (auto editor : editors) {
         const auto live = editorInput(*editor);
@@ -172,8 +172,15 @@ bool EvaluationBinding::current() const
 }
 bool EvaluationBinding::validate(const Stamp& expected, QString *detail) const
 {
-  const bool valid = installedStamp == expected && current() && window->activeEditor == owner;
+  const bool valid = !hypotheticalPixels && installedStamp == expected && current() && window->activeEditor == owner;
   if (!valid && detail) *detail = reason.isEmpty() ? tr("Stale or wrong-document evaluated result") : reason;
+  return valid;
+}
+bool EvaluationBinding::validateModel(const Stamp& expected, QString *detail) const
+{
+  auto model=expected,installed=installedStamp;model.viewportGeneration=installed.viewportGeneration=0;
+  const bool valid=model==installed && current() && window->activeEditor==owner;
+  if(!valid && detail)*detail=reason.isEmpty()?tr("Stale or wrong-document model inputs"):reason;
   return valid;
 }
 std::shared_ptr<const EvaluatedScene> EvaluationBinding::scene(const Stamp& expected) const

@@ -124,6 +124,7 @@
 #include "core/EvaluationSession.h"
 #include "core/Expression.h"
 #include "core/RenderVariables.h"
+#include "gui/EvaluationOverrides.h"
 #include "core/ScopeContext.h"
 #include "core/Settings.h"
 #include "core/SourceFileCache.h"
@@ -819,6 +820,7 @@ void MainWindow::updateRecentFiles(const QString& FileSavedOrOpened)
  */
 void MainWindow::compile(bool reload, bool forcedone)
 {
+  if(inspectionPresentation)inspectionPresentation->cancelDraft();
   OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
   OpenSCAD::traceDepth = GlobalPreferences::inst()->getValue("advanced/traceDepth").toUInt();
   OpenSCAD::traceUsermoduleParameters =
@@ -1061,6 +1063,7 @@ void MainWindow::selectPreviewViewMode()
 
 void MainWindow::compileEnded()
 {
+  evaluationOverrides.reset();
   if (annotationController) annotationController->finishEvaluation(compileErrors == 0 && rootFile != nullptr);
   if (compileErrors>0) qglview->statistics()->evaluationFailed();
   clearCurrentOutput();
@@ -1805,7 +1808,8 @@ void MainWindow::setRenderVariables(ContextHandle<BuiltinContext>& context)
     .time = this->animateWidget->getAnimTval(),
     .camera = qglview->cam,
   };
-  r.applyToContext(context);
+  if(evaluationOverrides && evaluationOverrides->editor==activeEditor) evaluationOverrides->variables.applyToContext(context);
+  else r.applyToContext(context);
 }
 
 /*!
@@ -1934,6 +1938,11 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
     editor->parameterWidget->setProperty("agentSourceRevision", QString::number(editor->sourceRevision));
     editor->parameterWidget->setProperty("agentSourceFingerprint", editor->sourceFingerprint);
     editor->parameterWidget->applyParameters(sourceFile);
+    if(evaluationOverrides && (evaluationOverrides->editor!=editor ||
+       !editor->parameterWidget->applyEvaluationValues(evaluationOverrides->parameters,sourceFile))){
+      LOG(message_group::Error,"Captured evaluation parameters no longer match the document");
+      delete sourceFile;return {};
+    }
     editor->parameterWidget->setEnabled(true);
     editor->setIndicator(sourceFile->indicatorData);
   } else {
@@ -2564,6 +2573,7 @@ void MainWindow::updateStatusBar(ProgressWidget *progressWidget)
 
 void MainWindow::exceptionCleanup()
 {
+  evaluationOverrides.reset();
   if (annotationController) annotationController->finishEvaluation(false);
   qglview->statistics()->evaluationFailed();
   LOG("Execution aborted");
@@ -2574,6 +2584,7 @@ void MainWindow::exceptionCleanup()
 
 void MainWindow::UnknownExceptionCleanup(std::string msg)
 {
+  evaluationOverrides.reset();
   if (annotationController) annotationController->finishEvaluation(false);
   qglview->statistics()->evaluationFailed();
   auto guard = scopedSetCurrentOutput();  // we need to show this error
@@ -2664,6 +2675,9 @@ void MainWindow::on_designCheckValidity_triggered()
 // Separated into its own function for re-use.
 bool MainWindow::canExport(unsigned int dim)
 {
+  if(evaluationBinding && evaluationBinding->draftPixels()){
+    LOG(message_group::UI_Warning,"Draft geometry is unavailable for export; Commit or cancel its display first.");return false;
+  }
   auto guard = scopedSetCurrentOutput();
   if (!rootGeom) {
     LOG(message_group::Error, "Nothing to export! Try rendering first (press F6)");
@@ -2755,6 +2769,9 @@ void MainWindow::actionExport(unsigned int dim, ExportInfo& exportInfo)
 void MainWindow::actionExportFileFormat(int fmt)
 {
   const auto format = static_cast<FileFormat>(fmt);
+  if(evaluationBinding && evaluationBinding->draftPixels()){
+    LOG(message_group::UI_Warning,"Draft geometry is unavailable for export; Commit or cancel its display first.");return;
+  }
   const FileFormatInfo& info = fileformat::info(format);
 
   ExportInfo exportInfo =
@@ -2837,6 +2854,9 @@ void MainWindow::on_editActionCopy_triggered()
 
 void MainWindow::on_editActionCopyViewport_triggered()
 {
+  if(evaluationBinding && evaluationBinding->draftPixels()){
+    LOG(message_group::UI_Warning,"Draft geometry is unavailable for capture; Commit or cancel its display first.");return;
+  }
   const auto& image = qglview->grabFrame();
   auto clipboard = QApplication::clipboard();
   clipboard->setImage(image);
@@ -4267,4 +4287,12 @@ void MainWindow::changeEvent(QEvent *event)
     setGlobalTheme();
   }
   QMainWindow::changeEvent(event);
+}
+
+bool MainWindow::evaluateCapturedVariables(const RenderVariables& variables,const ParameterSet& parameters)
+{
+  if(GuiLocker::isLocked() || evaluationOverrides || !activeEditor)return false;
+  evaluationOverrides=std::make_shared<EvaluationOverrides>(EvaluationOverrides{variables,parameters,activeEditor});
+  if(variables.preview)actionRenderPreview();else on_designActionRender_triggered();
+  return true;
 }

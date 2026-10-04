@@ -1724,6 +1724,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestProvenance.h
     src/guitests/TestSemanticHierarchy.h
     src/guitests/TestAnchors.h
+    src/guitests/TestInspectionDraft.h
     src/guitests/UXTest.h
   )
 
@@ -1741,6 +1742,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestProvenance.cc
     src/guitests/TestSemanticHierarchy.cc
     src/guitests/TestAnchors.cc
+    src/guitests/TestInspectionDraft.cc
     src/guitests/UXTest.cc
   )
 
@@ -1766,7 +1768,7 @@ if (APPLE)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/mac.qrc)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE})
 elseif(WIN32)
-  target_sources(OpenSCADExe PRIVATE ${WINDOWS_RESOURCE_PATH})
+  list(APPEND RESOURCE_FILES ${WINDOWS_RESOURCE_PATH})
   # RC dependency scanning does not track files embedded as resource data.
   set_property(SOURCE ${WINDOWS_RESOURCE_PATH} APPEND PROPERTY OBJECT_DEPENDS
                "${CMAKE_CURRENT_SOURCE_DIR}/scripts/winmanifest.xml")

@@ -168,7 +168,9 @@ bool Controller::select(TargetKey key){
 void Controller::rebind(){
   if(rebinding || !prepared())return;const auto key=selectedTarget();if(!key || key->role!=TargetRole::Instance)return;
   QScopedValueRollback<bool> guard(rebinding,true);const auto state=visibility();
-  for(const auto& piece:window->inspectionPresentation->meshes()->pieces)if(drawPaths.at(piece.drawId)==key->id && state.visible(key->id) && piece.role!=InspectionPiece::Role::Background){
+  for(const auto& piece:window->inspectionPresentation->meshes()->pieces){
+    const auto owned=drawPaths.find(piece.drawId);
+    if(owned==drawPaths.end() || owned->second!=key->id || !state.visible(key->id) || piece.role==InspectionPiece::Role::Background)continue;
     const Selection::ObjectKey object{sourceStamp.resultId,piece.drawId,piece.nodeIndex};
     if(window->selectionService->state().object!=std::optional<Selection::ObjectKey>(object))window->selectionService->selectObject(object,window->evaluationBinding->stamp());return;
   }

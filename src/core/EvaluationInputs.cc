@@ -9,6 +9,7 @@
 #endif
 
 thread_local EvaluationInputs *nativeEvaluationInputs = nullptr;
+thread_local std::function<void(NativeCapability)> nativeParserCapabilityGuard;
 
 std::string EvaluationInputs::fileKey(const std::filesystem::path& path)
 {
@@ -56,14 +57,20 @@ std::string EvaluationInputs::diskBytes(const std::filesystem::path& path)
 
 void EvaluationInputs::validate(SourceInput& input)
 {
+  if(input.fileKey.empty() || (input.fileKey.rfind("session:",0)!=0 && fileKey(input.fileKey)!=input.fileKey))
+    throw EvaluationInputError("Noncanonical evaluation input identity: " + input.fileKey);
   if (input.utf8.find('\0') != std::string::npos ||
       !g_utf8_validate(input.utf8.data(), static_cast<gssize>(input.utf8.size()), nullptr))
     throw EvaluationInputError("Invalid UTF-8 or NUL in evaluation input: " + input.fileKey);
-  input.fingerprint = fingerprint(input.utf8);
+  const auto actual=fingerprint(input.utf8);
+  if(!input.fingerprint.empty() && input.fingerprint!=actual)
+    throw EvaluationInputError("Evaluation input hash does not match its bytes: " + input.fileKey);
+  input.fingerprint = actual;
 }
 
-EvaluationInputs::EvaluationInputs(SourceInput root, std::vector<SourceInput> captured)
-  : rootKey(root.fileKey), editors(std::move(captured))
+EvaluationInputs::EvaluationInputs(SourceInput root, std::vector<SourceInput> captured, ReadPolicy policy,
+                                 std::map<std::string,SourceInput> seeds)
+  : rootKey(root.fileKey), editors(std::move(captured)), policy(policy)
 {
   if (rootKey.empty()) throw EvaluationInputError("Evaluation root has no identity");
   validate(root);
@@ -77,7 +84,28 @@ EvaluationInputs::EvaluationInputs(SourceInput root, std::vector<SourceInput> ca
   if (auto found = overrides.find(rootKey); found != overrides.end() && found->second.utf8 != root.utf8)
     throw EvaluationInputError("Conflicting open root buffers: " + rootKey);
   overrides[rootKey] = root;
+  for(auto& [key,input]:seeds) {
+    if(key!=input.fileKey)throw EvaluationInputError("Seed key differs from input identity: " + key);
+    validate(input);
+    auto found=overrides.find(key);
+    if(found!=overrides.end() && found->second.utf8!=input.utf8)
+      throw EvaluationInputError("Conflicting captured source seed: " + key);
+    // Captured editor metadata remains authoritative when equal seeded bytes exist.
+    if(found==overrides.end())overrides.emplace(key,std::move(input));
+  }
   consumedInputs.emplace(rootKey, std::move(root));
+}
+
+EvaluationInputs EvaluationInputs::withReplacement(const std::string& key,std::string bytes) const
+{
+  if(replacementBase)throw EvaluationInputError("An evaluation bundle already has a hypothetical replacement");
+  auto found=consumedInputs.find(key);
+  if(found==consumedInputs.end())throw MissingCapturedInput(key);
+  SourceInput candidate{key,std::move(bytes),{},{},{}};validate(candidate);
+  EvaluationInputs replaced=*this;
+  replaced.replacementBase=consumedInputs;
+  replaced.consumedInputs[key]=candidate;replaced.overrides[key]=std::move(candidate);
+  return replaced;
 }
 
 const SourceInput& EvaluationInputs::read(const std::filesystem::path& resolvedPath)
@@ -85,20 +113,28 @@ const SourceInput& EvaluationInputs::read(const std::filesystem::path& resolvedP
   const auto key = fileKey(resolvedPath);
   if (auto found = consumedInputs.find(key); found != consumedInputs.end()) return found->second;
   if (frozen) throw EvaluationInputError("Evaluation inputs are frozen: " + key);
-  if (auto found = overrides.find(key); found != overrides.end())
+  if (auto found = overrides.find(key); found != overrides.end()){
+    if(replacementBase)replacementBase->emplace(key,found->second);
     return consumedInputs.emplace(key, found->second).first->second;
+  }
+  if(policy==ReadPolicy::RejectMissing)throw MissingCapturedInput(key);
   SourceInput input{key, diskBytes(resolvedPath), {}, {}, {}};
   validate(input);
+  if(replacementBase)replacementBase->emplace(key,input);
   return consumedInputs.emplace(key, std::move(input)).first->second;
 }
 
-NativeEvaluationScope::NativeEvaluationScope(EvaluationInputs& inputs, SourceFileCache& cache)
-  : previousInputs(nativeEvaluationInputs), previousCache(SourceFileCache::setActive(&cache))
+NativeEvaluationScope::NativeEvaluationScope(EvaluationInputs& inputs, SourceFileCache& cache,
+  std::function<void(NativeCapability)> capabilityGuard)
+  : previousInputs(nativeEvaluationInputs), previousCache(SourceFileCache::setActive(&cache)),
+    previousCapabilityGuard(std::move(nativeParserCapabilityGuard))
 {
   nativeEvaluationInputs = &inputs;
+  nativeParserCapabilityGuard = std::move(capabilityGuard);
 }
 NativeEvaluationScope::~NativeEvaluationScope()
 {
   nativeEvaluationInputs = previousInputs;
   SourceFileCache::setActive(previousCache);
+  nativeParserCapabilityGuard = std::move(previousCapabilityGuard);
 }

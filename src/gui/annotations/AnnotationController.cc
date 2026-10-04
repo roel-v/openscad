@@ -932,6 +932,9 @@ void Controller::capture(const QString& expectedResult,
 void Controller::requestFrame(bool annotation, const QString& expectedResult,
                               std::function<void(QJsonObject, QByteArray, QString)> done)
 {
+  if(window->evaluationBinding && window->evaluationBinding->draftPixels()){
+    done({}, {}, "Draft geometry is unavailable for live result capture.");return;
+  }
   if (!owner() || capturePending || !view->isVisible() || window->isMinimized() ||
       QApplication::activeModalWidget() ||
       (!expectedResult.isEmpty() && result.value("result_id").toString() != expectedResult)) {

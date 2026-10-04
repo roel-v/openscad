@@ -851,6 +851,10 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
     parserretval = parserparse();
   }catch (const HardWarningException &e) {
     yyerror("stop on first warning");
+  }catch (const EvaluationInputError &e) {
+    yyerror(e.what());
+  }catch (const std::filesystem::filesystem_error &e) {
+    yyerror(e.what());
   }
 
   lexerdestroy();

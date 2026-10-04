@@ -28,7 +28,14 @@
 
 #include "gui/MainWindow.h"
 #include "gui/annotations/AnnotationController.h"
+#include "gui/InspectionPresentationController.h"
+#include "gui/selection/ViewportToolRouter.h"
+#include "gui/selection/ViewportOverlays.h"
+#include "gui/selection/InspectorDock.h"
 #include "gui/annotations/AnnotationBridge.h"
+#include "gui/selection/EvaluationBinding.h"
+#include "gui/selection/SelectionService.h"
+#include "core/EvaluationInputs.h"
 
 #include <sys/stat.h>
 
@@ -307,7 +314,15 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   setupFontList();
   setupColorList();
   setupAIDock();
+  evaluationBinding = new Selection::EvaluationBinding(this);
+  selectionService = new Selection::SelectionService(this);
+  viewportTools = new Selection::ViewportToolRouter(this);
+  qglview->toolRouter = viewportTools;
+  viewportOverlays = new Selection::ViewportOverlays(this);
+  qglview->overlays = viewportOverlays;
   annotationController = new AgentAnnotations::Controller(this);
+  inspectionPresentation = new InspectionPresentationController(this);
+  inspectorDock = new Selection::InspectorDock(this);
   setupDocks();
   auto agentAccess = menuWindow->addAction(tr("Agent Access..."));
   connect(agentAccess, &QAction::triggered, this,
@@ -632,8 +647,26 @@ void MainWindow::updateReorderMode(bool reorderMode)
 
 MainWindow::~MainWindow()
 {
+  // Input capture walks the window inventory. Remove this window before child
+  // destruction can trigger another window's freshness checks.
+  scadApp->windowManager.remove(this);
+  viewportTools->cancel(viewportTools->active(),Selection::CancelReason::OwnerDestroyed);
+  delete inspectorDock;
+  inspectorDock = nullptr;
   delete annotationController;
   annotationController = nullptr;
+  qglview->toolRouter = nullptr;
+  qglview->overlays = nullptr;
+  delete viewportTools;
+  viewportTools = nullptr;
+  delete viewportOverlays;
+  viewportOverlays = nullptr;
+  delete selectionService;
+  selectionService = nullptr;
+  delete inspectionPresentation;
+  inspectionPresentation = nullptr;
+  delete evaluationBinding;
+  evaluationBinding = nullptr;
   // The QWidget destructor deletes our child docks, and deleting a QDockWidget
   // reparents and hides it, which emits Dock::visibilityChanged and sends hide
   // events through our event filter. Qt only severs connections in ~QObject,
@@ -800,6 +833,9 @@ void MainWindow::compile(bool reload, bool forcedone)
       shouldcompiletoplevel = true;
     }
 
+    if (evaluationInputs && !Selection::EvaluationBinding::inputsCurrent(*evaluationInputs, *this))
+      shouldcompiletoplevel = true;
+
     if (this->parsedFile) {
       auto mtime = this->parsedFile->includesChanged();
       if (mtime > this->includesMTime) {
@@ -829,6 +865,9 @@ void MainWindow::compile(bool reload, bool forcedone)
     }
 
     if (this->rootFile) {
+      std::unique_ptr<NativeEvaluationScope> inputScope;
+      if (evaluationInputs && evaluationBacking)
+        inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
       auto mtime = this->rootFile->handleDependencies();
       if (mtime > this->depsMTime) {
         this->depsMTime = mtime;
@@ -862,6 +901,9 @@ void MainWindow::compile(bool reload, bool forcedone)
 void MainWindow::waitAfterReload()
 {
   no_exceptions_for_warnings();
+  std::unique_ptr<NativeEvaluationScope> inputScope;
+  if (evaluationInputs && evaluationBacking)
+    inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
   auto mtime = this->rootFile->handleDependencies();
   auto stop = would_have_thrown();
   if (mtime > this->depsMTime) this->depsMTime = mtime;
@@ -1003,6 +1045,9 @@ void MainWindow::compileEnded()
 #ifdef ENABLE_GUI_TESTS
 std::shared_ptr<AbstractNode> MainWindow::instantiateRootFromSource(SourceFile *file)
 {
+  std::unique_ptr<NativeEvaluationScope> inputScope;
+  if (file == rootFile.get() && evaluationInputs && evaluationBacking)
+    inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
   EvaluationSession session{file->getFullpath()};
   ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
   setRenderVariables(builtin_context);
@@ -1017,6 +1062,13 @@ std::shared_ptr<AbstractNode> MainWindow::instantiateRootFromSource(SourceFile *
 void MainWindow::instantiateRoot()
 {
   // Go on and instantiate root_node, then call the continuation slot
+  if (!rootFile || compileErrors != 0) return; // Retain the visibly stale last-good display.
+  // A new evaluation must not mutate backing already retained by a previous scene.
+  auto backing = std::make_shared<Selection::EvaluationBacking>();
+  backing->inputs = evaluationInputs;
+  backing->libraries = evaluationBacking->libraries;
+  backing->parsedRoot = rootFile;
+  evaluationBacking = std::move(backing);
 
   // Invalidate renderers before we kill the CSG tree
   this->qglview->setRenderer(nullptr);
@@ -1048,8 +1100,10 @@ void MainWindow::instantiateRoot()
 
     AbstractNode::resetIndexCounter();
 
-    EvaluationSession session{doc.parent_path().string()};
-    ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
+    NativeEvaluationScope inputScope(*evaluationInputs, *evaluationBacking->libraries);
+    evaluationBacking->session = std::make_shared<EvaluationSession>(doc.parent_path().string());
+    ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(evaluationBacking->session.get())};
+    evaluationBacking->builtin = *builtin_context;
     setRenderVariables(builtin_context);
 
     std::shared_ptr<const FileContext> file_context;
@@ -1058,6 +1112,7 @@ void MainWindow::instantiateRoot()
     else
 #endif
       this->absoluteRootNode = this->rootFile->instantiate(*builtin_context, &file_context);
+    evaluationBacking->file = file_context;
     if (file_context) {
       this->qglview->cam.updateView(file_context, false);
       viewportControlWidget->cameraChanged();
@@ -1077,6 +1132,13 @@ void MainWindow::instantiateRoot()
       // FIXME: Consider giving away ownership of root_node to the Tree, or use reference counted
       // pointers
       this->tree.setRoot(this->rootNode);
+      evaluationInputs->freeze();
+      auto scene = std::make_shared<Selection::EvaluatedScene>();
+      scene->backing = evaluationBacking;
+      scene->inputs = evaluationInputs;
+      scene->root = rootNode;
+      scene->documentPath = doc.parent_path().string();
+      evaluatedScene = std::move(scene);
     }
   }
 
@@ -1822,7 +1884,10 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
 #endif  // ifdef ENABLE_PYTHON
 
   SourceFile *sourceFile;
-  sourceFile = parse(sourceFile, fulltext, fname, fname, false) ? sourceFile : nullptr;
+  if (!parse(sourceFile, fulltext, fname, fname, false)) {
+    delete sourceFile;
+    sourceFile = nullptr;
+  }
 
   editor->resetHighlighting();
   if (sourceFile) {
@@ -1847,10 +1912,17 @@ void MainWindow::parseTopLevelDocument()
 
   this->lastCompiledDoc = activeEditor->toPlainText();
   if (annotationController) annotationController->beginEvaluation(lastCompiledDoc);
+  evaluationBinding->invalidate(tr("Evaluation in progress"));
+  evaluationInputs = Selection::EvaluationBinding::capture(*this, *activeEditor);
+  evaluationBacking = std::make_shared<Selection::EvaluationBacking>();
+  evaluationBacking->inputs = evaluationInputs;
+  evaluationBacking->libraries = std::make_shared<SourceFileCache>(evaluationInputs.get());
 
   activeEditor->resetHighlighting();
+  NativeEvaluationScope inputScope(*evaluationInputs, *evaluationBacking->libraries);
   this->rootFile = parseDocument(activeEditor);
   this->parsedFile = this->rootFile;
+  evaluationBacking->parsedRoot = rootFile;
 }
 
 void MainWindow::checkAutoReload()
@@ -1905,6 +1977,7 @@ void MainWindow::actionReloadRenderPreview()
 
 void MainWindow::csgReloadRender()
 {
+  if (!rootFile || compileErrors != 0) { compileEnded(); return; }
   if (this->rootNode) compileCSG();
 
   selectPreviewViewMode();
@@ -1956,6 +2029,7 @@ void MainWindow::actionRenderPreview()
 
 void MainWindow::csgRender()
 {
+  if (!rootFile || compileErrors != 0) { compileEnded(); return; }
   if (this->rootNode) compileCSG();
 
   selectPreviewViewMode();
@@ -2049,7 +2123,7 @@ void MainWindow::on_designActionRender_triggered()
 
 void MainWindow::cgalRender()
 {
-  if (!this->rootFile || !this->rootNode) {
+  if (!this->rootFile || !this->rootNode || compileErrors != 0) {
     compileEnded();
     return;
   }
@@ -2138,6 +2212,9 @@ void MainWindow::handleMeasurementClicked(QAction *clickedAction)
   }
 
   resetMeasurementsState(true, "Click to start measuring");
+  measurementTool=viewportTools->claimExternal("Measurement",this,[this](auto) {
+    resetMeasurementsState(true,"Click to start measuring");
+  });
   clickedAction->setToolTip("Click to cancel measurement");
   clickedAction->setChecked(true);
   activeMeasurement = clickedAction;
@@ -3524,6 +3601,8 @@ void MainWindow::jumpToLine(int line, int col)
 
 void MainWindow::resetMeasurementsState(bool enable, const QString& tooltipMessage)
 {
+  if (viewportTools) viewportTools->finish(measurementTool);
+  measurementTool=0;
   if (RenderSettings::inst()->backend3D != RenderBackend3D::ManifoldBackend) {
     enable = false;
     static const auto noCGALMessage =

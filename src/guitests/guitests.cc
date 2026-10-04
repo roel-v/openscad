@@ -5,6 +5,7 @@
 #include "TestMainWindow.h"
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
+#include "TestSourceTransactions.h"
 #include "TestAnnotations.h"
 #include "TestNavigation.h"
 
@@ -38,6 +39,7 @@ int runAllTest(MainWindow *window)
   std::cout << "******************************* RUN UX TESTS ********************************"
             << std::endl;
   totalTestFailures += runTests<TestTabManager>(window);
+  totalTestFailures += runTests<TestSourceTransactions>(window);
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
   totalTestFailures += runTests<TestAnnotations>(window);

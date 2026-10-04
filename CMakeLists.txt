@@ -1420,6 +1420,10 @@ set(GUI_SOURCES
   src/gui/ScadApi.cc
   src/gui/ScadLexer.cc
   src/gui/ScintillaEditor.cc
+  src/gui/source/SourceEditTransaction.cc
+  src/gui/source/SourceEditTransaction.h
+  src/gui/source/DiskSourceState.cc
+  src/gui/source/DiskSourceState.h
   src/gui/SettingsWriter.cc
   src/gui/TabManager.cc
   src/gui/UIUtils.cc
@@ -1632,6 +1636,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/guitests.h
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
+    src/guitests/TestSourceTransactions.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
     src/guitests/UXTest.h
@@ -1643,6 +1648,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/guitests.cc
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
+    src/guitests/TestSourceTransactions.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
     src/guitests/UXTest.cc
@@ -1909,6 +1915,11 @@ if(ENABLE_TESTS)
       add_executable(OpenSCADUnitTests ${TEST_SOURCES} ${GUI_TEST_SOURCES})
     endif()
     target_link_libraries(OpenSCADUnitTests PRIVATE Catch2::Catch2WithMain OpenSCADLibInternal svg)
+    if(NOT HEADLESS)
+      # Widget headers used by real-editor tests include the library's generated UI headers.
+      target_include_directories(OpenSCADUnitTests PRIVATE
+        "${CMAKE_BINARY_DIR}/OpenSCADLibInternal_autogen/include")
+    endif()
     target_compile_definitions(OpenSCADUnitTests PRIVATE
       OPENSCAD_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")
     include(CTest)

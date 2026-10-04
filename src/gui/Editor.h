@@ -7,10 +7,13 @@
 #include <QTextEdit>
 #include <QWidget>
 #include <string>
+#include <optional>
 #include <vector>
 
 #include "core/IndicatorData.h"
 #include "gui/annotations/AnnotationStore.h"
+#include "gui/source/SourceEditTransaction.h"
+#include "gui/source/DiskSourceState.h"
 #include "gui/parameter/ParameterWidget.h"
 
 enum class EditorSelectionIndicatorStatus { SELECTED, IMPACTED };
@@ -23,6 +26,10 @@ public:
   AgentAnnotations::Store *annotations;
   QString sourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash({}));
   quint64 sourceRevision = 0;
+  QString documentId() const { return annotations->sessionId; }
+  bool prepareExternalEdit();
+  virtual bool isSourceReadOnly() const = 0;
+  virtual void applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits) = 0;
   virtual void appendAnnotationUndo(int token) = 0;
   virtual void undoFromAnnotations(bool redo) = 0;
   bool hasViewChanges() const;
@@ -63,6 +70,7 @@ public:
   virtual void setFocus() = 0;
 
 signals:
+  void externalEditStarting();
   void contentsChanged();
   void modificationChanged(EditorInterface *);
   void showContextMenuEvent(const QPoint& pos);
@@ -109,7 +117,8 @@ public:
   bool contentsRendered;  // Set if the source code has changes since the last render (F6)
   int findState;
   QString filepath;
-  std::string autoReloadId;
+  std::optional<SourceEditing::DiskSourceState> sourceDiskBaseline;
+  std::optional<SourceEditing::DiskSourceState> sourceDiskObserved;
   std::vector<IndicatorData> indicatorData;
   ParameterWidget *parameterWidget;
 };

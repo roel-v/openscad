@@ -25,6 +25,7 @@
  */
 
 #include "core/Parameters.h"
+#include <map>
 
 #include <cassert>
 #include <cstddef>
@@ -164,7 +165,8 @@ template <class T, class F>
 static ContextFrame parse_without_defaults(Arguments arguments, const Location& loc,
                                            const std::vector<T>& required_parameters,
                                            const std::vector<T>& optional_parameters,
-                                           bool warn_for_unexpected_arguments, F parameter_name)
+                                           bool warn_for_unexpected_arguments, F parameter_name,
+                                           std::map<std::string, Parameters::Binding> *bindings = nullptr)
 {
   ContextFrame output{arguments.session()};
 
@@ -173,7 +175,8 @@ static ContextFrame parse_without_defaults(Arguments arguments, const Location& 
   size_t parameter_position = 0;
   bool warned_for_extra_arguments = false;
 
-  for (auto& argument : arguments) {
+  for (size_t argument_index = 0; argument_index < arguments.size(); ++argument_index) {
+    auto& argument = arguments[argument_index];
     std::string name;
     if (argument.name) {
       name = *argument.name;
@@ -225,6 +228,12 @@ static ContextFrame parse_without_defaults(Arguments arguments, const Location& 
       }
     }
 
+    if (bindings) {
+      auto& binding = (*bindings)[name];
+      binding.ambiguous = binding.argument.has_value();
+      binding.name = name;
+      binding.argument = argument_index;
+    }
     output.set_variable(name, std::move(argument.value));
   }
   return output;
@@ -249,11 +258,14 @@ Parameters Parameters::parse(Arguments arguments, const Location& loc,
 
 Parameters Parameters::parse(Arguments arguments, const Location& loc,
                              const AssignmentList& required_parameters,
-                             const std::shared_ptr<const Context>& defining_context)
+                             const std::shared_ptr<const Context>& defining_context,
+                             BindingObserver observer)
 {
+  std::map<std::string, Binding> bindings;
   ContextFrame frame{parse_without_defaults(
     std::move(arguments), loc, required_parameters, {}, OpenSCAD::parameterCheck,
-    [](const std::shared_ptr<Assignment>& assignment) { return assignment->getName(); })};
+    [](const std::shared_ptr<Assignment>& assignment) { return assignment->getName(); },
+    observer ? &bindings : nullptr)};
 
   for (const auto& parameter : required_parameters) {
     // see builtin_functions.cc::builtin_object() for an explanation
@@ -261,6 +273,7 @@ Parameters Parameters::parse(Arguments arguments, const Location& loc,
       auto const it = defining_context->lookup_local_variable(THIS_CONTEXT);
       if (it) {
         frame.set_variable(THIS_PARAMETER, it->clone());
+        bindings.erase(THIS_PARAMETER);
         continue;
       }
     }
@@ -272,6 +285,13 @@ Parameters Parameters::parse(Arguments arguments, const Location& loc,
         frame.set_variable(parameter->getName(), Value::undefined.clone());
       }
     }
+  }
+
+  if (observer) for (const auto& parameter : required_parameters) {
+    const auto& name = parameter->getName();
+    auto found = bindings.find(name);
+    observer(found == bindings.end() ? Binding{name, {}, false} : found->second,
+             *frame.lookup_local_variable(name));
   }
 
   return Parameters{std::move(frame), loc};

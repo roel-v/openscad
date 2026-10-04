@@ -256,6 +256,7 @@ void Store::clearHistory()
 {
   commands.clear();
   historyPosition = 0;
+  emit historyCleared();
 }
 
 bool Store::load(const QString& companion, QString *error)

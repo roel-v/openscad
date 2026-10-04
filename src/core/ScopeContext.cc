@@ -12,6 +12,8 @@
 #include "core/SourceFileCache.h"
 #include "core/UserModule.h"
 #include "core/Value.h"
+#include "core/design/DesignCollector.h"
+#include "core/semantic/SemanticCollector.h"
 #include "core/callables.h"
 #include "utils/printutils.h"
 
@@ -39,6 +41,12 @@ void ScopeContext::init()
 
       throw;
     }
+  }
+  if (session()->designCollector) {
+    const auto *file = dynamic_cast<const FileContext *>(this);
+    session()->designCollector->collect(*this, *scope,
+      file ? Design::DeclarationScope::File : Design::DeclarationScope::Local,
+      file && file->isUseLibrary());
   }
 }
 
@@ -69,8 +77,10 @@ UserModuleContext::UserModuleContext(const std::shared_ptr<const Context>& paren
 {
   set_variable("$children", Value(double(this->children.size())));
   set_variable("$parent_modules", Value(double(StaticModuleNameStack::size())));
-  apply_variables(
-    Parameters::parse(std::move(arguments), loc, module->parameters, parent).to_context_frame());
+  auto semantic = session()->semanticCollector;
+  if (semantic) semantic->bindScope(*this, *module);
+  apply_variables(Parameters::parse(std::move(arguments), loc, module->parameters, parent,
+    semantic ? semantic->parameterObserver(*module) : Parameters::BindingObserver{}).to_context_frame());
 }
 
 std::vector<const std::shared_ptr<const Context> *> UserModuleContext::list_referenced_contexts() const
@@ -95,7 +105,7 @@ boost::optional<CallableFunction> FileContext::lookup_local_function(const std::
       if (const auto defined = usedmod->scope->lookup<UserFunction *>(name)) {
         // `use` can only be used in the top-level scope, so this next
         // line *should* be always passing the BuiltinContext as the new parent.
-        ContextHandle<FileContext> context{Context::create<FileContext>(this->parent, usedmod)};
+        ContextHandle<FileContext> context{Context::create<FileContext>(this->parent, usedmod, true)};
 #ifdef DEBUG
         PRINTDB("FileContext for function %s::%s:", m % name);
         PRINTDB("%s", context->dump());
@@ -123,7 +133,7 @@ boost::optional<InstantiableModule> FileContext::lookup_local_module(const std::
         // `use` can only be used in the top-level scope, so this next
         // line *should* be always passing the BuiltinContext as the new parent.
         // Improvement idea: puposefully get builtins from session() so this is never wrong.
-        ContextHandle<FileContext> context{Context::create<FileContext>(this->parent, usedmod)};
+        ContextHandle<FileContext> context{Context::create<FileContext>(this->parent, usedmod, true)};
 #ifdef DEBUG
         PRINTDB("FileContext for module %s::%s:", m % name);
         PRINTDB("%s", context->dump());

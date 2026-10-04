@@ -18,6 +18,7 @@ class ScopeContext : public Context
 {
 public:
   void init() override;
+  const LocalScope *scopeIdentity() const { return scope.get(); }
   boost::optional<CallableFunction> lookup_local_function(const std::string& name,
                                                           const Location& loc) const override;
   boost::optional<InstantiableModule> lookup_local_module(const std::string& name,
@@ -54,19 +55,21 @@ private:
 class FileContext : public ScopeContext
 {
 public:
+  bool isUseLibrary() const { return useLibrary; }
   boost::optional<CallableFunction> lookup_local_function(const std::string& name,
                                                           const Location& loc) const override;
   boost::optional<InstantiableModule> lookup_local_module(const std::string& name,
                                                           const Location& loc) const override;
 
 protected:
-  FileContext(const std::shared_ptr<const Context>& parent, const SourceFile *source_file)
-    : ScopeContext(parent, source_file->scope), source_file(source_file)
+  FileContext(const std::shared_ptr<const Context>& parent, const SourceFile *source_file, bool useLibrary = false)
+    : ScopeContext(parent, source_file->scope), source_file(source_file), useLibrary(useLibrary)
   {
   }
 
 private:
   const SourceFile *source_file;
+  bool useLibrary;
 
   friend class Context;
 };

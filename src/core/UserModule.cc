@@ -41,6 +41,7 @@
 #include "core/ModuleInstantiation.h"
 #include "core/ScopeContext.h"
 #include "core/node.h"
+#include "core/provenance/ProvenanceCollector.h"
 #include "utils/StackCheck.h"
 #include "utils/compiler_specific.h"
 #include "utils/exceptions.h"
@@ -91,6 +92,7 @@ std::shared_ptr<AbstractNode> UserModule::instantiate(
   const std::shared_ptr<const Context>& defining_context, const ModuleInstantiation *inst,
   const std::shared_ptr<const Context>& context) const
 {
+  if (auto collector = context->session()->provenanceCollector) collector->definition(*this);
   if (StackCheck::inst().check()) {
     print_err(inst->name(), loc, context);
     throw RecursionException::create("module", inst->name(), loc);
@@ -123,6 +125,7 @@ std::shared_ptr<AbstractNode> UserModule::instantiate(
 void UserModule::print(std::ostream& stream, const std::string& indent) const
 {
   std::string tab;
+  if (nativeAttributes) stream << indent << *nativeAttributes << "\n";
   if (!this->name.empty()) {
     stream << indent << "module " << this->name << "(";
     for (size_t i = 0; i < this->parameters.size(); ++i) {

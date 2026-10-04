@@ -23,6 +23,7 @@ public:
   void draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const override;
   void setColorScheme(const ColorScheme& cs) override;
   BoundingBox getBoundingBox() const override;
+  SurfaceContext prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader) override;
 
   /**
    * @brief Search for a segment or vertex on the line between near_pt and far_pt (with some tolerance)

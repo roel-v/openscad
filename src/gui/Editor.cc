@@ -1,4 +1,5 @@
 #include "gui/Editor.h"
+#include "gui/source/EditorUndoRegistry.h"
 
 #include <QWidget>
 
@@ -7,15 +8,26 @@
 #include "platform/PlatformUtils.h"
 #include "utils/printutils.h"
 #include <QDir>
+#include <QPointer>
 #include <QSaveFile>
 #include <QTemporaryFile>
 #include <QTimer>
 
+bool EditorInterface::prepareExternalEdit()
+{
+  QPointer<EditorInterface> guard(this);
+  emit externalEditStarting();
+  return !guard.isNull();
+}
+
 EditorInterface::EditorInterface(QWidget *parent) : QWidget(parent), annotations(new AgentAnnotations::Store(this))
 {
+  auto registry=SourceEditing::EditorUndoRegistry::forEditor(*this);
+  connect(annotations,&AgentAnnotations::Store::historyCleared,registry,&SourceEditing::EditorUndoRegistry::clear);
   connect(annotations, &AgentAnnotations::Store::commandAdded, this, [this](int token) {
+    QPointer<EditorInterface> guard(this);
     appendAnnotationUndo(token);
-    emit modificationChanged(this);
+    if (guard) emit modificationChanged(this);
   });
   connect(annotations, &AgentAnnotations::Store::changed, this, [this] { emit modificationChanged(this); });
   auto timer = new QTimer(this);

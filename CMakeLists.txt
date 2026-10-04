@@ -127,10 +127,18 @@ if(CLANG_TIDY)
 endif(CLANG_TIDY)
 
 add_executable(OpenSCADExe src/main_wrapper.cc)
+if(WIN32)
+  set(OPENSCAD_WINDOWS_OUTPUT_NAME "openscad" CACHE STRING "Windows application executable basename")
+  if(NOT OPENSCAD_WINDOWS_OUTPUT_NAME MATCHES "^[A-Za-z0-9_-]+$")
+    message(FATAL_ERROR "Invalid OPENSCAD_WINDOWS_OUTPUT_NAME")
+  endif()
+endif()
 if (APPLE)
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "OpenSCAD"
   )
+elseif(WIN32)
+  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME "${OPENSCAD_WINDOWS_OUTPUT_NAME}")
 else()
   set_target_properties(OpenSCADExe PROPERTIES
       OUTPUT_NAME "openscad"
@@ -725,7 +733,8 @@ if(ENABLE_CAIRO STREQUAL "AUTO")
   # AUTO: try to find, fallback gracefully if not found
   if (MSVC)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(CAIRO REQUIRED cairo)
+    pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
+    set(CAIRO_LIBRARIES PkgConfig::CAIRO)
   else()
     find_package(Cairo 1.14 QUIET)
   endif()
@@ -741,7 +750,8 @@ elseif(ENABLE_CAIRO)
   # Explicit ON: fail if not found
   if (MSVC)
     find_package(PkgConfig REQUIRED)
-    pkg_check_modules(CAIRO REQUIRED cairo)
+    pkg_check_modules(CAIRO REQUIRED IMPORTED_TARGET cairo)
+    set(CAIRO_LIBRARIES PkgConfig::CAIRO)
   else()
     find_package(Cairo 1.14 REQUIRED)
   endif()
@@ -1615,6 +1625,9 @@ if (APPLE)
   list(APPEND RESOURCE_FILES ${RESOURCE_DIR}/icons/${MACOSX_BUNDLE_ICON_FILE})
 elseif(WIN32)
   list(APPEND RESOURCE_FILES ${WINDOWS_RESOURCE_PATH})
+  # RC dependency scanning does not track files embedded as resource data.
+  set_property(SOURCE ${WINDOWS_RESOURCE_PATH} APPEND PROPERTY OBJECT_DEPENDS
+               "${CMAKE_CURRENT_SOURCE_DIR}/scripts/winmanifest.xml")
 endif()
 
 file(GLOB_RECURSE TEST_SOURCES
@@ -1675,6 +1688,8 @@ elseif(MINGW)
   set_property(TARGET OpenSCADLibInternal APPEND_STRING PROPERTY LINK_FLAGS " -municode")
   set_property(TARGET OpenSCADExe APPEND_STRING PROPERTY LINK_FLAGS " -municode")
 elseif(MSVC)
+  # The Windows resource already embeds scripts/winmanifest.xml for each executable.
+  target_link_options(OpenSCADLibInternal INTERFACE /MANIFEST:NO)
   set_target_properties(OpenSCADExe PROPERTIES
     LINK_FLAGS "-subsystem:windows -ENTRY:mainCRTStartup -stack:${STACKSIZE}"
   )
@@ -1725,7 +1740,9 @@ else()
 endif()
 
 if(NOT APPLE OR APPLE_UNIX)
-  set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME openscad${SUFFIX_WITH_DASH})
+  if(NOT WIN32)
+    set_target_properties(OpenSCADExe PROPERTIES OUTPUT_NAME openscad${SUFFIX_WITH_DASH})
+  endif()
   install(TARGETS OpenSCADExe RUNTIME DESTINATION "${OPENSCAD_BINDIR}")
   if(ENABLE_PYTHON)
     install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/openscad-python DESTINATION "${OPENSCAD_BINDIR}")

@@ -27,6 +27,7 @@
 class CameraNavigation;
 class NavigationCube;
 class ViewportStatistics;
+namespace Selection { class ViewportToolRouter; class ViewportOverlays; }
 
 class QGLView : public QOpenGLWidget, public GLView
 {
@@ -44,6 +45,8 @@ public:
   NavigationCube *navigationCube() const { return cube; }
   ViewportStatistics *statistics() const { return stats; }
   void setRenderer(std::shared_ptr<Renderer> renderer);
+  Selection::ViewportToolRouter *toolRouter=nullptr;
+  Selection::ViewportOverlays *overlays=nullptr;
 #ifdef ENABLE_OPENCSG
   bool hasOpenCSGSupport() { return this->is_opencsg_capable; }
 #endif
@@ -133,6 +136,7 @@ private slots:
 signals:
   void viewportPaintCompleted();
   void rendererReplaced();
+  void presentationChanged();
   void frameAboutToRender();
   void frameRendered();
   void cameraChanged();

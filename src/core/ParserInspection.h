@@ -1,5 +1,6 @@
 #pragma once
 #include "core/AST.h"
+#include "core/EvaluationInputs.h"
 #include <functional>
 #include <memory>
 #include <string>
@@ -7,7 +8,7 @@
 class SourceFile;
 // Only active under the GUI compilation lock. Native compilation uses nullptr.
 struct ParserInspection {
-  std::function<std::string(const std::string&)> read;
+  SourceReader read;
   std::function<void(const std::string&, const std::string&, const std::string&, const Location&)> dependency;
   std::function<bool()> alive;
   bool failed = false;

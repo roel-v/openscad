@@ -34,6 +34,8 @@ class ScintillaEditor : public EditorInterface
 public:
   ScintillaEditor(QWidget *parent);
   QsciScintilla *qsci;
+  bool isSourceReadOnly() const override { return qsci->isReadOnly(); }
+  void applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits) override;
   void appendAnnotationUndo(int token) override;
   void undoFromAnnotations(bool redo) override;
   QString toPlainText() override;
@@ -72,6 +74,8 @@ public:
                                                      bool flagAutoCompleteIncludeFunctions);
 
 private:
+  bool sourceEditBatch = false;
+  void publishSourceChange();
   QString savedSourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash({}));
   bool sourceForcedModified = false;
   void getRange(int *lineFrom, int *lineTo);

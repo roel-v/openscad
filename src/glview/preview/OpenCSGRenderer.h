@@ -33,6 +33,8 @@ public:
 
   [[nodiscard]] size_t csgObjectIndex() const { return csg_object_index_; }
   void setCsgObjectIndex(size_t csg_object_index) { csg_object_index_ = csg_object_index; }
+  uint32_t surfaceDrawId = 0;
+  float surfaceNormalSign = 1;
 
 private:
   size_t csg_object_index_;
@@ -69,6 +71,7 @@ public:
   }
 
   [[nodiscard]] const std::vector<OpenCSG::Primitive *>& primitives() const { return primitives_; }
+  bool background = false;
 
 private:
   // primitives_ is used to create the OpenCSG depth buffer (unlit rendering).
@@ -89,6 +92,7 @@ public:
   void draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo = nullptr) const override;
 
   BoundingBox getBoundingBox() const override;
+  SurfaceContext prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader) override;
 
 private:
   void createCSGVBOProducts(const CSGProducts& products, bool highlight_mode, bool background_mode,
@@ -99,4 +103,7 @@ private:
   std::shared_ptr<CSGProducts> highlights_products_;
   std::shared_ptr<CSGProducts> background_products_;
   std::string opencsg_vertex_shader_code_;
+  std::vector<SurfaceObject> surfaceObjects;
+  void configureSurface(OpenCSGVertexState& state, const CSGChainObject& object,
+                        bool subtraction, bool background);
 };

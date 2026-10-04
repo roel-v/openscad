@@ -1,4 +1,8 @@
 #include "AnnotationController.h"
+#include "gui/selection/EvaluationBinding.h"
+#include "gui/selection/ViewportToolRouter.h"
+#include "Feature.h"
+#include "openscad.h"
 #include "AnnotationBridge.h"
 #include "AgentModel.h"
 #include "gui/Animate.h"
@@ -603,11 +607,32 @@ void Controller::finishEvaluation(bool success)
   lastAttempt = evaluation;
   lastAttempt["duration_ms"] = double(evaluationTimer.elapsed());
   lastAttempt["outcome"] = success ? (view->getRenderer() ? "installed" : "empty") : "failed";
+  if (success && window->evaluatedScene && evaluationOwner) {
+    QJsonArray inputs;
+    for (const auto& [key, input] : window->evaluatedScene->inputs->consumed()) {
+      QJsonObject captured{{"file_key", QString::fromStdString(key)},
+        {"source_sha256", QString::fromStdString(input.fingerprint)}};
+      if (input.editorId) captured["document_id"] = QString::fromStdString(*input.editorId);
+      if (input.editorRevision) captured["source_revision"] = QString::number(*input.editorRevision);
+      inputs.append(captured);
+    }
+    lastAttempt["dependency_provenance"] = "captured";
+    lastAttempt["evaluation_inputs"] = inputs;
+    QJsonObject configuration{{"defines", QString::fromStdString(commandline_commands)},
+      {"preview", window->isPreview}, {"backend", lastAttempt.value("backend")},
+      {"time", lastAttempt.value("time")}, {"customizer", lastAttempt.value("customizer")},
+      {"features", QString::fromStdString(Feature::features())}};
+    const auto fingerprint = QString::fromLatin1(Store::hash(QJsonDocument(configuration).toJson(QJsonDocument::Compact)));
+    lastAttempt["configuration_sha256"] = fingerprint;
+    window->evaluationBinding->install(window->evaluatedScene, evaluationOwner,
+      lastAttempt.value("attempt_id").toString(), fingerprint);
+  } else window->evaluationBinding->invalidate(tr("Evaluation failed"));
   if (success) {
     lastAttempt["result_id"] = lastAttempt.value("attempt_id");
     // Detach while both root SourceFile and cached library ModuleInstantiations are alive.
     // Never recover mappings later from an old renderer's raw modinst pointers.
     try {
+      NativeEvaluationScope inputScope(*window->evaluationInputs, *window->evaluationBacking->libraries);
       auto tree = inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), lastAttempt);
       if (Bridge::instance()->retainTree(tree)) {
         lastAttempt["tree_id"] = tree.metadata.value("tree_id");
@@ -699,12 +724,17 @@ void Controller::rendererChanged()
   if (capturePending) finishFrame("Renderer changed.");
   if (!evaluation.isEmpty()) return;
   auto it = installed.find(view->getRenderer());
-  if (it != installed.end() && !it->second.renderer.expired()) {
+  if (it != installed.end() && (!view->getRenderer() || !it->second.renderer.expired())) {
     displayedOwner = it->second.owner;
     result = it->second.result;
   } else result = {};
   refresh();
   emit changed();
+}
+void Controller::registerPresentationRenderer(const std::shared_ptr<Renderer>& renderer, const QString& resultId)
+{
+  if (result.value("result_id").toString() == resultId)
+    installed[renderer.get()] = {renderer, displayedOwner, result};
 }
 QJsonObject Controller::status() const
 {
@@ -729,12 +759,15 @@ QJsonObject Controller::status() const
     {"capture_available", view->isVisible() && !window->isMinimized()},
     {"automatic_reload", window->designActionAutoReload->isChecked()},
     {"current_source_sha256", sourceHash(owner())},
-    {"stale_source", owner() && result.value("source_sha256").toString() != sourceHash(owner())}};
+    {"stale_source", owner() && result.value("source_sha256").toString() != sourceHash(owner())},
+    {"stale_evaluation_inputs", !window->evaluationBinding->current()}};
   return value;
 }
 void Controller::startDrawing()
 {
   if (busy() || !owner()) return;
+  viewportTool=window->viewportTools->claimExternal("Annotations",this,[this](auto) { cancelDrawing(); });
+  if (!viewportTool) return;
   dock->show();
   draftOwner = owner();
   draftResult = result;
@@ -774,6 +807,8 @@ void Controller::updateLock()
 void Controller::cancelDrawing()
 {
   if (!drafting()) return;
+  if (window->viewportTools) window->viewportTools->finish(viewportTool);
+  viewportTool=0;
   ++draftToken;
   draftWatch.stop();
   state = Idle;

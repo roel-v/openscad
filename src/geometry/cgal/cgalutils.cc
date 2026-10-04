@@ -11,8 +11,10 @@
 #include <CGAL/version.h>
 
 #include <cassert>
+#include <algorithm>
 #include <cmath>
 #include <memory>
+#include <limits>
 #include <set>
 #include <utility>
 
@@ -285,7 +287,8 @@ std::shared_ptr<const CGALNefGeometry> getNefPolyhedronFromGeometry(
    formats) do not allow for holes in their faces. The function documents
    the method used to deal with this
  */
-std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedron3& N)
+std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedron3& N,
+                                                     NefPolySetConversion conversion)
 {
   // 1. Build Indexed PolyMesh
   // 2. Validate mesh (manifoldness)
@@ -295,9 +298,19 @@ std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedr
   // 5. Create PolySet
 
   using Nef = CGAL_Nef_polyhedron3;
+  const bool strict = conversion == NefPolySetConversion::StrictAnalysis;
+  using ConversionError = NefPolySetConversionError;
+  if (strict) {
+    auto validationCopy = N; // CGAL's validity API is non-const; leave caller geometry untouched.
+    if (!validationCopy.is_valid() || !N.is_simple() || !N.is_bounded()) {
+      throw ConversionError(ConversionError::Reason::InvalidTopology, "CGAL solid is invalid, nonsimple or unbounded.");
+    }
+  }
 
   // 1. Build Indexed PolyMesh
   Reindexer<Vector3f> allVertices;
+  std::vector<Nef::Point_3> exactVertices;
+  std::vector<Vector3d> analysisVertices;
   std::vector<MarkedIndexedFaces> polygons;
 
   typename Nef::Halffacet_const_iterator hfaceti;
@@ -320,15 +333,35 @@ std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedr
         typename Nef::SHalfedge_around_facet_const_circulator c2(c1);
         faces.push_back(IndexedFace());
         auto& currface = faces.back();
+        std::set<int> strictFaceIndices;
         CGAL_For_all(c1, c2)
         {
           auto p = c1->source()->center_vertex()->point();
           // Create vertex indices and remove consecutive duplicate vertices
-          auto idx = allVertices.lookup(vector_convert<Vector3f>(p));
+          const auto approximate = vector_convert<Vector3f>(p);
+          if (strict && !approximate.allFinite()) {
+            throw ConversionError(ConversionError::Reason::PrecisionLoss, "CGAL vertex exceeds triangulator float range.");
+          }
+          auto idx = allVertices.lookup(approximate);
+          if (strict) {
+            if (static_cast<size_t>(idx) == exactVertices.size()) {
+              exactVertices.push_back(p);
+              analysisVertices.push_back(vector_convert<Vector3d>(p));
+            } else if (exactVertices[idx] != p) {
+              throw ConversionError(ConversionError::Reason::PrecisionLoss,
+                "Distinct exact CGAL vertices collapse at triangulator float precision.");
+            }
+            if (!strictFaceIndices.insert(idx).second) {
+              throw ConversionError(ConversionError::Reason::InvalidTopology, "CGAL face repeats a vertex.");
+            }
+          }
           if (currface.empty() || idx != currface.back()) currface.push_back(idx);
         }
         if (!currface.empty() && currface.front() == currface.back()) currface.pop_back();
-        if (currface.size() < 3) faces.pop_back();  // Cull empty triangles
+        if (currface.size() < 3) {
+          if (strict) throw ConversionError(ConversionError::Reason::InvalidTopology, "CGAL face has fewer than three vertices.");
+          faces.pop_back(); // Cull empty triangles for rendering only.
+        }
       }
     }
     if (faces.empty()) polygons.pop_back();  // Cull empty faces
@@ -337,6 +370,7 @@ std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedr
   // 2. Validate mesh (manifoldness)
   auto unconnected = GeometryUtils::findUnconnectedEdges(polygons);
   if (unconnected > 0) {
+    if (strict) throw ConversionError(ConversionError::Reason::InvalidTopology, "CGAL conversion has unconnected polygon edges.");
     LOG(message_group::Error, "Non-manifold mesh encountered: %1$d unconnected edges", unconnected);
   }
   // 3. Triangulate each face
@@ -385,6 +419,23 @@ std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedr
     // CGAL::to_double(nvec.z()));
     std::vector<IndexedTriangle> triangles;
     auto err = GeometryUtils::tessellatePolygonWithHoles(verts, faces.faces, triangles, nullptr);
+    if (strict) {
+      if (faces.faces.size() - 1 > std::numeric_limits<size_t>::max() / 2) {
+        throw ConversionError(ConversionError::Reason::TriangulationFailure, "CGAL face count overflows triangulation capacity.");
+      }
+      size_t expected = 2 * (faces.faces.size() - 1);
+      for (const auto& face : faces.faces) {
+        if (face.size() > std::numeric_limits<size_t>::max() - expected) {
+          throw ConversionError(ConversionError::Reason::TriangulationFailure, "CGAL vertex count overflows triangulation capacity.");
+        }
+        expected += face.size();
+      }
+      expected -= 2;
+      if (err || triangles.size() != expected) {
+        throw ConversionError(ConversionError::Reason::TriangulationFailure,
+          "CGAL triangulation failed, dropped or changed a face.");
+      }
+    }
     if (!err) {
       for (const auto& t : triangles) {
         assert(t[0] >= 0 && t[0] < static_cast<int>(allVertices.size()));
@@ -403,25 +454,28 @@ std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedr
   // 4. Validate mesh (manifoldness)
   auto unconnected2 = GeometryUtils::findUnconnectedEdges(allTriangles);
   if (unconnected2 > 0) {
+    if (strict) throw ConversionError(ConversionError::Reason::InvalidTopology, "CGAL conversion has unconnected triangle edges.");
     LOG(message_group::Error, "Non-manifold mesh created: %1$d unconnected edges", unconnected2);
   }
 
   auto polyset = PolySet::createEmpty();
-  polyset->colors.reserve(2);
-  auto colorScheme = ColorMap::instance().findColorScheme(RenderSettings::inst()->colorscheme);
-  polyset->colors.push_back(ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR));
-  polyset->colors.push_back(ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_BACK_COLOR));
+  if (!strict) {
+    polyset->colors.reserve(2);
+    auto colorScheme = ColorMap::instance().findColorScheme(RenderSettings::inst()->colorscheme);
+    polyset->colors.push_back(ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_FRONT_COLOR));
+    polyset->colors.push_back(ColorMap::getColor(*colorScheme, RenderColor::CGAL_FACE_BACK_COLOR));
+  }
 
   polyset->vertices.reserve(verts.size());
-  for (const auto& v : verts) {
-    polyset->vertices.emplace_back(v.cast<double>());
+  for (size_t i = 0; i < verts.size(); ++i) {
+    polyset->vertices.emplace_back(strict ? analysisVertices[i] : verts[i].cast<double>());
   }
   polyset->indices.reserve(allTriangles.size());
   polyset->color_indices.reserve(allTriangles.size());
   for (const auto& tri : allTriangles) {
     const auto& t = tri.tri;
     polyset->indices.push_back({t[0], t[1], t[2]});
-    polyset->color_indices.push_back(tri.mark ? 0 : 1);
+    if (!strict) polyset->color_indices.push_back(tri.mark ? 0 : 1);
   }
   polyset->setTriangular(true);
 

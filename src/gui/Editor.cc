@@ -1,4 +1,5 @@
 #include "gui/Editor.h"
+#include "gui/source/EditorUndoRegistry.h"
 
 #include <QWidget>
 
@@ -21,6 +22,8 @@ bool EditorInterface::prepareExternalEdit()
 
 EditorInterface::EditorInterface(QWidget *parent) : QWidget(parent), annotations(new AgentAnnotations::Store(this))
 {
+  auto registry=SourceEditing::EditorUndoRegistry::forEditor(*this);
+  connect(annotations,&AgentAnnotations::Store::historyCleared,registry,&SourceEditing::EditorUndoRegistry::clear);
   connect(annotations, &AgentAnnotations::Store::commandAdded, this, [this](int token) {
     QPointer<EditorInterface> guard(this);
     appendAnnotationUndo(token);

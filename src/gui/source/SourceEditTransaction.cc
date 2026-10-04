@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <stdexcept>
 #include "gui/Editor.h"
+#include "gui/source/EditorUndoRegistry.h"
 
 namespace SourceEditing {
 EditResult validate(const QByteArray& source, const QString& documentId, quint64 revision,
@@ -19,6 +20,7 @@ EditResult validate(const QByteArray& source, const QString& documentId, quint64
   if (request.sourceRevision != revision || request.sourceFingerprint != fingerprint)
     return failure(EditError::StaleSource, "Source revision or fingerprint changed");
   if (readOnly) return failure(EditError::ReadOnly, "Document is read-only");
+  if (request.participant && !request.participant->valid()) return failure(EditError::InvalidParticipant,"Lifecycle owner is no longer live");
   auto ordered = request.edits;
   std::sort(ordered.begin(), ordered.end(), [](const ByteEdit& a, const ByteEdit& b) { return a.begin < b.begin; });
   const auto boundary = [&source](qsizetype position) {
@@ -40,18 +42,18 @@ EditResult validate(const QByteArray& source, const QString& documentId, quint64
   }
   for (auto it = ordered.crbegin(); it != ordered.crend(); ++it)
     if (it->expected != it->replacement) changes.append(*it);
-  return {EditError::None, !changes.isEmpty(), revision, {}};
+  return {EditError::None, !changes.isEmpty() || bool(request.participant), revision, {}};
 }
 
 EditResult apply(EditorInterface& editor, const EditRequest& request)
 {
   if (QThread::currentThread() != editor.thread())
     throw std::logic_error("Source transactions must run on the editor GUI thread");
+  QPointer<EditorInterface> guard(&editor);
   QVector<ByteEdit> changes;
   auto result = validate(editor.toPlainText().toUtf8(), editor.documentId(), editor.sourceRevision,
                          editor.sourceFingerprint, editor.isSourceReadOnly(), request, changes);
   if (result.error == EditError::None && result.changed) {
-    QPointer<EditorInterface> guard(&editor);
     editor.prepareExternalEdit();
     if (!guard)
       return {EditError::WrongDocument, false, result.sourceRevision, "Document closed before editing"};
@@ -59,9 +61,14 @@ EditResult apply(EditorInterface& editor, const EditRequest& request)
     // Revalidate the complete original request before using its byte offsets.
     result = validate(editor.toPlainText().toUtf8(), editor.documentId(), editor.sourceRevision,
                       editor.sourceFingerprint, editor.isSourceReadOnly(), request, changes);
-    if (result.error == EditError::None && result.changed) editor.applyValidatedByteEdits(changes);
+    if (result.error == EditError::None && result.changed) {
+      editor.applyValidatedByteEdits(changes,request.participant);
+      // Publish text changes only after Scintilla closes its group, then update lifecycle state.
+      // Either notification can close the editor; do not touch it after a callback without a guard.
+      if (guard && request.participant && request.participant->valid()) request.participant->redo();
+    }
   }
-  result.sourceRevision = editor.sourceRevision;
+  if (guard) result.sourceRevision = guard->sourceRevision;
   return result;
 }
 

@@ -1,5 +1,6 @@
 #pragma once
 #include "glview/CameraPose.h"
+#include "core/design/DesignObjects.h"
 #include <QObject>
 #include <QVector>
 #include <functional>
@@ -9,7 +10,14 @@ class EditorInterface;
 class SavedViews : public QObject {
   Q_OBJECT
 public:
-  struct Entry { QString id, name; CameraPose camera; };
+  enum class Backing { PersonalInspection };
+  struct Entry {
+    std::shared_ptr<const Design::Record> record;
+    Backing backing = Backing::PersonalInspection;
+    QString id() const { return QString::fromStdString(record->id); }
+    QString name() const { return QString::fromStdString(record->label); }
+    CameraPose pose() const;
+  };
   explicit SavedViews(QObject *parent = nullptr);
   static SavedViews *forEditor(EditorInterface *editor);
   const QVector<Entry>& entries() const { return records; }
@@ -19,6 +27,7 @@ public:
   QString add(const CameraPose& pose);
   void rename(const QString& id, const QString& name);
   void remove(const QString& id);
+  bool restore(const Entry&);
   const Entry *find(const QString& id) const;
   bool load(const QString& source);
   // Hold the companion lock across both writes. Source and metadata commits remain independent.

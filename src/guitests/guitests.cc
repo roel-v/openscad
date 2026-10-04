@@ -6,7 +6,7 @@
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
 #include "TestSourceTransactions.h"
-#include "TestSourceTransactions.h"
+#include "TestDesignObjects.h"
 #include "TestAnnotations.h"
 #include "TestNavigation.h"
 #include "TestSelection.h"
@@ -37,12 +37,14 @@ int runAllTest(MainWindow *window)
     return QTest::qExec(&test, arguments);
   }
   int totalTestFailures = 0;
+  if (qEnvironmentVariableIsSet("OPENSCAD_DESIGN_OBJECT_TESTS_ONLY")) return runTests<TestDesignObjects>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_SELECTION_TESTS_ONLY")) return runTests<TestSelection>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_ANNOTATION_TESTS_ONLY")) return runTests<TestAnnotations>(window);
   std::cout << "******************************* RUN UX TESTS ********************************"
             << std::endl;
   totalTestFailures += runTests<TestTabManager>(window);
   totalTestFailures += runTests<TestSourceTransactions>(window);
+  totalTestFailures += runTests<TestDesignObjects>(window);
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
   totalTestFailures += runTests<TestAnnotations>(window);

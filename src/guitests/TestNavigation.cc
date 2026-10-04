@@ -75,9 +75,9 @@ void TestNavigation::savedViewTransactions()
   SavedViews reopened;
   QVERIFY(reopened.load(path));
   QCOMPARE(reopened.entries().size(),2);
-  QVERIFY(reopened.find(second)->camera==pose);
-  QCOMPARE(reopened.find(first)->name,reopened.find(second)->name);
-  QVERIFY(reopened.find(first)->camera.projection==Camera::ProjectionType::ORTHOGONAL);
+  QVERIFY(reopened.find(second)->pose()==pose);
+  QCOMPARE(reopened.find(first)->name(),reopened.find(second)->name());
+  QVERIFY(reopened.find(first)->pose().projection==Camera::ProjectionType::ORTHOGONAL);
   store.rename(first,"Changed");
   QLockFile lock(SavedViews::companion(path)+".lock"); QVERIFY(lock.tryLock());
   QVERIFY(!store.save(path,false,write,error)); QCOMPARE(sourceWrites,1); QVERIFY(store.dirty());
@@ -180,7 +180,7 @@ void TestNavigation::savedViewDocumentLifecycle()
   QVERIFY(window->tabManager->saveACopy(editor,directory.filePath("copy.scad")));
   QCOMPARE(editor->filepath,path); QVERIFY(editor->hasViewChanges());
   QVERIFY(window->tabManager->refreshDocument()); QVERIFY(editor->hasViewChanges());
-  QCOMPARE(store->find(id)->name,QString("Unsaved copy"));
+  QCOMPARE(store->find(id)->name(),QString("Unsaved copy"));
   QVERIFY(window->tabManager->saveAll()); QVERIFY(!editor->hasViewChanges());
   window->actionRenderPreview();
   QTRY_COMPARE(window->displayedDocument(),editor);
@@ -190,7 +190,7 @@ void TestNavigation::savedViewDocumentLifecycle()
   QTRY_COMPARE(store->entries().size(),2);
   auto edit=popup->views->findChild<QLineEdit *>(); QVERIFY(edit);
   edit->setText("Named camera"); QTest::keyClick(edit,Qt::Key_Return);
-  QTRY_COMPARE(store->entries().last().name,QString("Named camera"));
+  QTRY_COMPARE(store->entries().last().name(),QString("Named camera"));
   QTest::qWait(20);
   auto changed=pose; changed.rotation.z()+=39;
   window->qglview->navigation()->apply(changed,false);
@@ -589,7 +589,7 @@ void TestNavigation::visualCalibrationAndClose()
   QTest::mouseClick(popup->findChild<QRadioButton *>("viewportPerspective"),Qt::LeftButton);
   QTRY_VERIFY(popup->findChild<QRadioButton *>("viewportPerspective")->isChecked());
   QVERIFY(!view->orthoMode());
-  QTRY_COMPARE(store->entries().last().name,QString("Focus-loss name"));
+  QTRY_COMPARE(store->entries().last().name(),QString("Focus-loss name"));
   const auto output=qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
   const auto oldSize=window->size();
   const auto oldFont=popup->font();

@@ -14,6 +14,7 @@ class EvaluationSession;
 class Context;
 class FileContext;
 class Renderer;
+namespace Design { struct Result; }
 
 namespace Selection {
 // Destruction releases contexts before their session, and ASTs after the session.
@@ -26,6 +27,7 @@ struct EvaluationBacking {
   std::shared_ptr<const FileContext> file;
 };
 struct EvaluatedScene {
+  std::shared_ptr<const Design::Result> designObjects;
   std::shared_ptr<const EvaluationBacking> backing;
   std::string documentPath;
   std::shared_ptr<const EvaluationInputs> inputs;

@@ -26,6 +26,30 @@
 
 %expect 0
 
+%code requires {
+#include <filesystem>
+struct ParserSourceLocation {
+  int first_line, first_column, last_line, last_column;
+  const std::filesystem::path *first_file, *last_file;
+};
+#define YYLTYPE_IS_TRIVIAL 1
+#define YYLLOC_DEFAULT(Current, Rhs, N) do { \
+  if (N) { \
+    (Current).first_line = YYRHSLOC(Rhs, 1).first_line; \
+    (Current).first_column = YYRHSLOC(Rhs, 1).first_column; \
+    (Current).first_file = YYRHSLOC(Rhs, 1).first_file; \
+  } else { \
+    (Current).first_line = YYRHSLOC(Rhs, 0).last_line; \
+    (Current).first_column = YYRHSLOC(Rhs, 0).last_column; \
+    (Current).first_file = YYRHSLOC(Rhs, 0).last_file; \
+  } \
+  (Current).last_line = YYRHSLOC(Rhs, N).last_line; \
+  (Current).last_column = YYRHSLOC(Rhs, N).last_column; \
+  (Current).last_file = YYRHSLOC(Rhs, N).last_file; \
+} while (0)
+}
+%define api.location.type {ParserSourceLocation}
+
 %{
 
 #include <sys/types.h>
@@ -54,7 +78,9 @@
 namespace fs = std::filesystem;
 
 #define YYMAXDEPTH 200000
-#define LOC(loc) Location(loc.first_line, loc.first_column, loc.last_line, loc.last_column, sourcefile())
+#define LOC(loc) ((loc).first_file && (loc).last_file && *(loc).first_file == *(loc).last_file \
+  ? Location((loc).first_line, (loc).first_column, (loc).last_line, (loc).last_column, \
+             std::make_shared<fs::path>(*(loc).first_file)) : Location::NONE)
 #ifdef DEBUG
 static Location debug_location(const std::string& info, const struct YYLTYPE& loc);
 #define LOCD(str, loc) debug_location(str, loc)
@@ -73,7 +99,7 @@ std::shared_ptr<fs::path> sourcefile(void);
 void lexer_set_parser_sourcefile(const fs::path& path);
 int lexerlex_destroy(void);
 int lexerlex(void);
-static void handle_assignment(const std::string token, Expression *expr, const Location loc);
+static std::shared_ptr<Assignment> handle_assignment(const std::string token, Expression *expr, const Location loc);
 
 std::stack<std::shared_ptr<LocalScope>> scope_stack;
 SourceFile *rootfile;
@@ -253,13 +279,15 @@ assignment
         | attribute_block TOK_ID '=' expr ';'
             {
                 // Note: attribute_block is $1, ID is $2, expr is $4
-                handle_assignment($2, $4, LOCD("assignment", @$));
+                auto occurrence = handle_assignment($2, $4, LOCD("assignment", @$));
                 if ($1) {
                   Assignment *as = nullptr;
                   for (auto &a : scope_stack.top()->assignments){
                     if (a->getName() == $2) as = a.get();
                   }
-                  if (as) as->addAnnotations(new AnnotationList({Annotation("NativeAttributes", std::shared_ptr<Expression>($1))}));
+                  auto attributes = std::shared_ptr<Expression>($1);
+                  occurrence->addAnnotations(new AnnotationList({Annotation("NativeAttributes", attributes)}));
+                  if (as && as != occurrence.get()) as->addAnnotations(new AnnotationList({Annotation("NativeAttributes", attributes)}));
                 }
                 free($2);
             }
@@ -958,10 +986,12 @@ static void warn_reassignment(const Location& loc, const std::shared_ptr<Assignm
 			path2);
 }
 
-void handle_assignment(const std::string token, Expression *expr, const Location loc)
+std::shared_ptr<Assignment> handle_assignment(const std::string token, Expression *expr, const Location loc)
 {
 	const auto parsedExpression = std::shared_ptr<Expression>(expr);
-	if (parserInspection) scope_stack.top()->syntaxOrder.push_back(assignment(token, parsedExpression, loc));
+	auto occurrence = assignment(token, parsedExpression, loc);
+	scope_stack.top()->assignmentOccurrences.push_back(occurrence);
+	if (parserInspection) scope_stack.top()->syntaxOrder.push_back(occurrence);
 	bool found = false;
 	for (auto &assignment : scope_stack.top()->assignments) {
 		if (assignment->getName() == token) {
@@ -993,8 +1023,9 @@ void handle_assignment(const std::string token, Expression *expr, const Location
 		}
 	}
 	if (!found) {
-		scope_stack.top()->addAssignment(assignment(token, parsedExpression, loc));
+		scope_stack.top()->addAssignment(occurrence);
 	}
+	return occurrence;
 }
 
 bool parse(SourceFile *&file, const std::string& text, const std::string &filename, const std::string &mainFile, int debug)

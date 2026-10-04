@@ -76,6 +76,7 @@ class UXTest;
 namespace AgentAnnotations { class Controller; }
 class InspectionPresentationController;
 namespace Semantic { class Controller; }
+namespace Anchors { class Controller; }
 namespace Selection { class EvaluationBinding; class SelectionService; class ViewportToolRouter; class ViewportOverlays; class InspectorDock; struct EvaluationBacking; struct EvaluatedScene; }
 class MainWindow : public QMainWindow, public Ui::MainWindow, public InputEventHandler
 {
@@ -92,6 +93,7 @@ public:
   Selection::ViewportOverlays *viewportOverlays = nullptr;
   Selection::InspectorDock *inspectorDock = nullptr;
   Semantic::Controller *semanticController = nullptr;
+  Anchors::Controller *anchorController = nullptr;
   quint64 measurementTool=0;
   std::shared_ptr<EvaluationInputs> evaluationInputs;
   std::shared_ptr<Selection::EvaluationBacking> evaluationBacking;

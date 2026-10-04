@@ -811,15 +811,13 @@ struct CommaSeparatedVector {
   }
 };
 
-// OpenSCAD
-int openscad_main(int argc, char **argv)
+void initializeNativeRuntime()
 {
 #if defined(ENABLE_CGAL) && defined(USE_MIMALLOC)
   // call init_mimalloc before any GMP variables are initialized. (defined in src/openscad_mimalloc.h)
   init_mimalloc();
 #endif
 
-  int rc = 0;
   StackCheck::inst();
 
 #ifdef Q_OS_MACOS
@@ -837,6 +835,22 @@ int openscad_main(int argc, char **argv)
   const auto applicationPath = boost::dll::fs::current_path();
 #endif
   PlatformUtils::registerApplicationPath(applicationPath);
+}
+
+void initializeNativeEvaluator()
+{
+#ifdef ENABLE_CGAL
+  CGAL::set_error_behaviour(CGAL::THROW_EXCEPTION);
+  CGAL::set_warning_behaviour(CGAL::THROW_EXCEPTION);
+#endif
+  Builtins::initialize();
+}
+
+// OpenSCAD
+int openscad_main(int argc, char **argv)
+{
+  initializeNativeRuntime();
+  int rc = 0;
 
 #ifdef ENABLE_PYTHON
   // The original name as called, not resolving links and so on. This will
@@ -848,12 +862,7 @@ int openscad_main(int argc, char **argv)
   }
 #endif
 
-#ifdef ENABLE_CGAL
-  // Always throw exceptions from CGAL, so we can catch instead of crashing on bad geometry.
-  CGAL::set_error_behaviour(CGAL::THROW_EXCEPTION);
-  CGAL::set_warning_behaviour(CGAL::THROW_EXCEPTION);
-#endif
-  Builtins::initialize();
+  initializeNativeEvaluator();
 
   auto original_path = fs::current_path();
 
@@ -1179,7 +1188,7 @@ int openscad_main(int argc, char **argv)
     }
   }
 
-  PRINTDB("Application location detected as %s", applicationPath);
+  PRINTDB("Application location detected as %s", PlatformUtils::applicationPath());
 
   auto cmdlinemode = false;
   if (!output_files.empty()) {  // cmd-line mode

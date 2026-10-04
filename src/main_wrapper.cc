@@ -1,4 +1,5 @@
 #include "openscad.h"
+#include "core/insertion/InsertionPreviewWorker.h"
 
 #ifndef OPENSCAD_NOGUI
 #include <QtCore/qresource.h>  // Bring in Q_INIT_RESOURCE
@@ -11,6 +12,7 @@
 // Windows note:  wmain() is called first, translates from UTF-16 to UTF-8, and calls main().
 int main(int argc, char **argv)
 {
+  if(argc>1 && std::string(argv[1])=="--insertion-preview-worker")return Insertion::previewWorkerMain(argc,argv);
 #if defined(ENABLE_GUI_TESTS) && !defined(OPENSCAD_NOGUI)
   const auto testSettings = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_SETTINGS");
   if (!testSettings.isEmpty()) {

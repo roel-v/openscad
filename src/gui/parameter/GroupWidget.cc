@@ -46,3 +46,17 @@ void GroupWidget::setExpanded(bool expanded)
     contentArea.hide();
   }
 }
+
+void GroupWidget::updateVisibility()
+{
+  for (int i = 0; i < contentLayout.count(); ++i) {
+    const QWidget *widget = contentLayout.itemAt(i)->widget();
+    // isVisible() also reflects collapsed/hidden ancestors, preventing a hidden
+    // group from returning. Only the parameter's explicit hidden state counts.
+    if (widget && !widget->isHidden()) {
+      setVisible(true);
+      return;
+    }
+  }
+  setVisible(false);
+}

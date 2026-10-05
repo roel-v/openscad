@@ -56,6 +56,7 @@ private:
   bool modified = false;
 
   void rebuildDependencyMap();
+  void updateGroupVisibility();
   void updateDependentAttributes(ParameterObject *parameter);
   void updateDependentAttributes(ParameterObject *parameter, std::set<ParameterObject *>& visited);
 

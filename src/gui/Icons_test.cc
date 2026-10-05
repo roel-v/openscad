@@ -11,6 +11,7 @@
 #include <QStyleHints>
 #include <QToolBar>
 #include <QToolButton>
+#include <QMenu>
 #include <QElapsedTimer>
 #include <QThread>
 #include "gui/Preferences.h"
@@ -155,6 +156,31 @@ TEST_CASE("Palette alpha and new action consumers remain theme-aware", "[ui-icon
         Icons::icon("save", &toolbar).pixmap(24, 24).toImage());
 }
 
+TEST_CASE("Shared measurement action updates its button icon without window activation", "[ui-icons]")
+{
+  iconApp();
+  QToolBar toolbar;
+  QMenu menu;
+  auto *action = toolbar.addAction(Icons::icon("openscad-measure-distance"), "Measure distance");
+  action->setCheckable(true);
+  menu.addAction(action);
+  toolbar.show();
+  QApplication::processEvents();
+  auto *button = qobject_cast<QToolButton *>(toolbar.widgetForAction(action));
+  REQUIRE(button);
+  auto colors = button->palette();
+  colors.setColor(QPalette::ButtonText, QColor(170, 20, 100));
+  colors.setColor(QPalette::HighlightedText, QColor(30, 170, 100));
+  button->setPalette(colors);
+  for (const bool checked : {true, false, true}) {
+    action->setChecked(checked);
+    QApplication::processEvents();
+    const auto state = checked ? QIcon::On : QIcon::Off;
+    CHECK(button->icon().pixmap(QSize(24, 24), QIcon::Normal, state).toImage() ==
+          Icons::icon("openscad-measure-distance", button).pixmap(QSize(24, 24), QIcon::Normal, state).toImage());
+  }
+}
+
 TEST_CASE("Status preference persists through the existing writer and a fresh process", "[ui-icons]")
 {
   iconApp();
@@ -224,6 +250,19 @@ TEST_CASE("Capture integrated native icon modes", "[.][icons-visual]")
     CHECK(window->fileActionNew->icon().name() == "openscad-new");
   }
   auto *prefs = GlobalPreferences::inst();
+  for (auto *action : {first->designActionMeasureDist, first->designActionMeasureAngle}) {
+    const bool enabled = action->isEnabled();
+    action->setEnabled(true);
+    action->setChecked(true);
+    QApplication::processEvents();
+    auto *button = qobject_cast<QToolButton *>(first->viewerToolBar->widgetForAction(action));
+    REQUIRE(button);
+    CHECK(button->icon().pixmap(QSize(24, 24), QIcon::Normal, QIcon::On).toImage() ==
+          Icons::icon(action->icon().name(), button).pixmap(QSize(24, 24), QIcon::Normal, QIcon::On).toImage());
+    REQUIRE(first->viewerToolBar->grab().save(output + "/" + action->objectName() + "-selected.png"));
+    action->setChecked(false);
+    action->setEnabled(enabled);
+  }
   Settings::Settings::showWarningsIn3dView.setValue(true);
   first->activeEditor->setPlainText("cube(10); echo(icon_verification_missing_variable);");
   REQUIRE(QMetaObject::invokeMethod(first, "actionRenderPreview"));

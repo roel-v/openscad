@@ -254,6 +254,21 @@ public:
   using QObject::QObject;
   bool eventFilter(QObject *object, QEvent *event) override
   {
+    // QToolButton copies its default action's icon after event filters have run.
+    // Rebind to the button's palette/state context after that copy, including action
+    // changes emitted while another widget is refreshing the shared action.
+    if (event->type() == QEvent::ActionChanged) {
+      if (auto *button = qobject_cast<QAbstractButton *>(object)) {
+        if (!button->property("openscadIconRefreshPending").toBool()) {
+          button->setProperty("openscadIconRefreshPending", true);
+          QTimer::singleShot(0, button, [this, button] {
+            button->setProperty("openscadIconRefreshPending", false);
+            update(button);
+          });
+        }
+        return false;
+      }
+    }
     if (busy) return false;
     if (event->type() == QEvent::ApplicationPaletteChange || event->type() == QEvent::ThemeChange ||
         event->type() == QEvent::StyleChange) {
@@ -285,9 +300,12 @@ public:
       const auto name = canonical(old.name());
       return mappings().contains(name) ? Icons::icon(name, widget) : old;
     };
-    for (auto *action : widget->actions()) {
-      if (mappings().contains(canonical(action->icon().name())))
-        action->setIcon(convert(action->icon()));
+    // A button consumes a shared action; it must not write its local icon back to it.
+    if (!qobject_cast<QAbstractButton *>(widget)) {
+      for (auto *action : widget->actions()) {
+        if (mappings().contains(canonical(action->icon().name())))
+          action->setIcon(convert(action->icon()));
+      }
     }
     if (auto *button = qobject_cast<QAbstractButton *>(widget)) {
       if (mappings().contains(canonical(button->icon().name())))

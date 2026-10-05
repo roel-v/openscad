@@ -54,6 +54,7 @@ Controller::Controller(MainWindow *window) : QObject(window),window(window),jobs
   connect(window->viewportTools,&Selection::ViewportToolRouter::feedback,this,[this](QString value){message=value;emit changed();});
   connect(window->qglview->navigation(),&CameraNavigation::displayChanged,this,[this]{if(tool){cancelGesture();refresh();}});
   connect(window->qglview,&QGLView::resized,this,[this]{if(tool){cancelGesture();refresh();}});
+  connect(this,&Controller::changed,this,&Controller::prepareHelper);
   overlay=window->viewportOverlays->registerOverlay(this,Selection::OverlayLayer::WorldOverlay,30,[this](const auto& context){drawHelper(context);});
   window->qglview->installEventFilter(this);bind();refresh();
 }
@@ -206,9 +207,14 @@ bool Controller::beginDrag(const std::string& id,QPointF press,bool rotate,int a
   tool=window->viewportTools->beginDrag({"Live Sections",gestureStamp,true},this,press,{move,[this,move](auto point,auto modifiers){move(point,modifiers);tool=0;finishGesture();},[this](auto){tool=0;cancelGesture();refresh();}});
   if(!tool){cancelGesture();return false;}return true;
 }
+void Controller::prepareHelper() {
+  helperPose.reset();
+  if(!window->evaluationBinding->current() || !helperEnabled(selected))return;
+  helperPose=frame(selected);const auto box=bounds();helperSize=box.isEmpty()?1:box.sizes().norm()*.18;
+}
 void Controller::drawHelper(const Selection::OverlayContext&) {
-  if(!window->evaluationBinding->current())return;auto pose=frame(selected);if(!pose || !helperEnabled(selected))return;
-  double size=bounds().isEmpty()?1:bounds().sizes().norm()*.18;Vector3d origin=pose->translation(),normal=pose->linear().col(2),up=pose->linear().col(1),right=pose->linear().col(0);
+  if(!window->evaluationBinding->current() || !helperPose)return;const auto& pose=helperPose;
+  double size=helperSize;Vector3d origin=pose->translation(),normal=pose->linear().col(2),up=pose->linear().col(1),right=pose->linear().col(0);
   glDisable(GL_LIGHTING);glColor4f(.1f,.7f,1.f,1.f);glLineWidth(2);glBegin(GL_LINES);
   auto line=[](const Vector3d& a,const Vector3d& b){glVertex3dv(a.data());glVertex3dv(b.data());};
   line(origin,origin+normal*size);line(origin-right*size,origin+right*size);line(origin-up*size,origin+up*size);glEnd();

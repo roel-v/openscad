@@ -80,6 +80,9 @@ private:
   std::vector<Design::FieldChange> poseChanges(const std::string&,const Vector3d& point,
                                              const Vector3d& normal,const Vector3d& up) const;
   void drawHelper(const Selection::OverlayContext&);
+  void prepareHelper();
+  std::optional<Transform3d> helperPose;
+  double helperSize=1;
   bool eventFilter(QObject*,QEvent*) override;
 };
 }

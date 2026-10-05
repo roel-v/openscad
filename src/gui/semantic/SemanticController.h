@@ -65,6 +65,8 @@ private:
   void exportSelected();
   QWidget *buildInspector();
   void drawHighlight();
+  void prepareHighlight();
+  std::optional<BoundingBox> highlightBounds;
   void refreshParameters();
   void releaseCustomizer(const QString&);
 };

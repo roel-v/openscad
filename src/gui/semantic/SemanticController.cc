@@ -94,6 +94,11 @@ Controller::Controller(MainWindow *owner) : QObject(owner),window(owner) {
   connect(service,&TargetService::changed,this,[this]{if(window){window->qglview->update();window->inspectorDock->refresh();QTimer::singleShot(0,this,&Controller::refreshParameters);}});
   connect(service,&TargetService::exportFinished,this,[this](bool success,QString message){if(window)window->statusBar()->showMessage(success?tr("Exported %1").arg(message):message,10000);});
   inspector=window->inspectorDock->registerContribution({"semantic-model",20,this,[this](const auto&,const auto&){return buildInspector();}});
+  connect(this,&Controller::targetChanged,this,&Controller::prepareHighlight);
+  connect(service,&TargetService::changed,this,&Controller::prepareHighlight);
+  connect(window->inspectionPresentation,&InspectionPresentationController::meshesChanged,this,&Controller::prepareHighlight);
+  connect(window->evaluationBinding,&Selection::EvaluationBinding::installed,this,&Controller::prepareHighlight);
+  connect(window->evaluationBinding,&Selection::EvaluationBinding::invalidated,this,&Controller::prepareHighlight);
   overlay=window->viewportOverlays->registerOverlay(this,Selection::OverlayLayer::WorldOverlay,20,[this](const auto&){drawHighlight();});
   connect(window->tabManager,&TabManager::editorAboutToClose,this,[this](EditorInterface *editor){documents.erase(editor->documentId());releaseCustomizer(editor->documentId());});
   if(window->activeEditor)window->parameterDock->setWidget(customizerWidget(window->activeEditor));
@@ -155,7 +160,7 @@ void Controller::applyMask(){
     auto stamp=window->evaluationBinding->stamp();if(request.setMask(mask,stamp,meshes->geometryGeneration)){lastMask=maskSerial+1;lastGeneration=meshes->geometryGeneration;}
     treeModel->setVisibility(state,true);
   }
-  rebind();window->qglview->update();
+  rebind();prepareHighlight();window->qglview->update();
 }
 bool Controller::select(TargetKey key){
   if(!current() || (key.role==TargetRole::Instance?!scene->semantic->instances.count(key.id):!scene->semantic->definitions.count(key.id)))return false;
@@ -233,10 +238,15 @@ QWidget *Controller::buildInspector(){
   button(tr("Retry target preparation"),"semanticRetryTarget",!resolved,[this,key]{service->retry(*key);});
   return body;
 }
-void Controller::drawHighlight(){
+void Controller::prepareHighlight(){
+  highlightBounds.reset();
   const auto key=selectedTarget();if(!key || !prepared())return;const auto target=service->resolve(*key);if(target.state!=Design::ResolutionState::Resolved || !target.worldBounds || target.worldBounds->isEmpty())return;
   if(key->role==TargetRole::Instance && !visibility().visible(key->id) && !visibility().solo)return;
+  highlightBounds=*target.worldBounds;
+}
+void Controller::drawHighlight(){
+  if(!highlightBounds || !window->evaluationBinding->current())return;
   glColor4f(1.0f,0.8f,0.1f,1.0f);glLineWidth(2.0f);glBegin(GL_LINES);
-  for(int corner=0;corner<8;++corner)for(int bit=0;bit<3;++bit)if(!(corner&(1<<bit))){const Vector3d a=target.worldBounds->corner(static_cast<BoundingBox::CornerType>(corner)),b=target.worldBounds->corner(static_cast<BoundingBox::CornerType>(corner|(1<<bit)));glVertex3dv(a.data());glVertex3dv(b.data());}glEnd();
+  for(int corner=0;corner<8;++corner)for(int bit=0;bit<3;++bit)if(!(corner&(1<<bit))){const Vector3d a=highlightBounds->corner(static_cast<BoundingBox::CornerType>(corner)),b=highlightBounds->corner(static_cast<BoundingBox::CornerType>(corner|(1<<bit)));glVertex3dv(a.data());glVertex3dv(b.data());}glEnd();
 }
 }

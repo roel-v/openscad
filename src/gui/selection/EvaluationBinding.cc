@@ -179,7 +179,8 @@ bool EvaluationBinding::validate(const Stamp& expected, QString *detail) const
 bool EvaluationBinding::validateModel(const Stamp& expected, QString *detail) const
 {
   auto model=expected,installed=installedStamp;model.viewportGeneration=installed.viewportGeneration=0;
-  const bool valid=model==installed && current() && window->activeEditor==owner;
+  const bool valid=model==installed && current() && window->activeEditor==owner &&
+    inputsCurrent(*retainedScene->inputs, *window, detail);
   if(!valid && detail)*detail=reason.isEmpty()?tr("Stale or wrong-document model inputs"):reason;
   return valid;
 }

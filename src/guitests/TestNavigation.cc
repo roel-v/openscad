@@ -465,6 +465,18 @@ void TestNavigation::popupAndTuning()
   auto settings=&view->navigation()->settings;
   auto popup=view->findChild<ViewportPopup *>();
   QVERIFY(popup);
+  auto triangle=view->navigationCube()->menuTriangle();
+  for (int cycle=0; cycle<3; ++cycle) {
+    QTest::mouseClick(window->windowHandle(),Qt::LeftButton,Qt::NoModifier,
+                      triangle->mapTo(window,triangle->rect().center()));
+    QTRY_VERIFY(popup->isVisible());
+    QTest::mouseClick(window->windowHandle(),Qt::LeftButton,Qt::NoModifier,
+                      triangle->mapTo(window,triangle->rect().center()));
+    QTRY_VERIFY(!popup->isVisible());
+    // A replay is posted; checking only the synchronous hide misses reopening.
+    QTest::qWait(50);
+    QVERIFY(!popup->isVisible());
+  }
   popup->toggle();
   QTRY_VERIFY(popup->isVisible());
   QVERIFY(popup->windowFlags().testFlag(Qt::FramelessWindowHint));

@@ -45,7 +45,6 @@ ViewportPopup::ViewportPopup(MainWindow *window)
 {
   setObjectName("viewportPopup");
   setAccessibleName(tr("Viewport settings"));
-  setAttribute(Qt::WA_NoMouseReplay);
   setFrameStyle(QFrame::Box | QFrame::Plain);
   setLineWidth(1);
   setMinimumSize(230,260);
@@ -251,6 +250,14 @@ void ViewportPopup::toggle()
   show(); raise();
   perspective->setFocus(Qt::PopupFocusReason);
   window->qglview->navigationCube()->setPopupActive(true);
+}
+
+void ViewportPopup::mousePressEvent(QMouseEvent *event)
+{
+  // Qt clears this flag for each mouse event. Set it before the default popup
+  // handler dismisses us, so clicking the opener cannot replay and reopen us.
+  setAttribute(Qt::WA_NoMouseReplay);
+  QFrame::mousePressEvent(event);
 }
 
 void ViewportPopup::hideEvent(QHideEvent *event)

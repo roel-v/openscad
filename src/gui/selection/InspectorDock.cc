@@ -27,6 +27,7 @@ InspectorDock::InspectorDock(MainWindow *window) : QDockWidget(tr("Inspector"),w
   auto select=new QPushButton(tr("Select geometry"),body); select->setObjectName("selectGeometry"); layout->addWidget(select);
   auto clear=new QPushButton(tr("Clear selection"),body); layout->addWidget(clear);
   message=new QLabel(body); message->setWordWrap(true); layout->addWidget(message);
+  panels=new QVBoxLayout; layout->addLayout(panels);
   properties=new QLabel(body); properties->setObjectName("geometricProperties"); properties->setWordWrap(true);
   properties->setTextInteractionFlags(Qt::TextSelectableByMouse); layout->addWidget(properties);
   contributions=new QVBoxLayout; layout->addLayout(contributions); layout->addStretch();
@@ -44,6 +45,7 @@ InspectorDock::InspectorDock(MainWindow *window) : QDockWidget(tr("Inspector"),w
   connect(window->viewportTools,&ViewportToolRouter::feedback,this,[this](const auto& feedback) { message->setText(feedback); });
   refresh();
 }
+void InspectorDock::addPanel(QWidget *panel) { panels->addWidget(panel); }
 void InspectorDock::beginSelection()
 {
   show(); raise();

@@ -37,6 +37,8 @@ public:
   explicit InspectorDock(MainWindow *window);
   ~InspectorDock() override;
   Token registerContribution(InspectorContribution contribution);
+  // Persistent editors survive selection-detail refreshes and retain their controls.
+  void addPanel(QWidget *panel);
   QAction *selectionAction() const { return selectAction; }
 public slots:
   void beginSelection();
@@ -51,6 +53,7 @@ private:
   QPointer<MainWindow> window;
   QLabel *properties,*message;
   QVBoxLayout *contributions;
+  QVBoxLayout *panels;
   QAction *selectAction;
   uint64_t tool=0;
   std::map<QString,Entry> entries;

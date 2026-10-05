@@ -5,6 +5,8 @@
 
 #include <QBoxLayout>
 #include <QEvent>
+#include <QMouseEvent>
+#include <QToolTip>
 #include <QRegularExpression>
 #include <QSizePolicy>
 #include <QWidget>
@@ -21,7 +23,11 @@ ParameterDescriptionWidget::ParameterDescriptionWidget(QWidget *parent) : QWidge
   helpIcon->setFocusPolicy(Qt::NoFocus);
   helpIcon->setAlignment(Qt::AlignCenter);
   helpIcon->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  horizontalLayout->insertWidget(1, helpIcon, 0, Qt::AlignTop);
+  horizontalLayout->insertWidget(1, helpIcon, 0, Qt::AlignVCenter);
+  helpIcon->installEventFilter(this);
+  helpTimer.setSingleShot(true);
+  helpTimer.setInterval(250);
+  connect(&helpTimer, &QTimer::timeout, this, &ParameterDescriptionWidget::showHelp);
   horizontalLayout->setStretch(horizontalLayout->indexOf(labelInline), 1);
   helpIcon->hide();
   QFont emphasis;
@@ -49,6 +55,44 @@ void ParameterDescriptionWidget::changeEvent(QEvent *event)
 {
   QWidget::changeEvent(event);
   if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange) updateSpacing();
+}
+
+void ParameterDescriptionWidget::showHelp()
+{
+  helpTimer.stop();
+  if (helpIcon->isVisible() && !helpIcon->toolTip().isEmpty()) {
+    QToolTip::showText(helpIcon->mapToGlobal(helpIcon->rect().bottomLeft()),
+                     helpIcon->toolTip(), helpIcon, helpIcon->rect());
+  }
+}
+
+bool ParameterDescriptionWidget::eventFilter(QObject *object, QEvent *event)
+{
+  if (object == helpIcon) {
+    switch (event->type()) {
+    case QEvent::Enter:
+      helpTimer.start();
+      break;
+    case QEvent::Leave:
+    case QEvent::Hide:
+      helpTimer.stop();
+      QToolTip::hideText();
+      break;
+    case QEvent::ToolTip:
+      showHelp();
+      return true;
+    case QEvent::MouseButtonPress:
+    case QEvent::MouseButtonRelease:
+      if (static_cast<QMouseEvent *>(event)->button() == Qt::LeftButton) {
+        if (event->type() == QEvent::MouseButtonPress) showHelp();
+        return true;
+      }
+      break;
+    default:
+      break;
+    }
+  }
+  return QWidget::eventFilter(object, event);
 }
 
 void ParameterDescriptionWidget::setDescription(ParameterObject *parameter,

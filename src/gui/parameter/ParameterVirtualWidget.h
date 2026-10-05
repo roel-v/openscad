@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QTimer>
 #include <boost/optional.hpp>
 #include <vector>
 
@@ -20,9 +21,12 @@ public:
 
 protected:
   void changeEvent(QEvent *event) override;
+  bool eventFilter(QObject *object, QEvent *event) override;
 
 private:
   QLabel *helpIcon = nullptr;
+  QTimer helpTimer;
+  void showHelp();
   void updateSpacing();
 };
 

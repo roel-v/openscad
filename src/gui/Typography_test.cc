@@ -11,6 +11,9 @@
 #include <QJsonObject>
 #include <QLabel>
 #include <QKeyEvent>
+#include <QEnterEvent>
+#include <QMouseEvent>
+#include <QEventLoop>
 #include <QLineEdit>
 #include <QProxyStyle>
 #include <QProcess>
@@ -364,7 +367,7 @@ TEST_CASE("UI font inheritance preserves independent content fonts", "[ui-typogr
   (void)app;
 }
 
-TEST_CASE("Customizer help is compact hover-only and modes can be reused", "[ui-customizer]")
+TEST_CASE("Customizer help is compact unfocusable and modes can be reused", "[ui-customizer]")
 {
   typographyApp();
   ParameterWidget panel;
@@ -392,6 +395,39 @@ TEST_CASE("Customizer help is compact hover-only and modes can be reused", "[ui-
   description.setDescription(&empty, DescriptionStyle::HideDetails);
   CHECK(help->isHidden());
   CHECK(help->toolTip().isEmpty());
+}
+
+TEST_CASE("Customizer help aligns with text and opens promptly by mouse", "[ui-customizer]")
+{
+  typographyApp();
+  ParameterDescriptionWidget description(nullptr);
+  BoolParameter parameter("test_parameter", "Immediate click help", "Group", true);
+  description.setDescription(&parameter, DescriptionStyle::HideDetails);
+  description.resize(300, 60);
+  description.show();
+  QApplication::processEvents();
+  auto *help = description.findChild<QLabel *>("parameterHelpIcon");
+  REQUIRE(help);
+  CHECK(std::abs(help->geometry().center().y() - description.labelParameter->geometry().center().y()) <= 1);
+  QMouseEvent press(QEvent::MouseButtonPress, QPointF(1, 1), help->mapToGlobal(QPoint(1, 1)),
+                    Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+  QApplication::sendEvent(help, &press);
+  // Text is set synchronously; the platform may animate the tooltip's appearance.
+  CHECK(QToolTip::text() == help->toolTip());
+  CHECK(help->focusPolicy() == Qt::NoFocus);
+  CHECK(parameter.value);
+  BoolParameter hovered("hovered", "Prompt hover help", "Group", false);
+  description.setDescription(&hovered, DescriptionStyle::HideDetails);
+  QEnterEvent enter(QPointF(1, 1), QPointF(1, 1), help->mapToGlobal(QPoint(1, 1)));
+  QApplication::sendEvent(help, &enter);
+  QEventLoop wait;
+  QTimer::singleShot(350, &wait, &QEventLoop::quit);
+  wait.exec();
+  CHECK(QToolTip::isVisible());
+  CHECK(QToolTip::text() == help->toolTip());
+  QEvent leave(QEvent::Leave);
+  QApplication::sendEvent(help, &leave);
+  description.hide();
 }
 
 TEST_CASE("Customizer capitalization changes presentation only", "[ui-customizer]")
@@ -719,8 +755,12 @@ model();
   REQUIRE(help);
   CHECK(help->isVisible());
   CHECK(help->focusPolicy() == Qt::NoFocus);
-  QToolTip::showText(help->mapToGlobal(help->rect().bottomLeft()), help->toolTip(), help);
+  QMouseEvent helpPress(QEvent::MouseButtonPress, QPointF(1, 1), help->mapToGlobal(QPoint(1, 1)),
+                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+  QApplication::sendEvent(help, &helpPress);
+  CHECK(QToolTip::text() == help->toolTip());
   settle();
+  REQUIRE(QToolTip::isVisible());
   for (auto *widget : QApplication::topLevelWidgets()) {
     if (widget->windowType() == Qt::ToolTip && widget->isVisible())
       REQUIRE(widget->grab().save(output + "/help-tooltip.png"));

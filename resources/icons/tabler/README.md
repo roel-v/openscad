@@ -10,7 +10,8 @@ Format badges are paths, independent of installed fonts. No generic export icon 
 
 CAD distinctions:
 
-- Preview: two dashed overlapping solids; render: their resolved outline.
+- Preview: familiar dashed cube with fast-forward chevrons; render: solid cube with an hourglass.
+  These preserve the original OpenSCAD action silhouettes on the common grid; the hourglass uses 1.5-unit strokes.
 - Surface: a solid face; wireframe: visible and hidden edges; edge overlay: emphasized vertices.
 - Thrown together: overlapping square/circle with intersection marks.
 - Camera: a shared cube with solid near faces and dashed far faces, preserving six distinct views.

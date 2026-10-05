@@ -833,8 +833,9 @@ void MainWindow::compile(bool reload, bool forcedone)
       shouldcompiletoplevel = true;
     }
 
-    if (evaluationInputs && !Selection::EvaluationBinding::inputsCurrent(*evaluationInputs, *this))
-      shouldcompiletoplevel = true;
+    // Disk dependency notifications require a new input snapshot. Dirty editor
+    // buffers only invalidate selection; they must not schedule an auto-preview.
+    if (reload && evaluationBinding->takeDiskChanges()) shouldcompiletoplevel = true;
 
     if (this->parsedFile) {
       auto mtime = this->parsedFile->includesChanged();

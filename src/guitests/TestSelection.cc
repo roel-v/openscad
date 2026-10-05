@@ -329,6 +329,61 @@ void TestSelection::dirtyDependencies()
   QVERIFY(!binding->validate(first));
 }
 
+void TestSelection::reloadIgnoresUnsavedEdits()
+{
+  QTemporaryDir directory;
+  const auto root = directory.filePath("root.scad");
+  QVERIFY(writeSource(root, "cube(1);\n"));
+  window->tabManager->open(root);
+  window->actionRenderPreview();
+  auto binding = window->evaluationBinding;
+  QTRY_VERIFY(binding->current());
+  const auto installed = binding->stamp().resultId;
+  window->activeEditor->setPlainText("cube(2);\n");
+  QVERIFY(!binding->current());
+  // Exercise the timer's entry point without leaving a repeating timer running.
+  window->checkAutoReload();
+  QTest::qWait(400);
+  QCOMPARE(binding->stamp().resultId, installed);
+  QVERIFY(!binding->current());
+  window->actionRenderPreview();
+  QTRY_VERIFY(binding->current());
+  QVERIFY(binding->stamp().resultId != installed);
+  QCOMPARE(evaluatedBounds(binding->scene(binding->stamp())).max().x(), 2.0);
+}
+
+void TestSelection::cachedDisplayFreshness()
+{
+  QTemporaryDir directory;
+  const auto root = directory.filePath("root.scad");
+  const auto dependency = directory.filePath("size.scad");
+  QVERIFY(writeSource(root, "include <size.scad>\ncube(size);\n"));
+  QVERIFY(writeSource(dependency, "size=1;\n"));
+  window->tabManager->open(root);
+  window->actionRenderPreview();
+  auto binding = window->evaluationBinding;
+  QTRY_VERIFY(binding->current());
+  const auto stamp = binding->stamp();
+  QVERIFY(binding->validate(stamp));
+  QVERIFY(writeSource(dependency, "size=2;\n"));
+  // No event delivery yet: display checks must not read the changed file.
+  for (int i = 0; i < 1000; ++i) QVERIFY(binding->current());
+  // Action validation must reject changed bytes even before the watcher fires.
+  QVERIFY(!binding->validate(stamp));
+  QTRY_VERIFY(!binding->current());
+  window->checkAutoReload();
+  QTRY_VERIFY(binding->current());
+  QCOMPARE(evaluatedBounds(binding->scene(binding->stamp())).max().x(), 2.0);
+  window->tabManager->open(dependency);
+  QCoreApplication::processEvents();
+  window->activeEditor->setPlainText("size=3;\n");
+  QVERIFY(!binding->current());
+  QVERIFY(window->tabManager->save(window->activeEditor));
+  window->tabManager->open(root);
+  QTRY_VERIFY(([&] { window->checkAutoReload(); return binding->current(); })());
+  QCOMPARE(evaluatedBounds(binding->scene(binding->stamp())).max().x(), 3.0);
+}
+
 void TestSelection::conflictingBuffers()
 {
   QTemporaryDir directory;

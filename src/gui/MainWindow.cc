@@ -3352,7 +3352,7 @@ void MainWindow::onTabManagerEditorChanged(EditorInterface *newEditor)
 
   if (newEditor == nullptr) return;
 
-  parameterDock->setWidget(semanticController ? semanticController->customizerWidget(newEditor) : newEditor->parameterWidget);
+  parameterDock->setWidget(newEditor->parameterWidget);
   editActionUndo->setEnabled(newEditor->canUndo());
 
   const QString name = getCurrentFileName();

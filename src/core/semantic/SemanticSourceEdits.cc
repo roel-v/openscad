@@ -1,5 +1,7 @@
 #include "core/semantic/SemanticSourceEdits.h"
 #include "core/EvaluationInputs.h"
+#include "core/SourceFile.h"
+#include "core/ModuleInstantiation.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -107,6 +109,63 @@ std::optional<std::string> encodeLiteral(const Value& value) {
 bool literalParameterSource(const Scene& scene,const Parameter& parameter) {
   if(!scene.syntax || !parameter.source || !parameter.source->hasExpression)return false;
   try{const auto original=scene.syntax->original(parameter.source->expression);return original && literal(*original,parameter.type);}catch(const std::exception&){return false;}
+}
+ParameterEdit initializeStructure(const Scene& scene,const std::string& fileKey,const std::string& label) {
+  ParameterEdit edit;
+  auto refuse=[&](std::string reason){edit.reason=std::move(reason);edit.patches.clear();return edit;};
+  if(scene.marked || !scene.valid())return refuse("This model already has structure declarations or declaration errors.");
+  if(!scene.inputs || !scene.syntax || scene.sourceFiles.empty() || scene.inputs->root().fileKey!=fileKey)
+    return refuse("Preview this document before adding model structure.");
+  if(label.empty())return refuse("Enter a part name.");
+  const auto& input=scene.inputs->root();const auto& bytes=input.utf8;
+  try {
+    // Even an otherwise unchanged module gains an ancestor after wrapping. Do not
+    // silently alter code that observes the caller stack, including library code.
+    for(const auto& [path,source]:scene.inputs->consumed())for(const auto& token:tokens(source.utf8,0,source.utf8.size()))
+      if(token.kind==Token::Word && (token.text=="$parent_modules" || token.text=="parent_module" || token.text=="$children"))
+        return refuse("This model or a library inspects module-call context ($children or the parent stack). Add structure annotations manually to preserve that behavior.");
+    std::vector<SourceProvenance::Span> calls;
+    for(const auto& call:scene.sourceFiles.front()->scope->moduleInstantiations){
+      const auto *site=scene.syntax->site(*call);
+      if(!site || !site->wholeComplete || site->whole.fileKey!=fileKey || !scene.syntax->original(site->whole))
+        return refuse("Some top-level geometry comes from an include or has no complete local source range. Annotate that geometry manually.");
+      calls.push_back(site->whole);
+    }
+    if(calls.empty())return refuse("There is no top-level geometry to wrap. Add a geometry call and preview first.");
+    std::sort(calls.begin(),calls.end(),[](const auto& a,const auto& b){return a.begin<b.begin;});
+    const auto start=calls.front().begin;
+    // Top-level braces are flattened by the parser; inserting inside one would
+    // create a local definition. Require a genuinely file-scope insertion point.
+    int depth=0;
+    for(const auto& token:tokens(bytes,0,start))if(token.kind==Token::Punctuation){if(token.text=="{")++depth;else if(token.text=="}")--depth;}
+    if(depth!=0)return refuse("Geometry begins inside a top-level block. Move it to file scope before adding structure.");
+    size_t end=start;
+    for(const auto& span:calls){
+      if(span.begin<end)return refuse("Top-level geometry ranges overlap; annotate this model manually.");
+      for(const auto& token:tokens(bytes,end,span.begin))if(token.text!=";")
+        return refuse("Imports or declarations are interleaved with geometry. Move them before the first geometry call, then preview again.");
+      end=span.end;
+    }
+    for(const auto& token:tokens(bytes,end,bytes.size()))if(token.text!=";")
+      return refuse("Declarations or other source follow the geometry. Move them before the first geometry call, then preview again.");
+    // Root/display modifiers inside a new Part do not necessarily retain their
+    // former presentation meaning. Check parsed calls, not comment/string text.
+    for(const auto& [key,site]:scene.syntax->sites())if(site.kind==SourceProvenance::SiteKind::ModuleCall){
+      const auto text=scene.syntax->original(site.whole);if(!text)continue;
+      const auto list=tokens(*text,0,text->size());
+      if(!list.empty() && (list.front().text=="!" || list.front().text=="%" || list.front().text=="#"))
+        return refuse("Root, background or highlight modifiers need manual structure annotations to preserve their display behavior.");
+    }
+    std::string name="scadmaxx_model";unsigned serial=1;
+    auto exists=[&]{for(const auto& [path,source]:scene.inputs->consumed())if(source.utf8.find(name)!=std::string::npos)return true;return false;};
+    while(exists())name="scadmaxx_model_"+std::to_string(serial++);
+    const auto encoded=encodeLiteral(Value(label));if(!encoded)return refuse("The part name cannot be encoded.");
+    const std::string newline=bytes.find("\r\n")!=std::string::npos?"\r\n":"\n";
+    const auto prefix=newline+"@{type: Part, id: \""+name+"\", label: "+*encoded+"}"+newline+"module "+name+"() {"+newline;
+    const auto suffix=newline+"}"+newline+newline+"@{type: Component, id: \""+name+"-instance\", label: "+*encoded+"}"+newline+name+"();"+newline;
+    patch(edit,calls.front(),bytes,start,start,prefix);patch(edit,calls.back(),bytes,bytes.size(),bytes.size(),suffix);
+    edit.editable=true;return edit;
+  }catch(const std::exception& error){return refuse(error.what());}
 }
 ParameterEdit inspectParameter(const Scene& scene,TargetKey key,const Parameter& parameter) {
   ParameterEdit result;result.target=key;result.parameter=parameter.name;

@@ -6,14 +6,13 @@
 #include "gui/selection/ViewportOverlays.h"
 #include <QPointer>
 class MainWindow;
-class QDockWidget;
 class QTreeView;
 class QLabel;
-class QTabWidget;
 class EditorInterface;
 namespace Selection { struct EvaluatedScene; }
 namespace Semantic {
 class ParameterPanel;
+class StructureOverlay;
 class Controller : public QObject {
   Q_OBJECT
 public:
@@ -29,14 +28,13 @@ public:
   Visibility visibility() const;
   uint64_t meshJobs() const { return preparedJobs; }
   std::optional<std::string> pathForDraw(uint64_t) const;
-  QWidget *customizerWidget(EditorInterface *);
   ParameterPanel *parameterPanel() const;
 signals:
   void targetChanged();
 private:
   struct DocumentState { Visibility visibility; std::optional<TargetKey> selected; bool shown=false; };
   QPointer<MainWindow> window;
-  QDockWidget *dock;
+  StructureOverlay *structure;
   QTreeView *tree;
   ModelTreeModel *treeModel;
   QLabel *status;
@@ -44,8 +42,7 @@ private:
   std::shared_ptr<const Selection::EvaluatedScene> scene;
   Selection::Stamp sourceStamp;
   std::map<QString,DocumentState> documents;
-  struct CustomizerHost { QPointer<EditorInterface> editor; QPointer<QTabWidget> tabs; QPointer<ParameterPanel> panel; };
-  std::map<QString,CustomizerHost> customizers;
+  QPointer<ParameterPanel> parameters;
   std::map<uint64_t,std::string> drawPaths;
   InspectionPresentationController::Token provider,request;
   Selection::InspectorDock::Token inspector;
@@ -68,6 +65,5 @@ private:
   void prepareHighlight();
   std::optional<BoundingBox> highlightBounds;
   void refreshParameters();
-  void releaseCustomizer(const QString&);
 };
 }

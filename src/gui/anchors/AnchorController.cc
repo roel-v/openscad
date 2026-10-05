@@ -35,7 +35,7 @@ Controller::Controller(MainWindow *window):QObject(window),window(window){
 }
 Controller::~Controller(){if(service)removeReferences(service->resultId());if(window && window->viewportTools)window->viewportTools->finish(tool);overlay.reset();inspector.reset();documents.clear();}
 void Controller::report(const std::string& message){if(window && !message.empty())window->statusBar()->showMessage(QString::fromStdString(message),10000);}
-void Controller::refreshWidgets(){if(window){window->inspectorDock->refresh();window->qglview->update();}}
+void Controller::refreshWidgets(){if(window){prepareOverlay();window->inspectorDock->refresh();window->qglview->update();}}
 void Controller::refresh(){
   if(refreshing || !window)return;QScopedValueRollback<bool> guard(refreshing,true);
   const auto stamp=window->evaluationBinding->stamp();
@@ -46,7 +46,7 @@ void Controller::refresh(){
     if(scene && scene->semantic && scene->semantic->valid()){
       QPointer<Semantic::TargetService> targets(window->semanticController->targetService());
       QPointer<Selection::EvaluationBinding> binding(window->evaluationBinding);
-      service=std::make_shared<References>(stamp.resultId.toStdString(),scene->semantic,stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString(),[targets](Semantic::TargetKey key){if(targets)return targets->resolve(std::move(key));Semantic::PreparedTarget result;result.state=Design::ResolutionState::Changed;result.diagnostic="Target service closed";return result;},[binding,id=stamp.resultId]{return binding && binding->current() && binding->stamp().resultId==id;});publishReferences(service);document();
+      service=std::make_shared<References>(stamp.resultId.toStdString(),scene->semantic,stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString(),[targets](Semantic::TargetKey key){if(targets)return targets->resolve(std::move(key));Semantic::PreparedTarget result;result.state=Design::ResolutionState::Changed;result.diagnostic="Target service closed";return result;},[binding,window=this->window,inputs=scene->inputs,id=stamp.resultId]{return binding && window && binding->current() && binding->stamp().resultId==id && Selection::EvaluationBinding::inputsCurrent(*inputs,*window);});publishReferences(service);document();
     }
   }
   refreshWidgets();

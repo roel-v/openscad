@@ -47,6 +47,9 @@ private:
   Design::PreparedEdit insert(const Design::Draft&,const Selection::Stamp&) const;
   QWidget *buildInspector();
   void drawOverlay();
+  void prepareOverlay();
+  std::optional<Transform3d> overlayFrame;
+  std::optional<ReferenceValue> overlayWorld;
   void report(const std::string&);
 };
 std::string opaqueKey(const ReferenceKey&);

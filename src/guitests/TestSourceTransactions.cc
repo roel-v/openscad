@@ -16,6 +16,7 @@
 #include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -194,7 +195,12 @@ void TestSourceTransactions::conflictsCancelSaveAsCopyAndPersistence()
       return false;
     }
     if (auto dialog = qobject_cast<QFileDialog *>(widget)) {
-      dialog->selectFile(destination);
+      // selectFile() can retain the current selection while the visible filename
+      // editor has focus. Drive that editor and verify the actual save target.
+      auto filename = dialog->findChild<QLineEdit *>("fileNameEdit");
+      if (!filename) return false;
+      filename->setText(destination);
+      if (dialog->selectedFiles() != QStringList{destination}) return false;
       QMetaObject::invokeMethod(dialog, "accept");
       return true;
     }

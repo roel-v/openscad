@@ -38,6 +38,7 @@
 
 #include "core/AST.h"
 #include "core/Context.h"
+#include "core/EvaluationInputs.h"
 #include "core/EvaluationSession.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFileCache.h"

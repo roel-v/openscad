@@ -24,6 +24,7 @@ protected:
 public:
   GroupWidget(const QString& title, QWidget *parent = nullptr);
   void addWidget(QWidget *widget);
+  void updateVisibility();
 
   bool isExpanded() const { return expanded; }
   QString title() const { return groupTitle; }

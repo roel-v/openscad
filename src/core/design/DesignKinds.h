@@ -8,7 +8,7 @@ struct Section : Payload {
   Vector3d translation = Vector3d::Zero();
   Eigen::Quaterniond rotation = Eigen::Quaterniond::Identity();
   double offset = 0;
-  ReferenceToken target, frame;
+  // Cross sections are world-space planes, never persistent geometry attachments.
 };
 struct View : Payload {
   bool perspective = false, fixed = false;

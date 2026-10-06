@@ -57,19 +57,14 @@ Resolution resolve(const ReferenceToken& token, ResolveContext& context) {
   { std::lock_guard<std::mutex> lock(resolverMutex()); auto found = resolvers().find(token.domain); if (found != resolvers().end()) resolver = found->second; }
   return resolver ? resolver(token, context) : fail(ResolutionState::Unsupported, "No resolver for domain: " + token.domain);
 }
-Resolution sectionFrame(const Record& record, ResolveContext& context) {
+Resolution sectionFrame(const Record& record, ResolveContext&) {
   auto section = std::dynamic_pointer_cast<const Section>(record.evaluated);
   if (!section) return fail(ResolutionState::Invalid, "Record is not a valid Section");
-  auto frame = resolve(section->frame, context);
-  if (frame.state != ResolutionState::Resolved) return frame;
-  if (!frame.frame || !rigid(*frame.frame)) return fail(ResolutionState::Invalid, "Section reference frame must be rigid");
-  auto target = resolve(section->target, context);
-  if (target.state != ResolutionState::Resolved) return target;
   Vector3d normal = section->rotation * section->normal, up = section->rotation * section->up;
   Transform3d local = Transform3d::Identity();
   local.translation() = section->origin + section->translation + section->offset * normal;
   local.linear().col(0) = up.cross(normal); local.linear().col(1) = up; local.linear().col(2) = normal;
-  return {ResolutionState::Resolved, *frame.frame * local, target.bounds, ""};
+  return {ResolutionState::Resolved, local, {}, ""};
 }
 std::optional<Camera> viewCamera(const Record& record, ResolveContext& context, std::string *diagnostic) {
   auto failCamera = [&](const std::string& message) -> std::optional<Camera> { if (diagnostic) *diagnostic = message; return {}; };
@@ -135,6 +130,20 @@ std::string serialize(const Record& record) {
     else if(value.type()==Value::Type::VECTOR){stream<<"[";bool first=true;for(const auto& item:value.toVector()){if(!first)stream<<", ";first=false;data(item);}stream<<"]";}
     else stream<<value;
   };
-  stream << "@{type: " << record.kind << "}\n" << declarationName(record) << " = ";data(record.definition);stream<<";\n"; return stream.str();
+  stream << "@{type: " << record.kind << "}\n" << declarationName(record) << " = ";
+  if(record.definition.type()==Value::Type::OBJECT){
+    stream<<"{\n";
+    bool first=true;
+    for(const auto& key:record.definition.toObject().keys()){
+      if(!first)stream<<",\n";
+      first=false;
+      stream<<"    "<<QuotedString(key)<<": ";
+      data(record.definition.toObject().get(key));
+    }
+    if(!first)stream<<"\n";
+    stream<<"}";
+  }else data(record.definition);
+  stream<<";\n";
+  return stream.str();
 }
 }

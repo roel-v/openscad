@@ -132,14 +132,14 @@ void TestDesignObjects::dirtyIncludeGuardsAndSourceOnlyFields(){
 void TestDesignObjects::scopedLifecycleAdapters(){
   struct State { Design::Records records; int rebound=0; };
   auto state=std::make_shared<State>();std::weak_ptr<State> weak=state;
-  QVERIFY(Design::registerKind({"NativeLifecycle",{Design::DeclarationHost::Assignment},{Design::DeclarationScope::File,Design::DeclarationScope::Local},Design::decodeSection,Design::RecordDestination::Consumer,
+  QVERIFY(Design::registerKind({"NativeLifecycle",{Design::DeclarationHost::Assignment},{Design::DeclarationScope::File,Design::DeclarationScope::Local},Design::decodeView,Design::RecordDestination::Consumer,
     [weak](Design::Record record,const Design::EvaluatedDeclaration& declaration,EvaluationSession&){if(auto state=weak.lock())state->records.insert_or_assign(declaration.source.hostName,copy(record));}}));
   window->tabManager->actionNew();auto *editor=window->activeEditor;editor->setPlainText("cube(1);\n");QVERIFY(compile(*window));
   auto document=Design::DesignDocument::forEditor(*editor,*window);auto lifetime=new QObject(document);
   auto handler=Design::kind("NativeLifecycle");std::vector<Design::Diagnostic> diagnostics;
   QVERIFY(document->createTransient("Section",definition("required-section")));
   for(const std::string key:{"owner_one","owner_two"}){
-    auto record=Design::makeRecord(*handler,definition("same-local-id","Section","required-section"),{{"","",key},Design::DeclarationScope::File},diagnostics);QVERIFY(record);state->records.emplace(key,copy(*record,false));
+    auto record=Design::makeRecord(*handler,definition("same-local-id","View","required-section"),{{"","",key},Design::DeclarationScope::File},diagnostics);QVERIFY(record);state->records.emplace(key,copy(*record,false));
   }
   Design::LifecycleCallbacks callbacks;
   callbacks.resolveConsumerRecord=[weak](const std::string& key,const Selection::Stamp&){auto state=weak.lock();if(!state)return std::shared_ptr<const Design::Record>();auto found=state->records.find(key);return found==state->records.end()?nullptr:found->second;};

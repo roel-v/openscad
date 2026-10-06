@@ -60,6 +60,9 @@ std::string section(const std::string& name, const std::string& id, const std::s
 Design::ResolveContext resolveContext(const Design::Records& records) {
   return {"result", "inputs", "config", BoundingBox(Vector3d::Zero(), Vector3d(20,20,40)), records, {}};
 }
+std::string view(const std::string& name, const std::string& id, const std::string& extra = "") {
+  return "@{type: View}\n" + name + "={id:\"" + id + "\",direction:[0,1,0],up:[0,0,1]" + extra + "};\n";
+}
 }
 
 TEST_CASE("Design declarations read native evaluated parameter values and retain source identity", "[design-objects]") {
@@ -95,6 +98,8 @@ TEST_CASE("Design metadata scope reassignment and unknown members diagnose witho
       "@{type: Section} s={id:\"x\",origin:[0,0,0],normal:[0,0,0]};",
       "@{type: Section} s={id:\"x\",origin:[0,0,0],normal:[0,0,1],up:[0,0,2]};",
       "@{type: Section} s={id:\"x\",origin:[0,0,0],normal:[0,0,1],unknown:1};",
+      "@{type: Section} s={id:\"x\",origin:[0,0,0],normal:[0,0,1],frame:{domain:\"world\"}};",
+      "@{type: Section} s={id:\"x\",origin:[0,0,0],normal:[0,0,1],target:{domain:\"document\"}};",
       "@{type: Section} s={id:\"x\",origin:[0,0,1/0],normal:[0,0,1]};",
       "@{type: Section} s={id:\"x\",origin:[0,0,0],normal:[0,0,1],adjust:{rotation:[0,0,0,0]}};",
       "@{type: View} s={id:\"x\",camera:{rotation:[0,0,0],translation:[0,0,0],distance:1,fov:40},direction:[0,1,0]};",
@@ -117,6 +122,12 @@ TEST_CASE("Section frame applies normalized quaternion then translated rotated n
   auto frame = Design::sectionFrame(*f.result->records.at("s"), context);
   REQUIRE(frame.frame->translation().isApprox(Vector3d(6,2,23))); REQUIRE(frame.frame->linear().col(2).isApprox(Vector3d::UnitX()));
   REQUIRE(frame.frame->linear().determinant() == Catch::Approx(1));
+  REQUIRE(f.result->records.at("s")->dependencies.empty());
+  context.evaluatedInputsFingerprint="different-model";context.configurationFingerprint="different-configuration";
+  context.documentBounds.setEmpty();
+  const auto after=Design::sectionFrame(*f.result->records.at("s"),context);
+  REQUIRE(after.state==Design::ResolutionState::Resolved);
+  REQUIRE(after.frame->matrix().isApprox(frame.frame->matrix()));
 }
 TEST_CASE("View fixed camera roundtrips existing conventions and fit rejects unavailable bounds", "[design-objects]") {
   Fixture f; f.evaluate("@{type: View} fixed={id:\"fixed\",projection:\"perspective\",camera:{rotation:[31,42,53],translation:[1,2,3],distance:80,fov:40}};"
@@ -144,7 +155,7 @@ TEST_CASE("Scoped consumer handlers receive actual values for each native invoca
   state.reset();
 }
 TEST_CASE("Design reference outcomes protect cycles fingerprints unsupported domains and rigid frames", "[design-references]") {
-  Fixture f; f.evaluate("height=40;" + section("a","a",",frame:{domain:\"design\",id:\"b\"}") + section("b","b",",frame:{domain:\"design\",id:\"a\"}") + "cube(1);");
+  Fixture f; f.evaluate(view("a","a",",frame:{domain:\"design\",id:\"b\"}") + view("b","b",",frame:{domain:\"design\",id:\"a\"}") + "cube(1);");
   auto context = resolveContext(f.result->records); Design::ReferenceToken reference{"design","a",Value::undefined.clone()};
   REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Invalid); REQUIRE(context.visitedIds.empty());
   reference.id="missing"; REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Missing);
@@ -153,7 +164,7 @@ TEST_CASE("Design reference outcomes protect cycles fingerprints unsupported dom
   Design::ReferenceToken geometric{"geometric","",Value(std::move(token))}; REQUIRE(Design::resolve(geometric,context).state == Design::ResolutionState::Changed);
 }
 TEST_CASE("Persistence closure deduplicates dependencies preserves included ownership and fails atomically", "[design-references]") {
-  Fixture f; f.evaluate("height=40;"+section("base","base")+section("a","a",",frame:{domain:\"design\",id:\"base\"}")+section("b","b",",frame:{domain:\"design\",id:\"base\"}")+"cube(1);");
+  Fixture f; f.evaluate("height=40;"+section("base","base")+view("a","a",",frame:{domain:\"design\",id:\"base\"}")+view("b","b",",frame:{domain:\"design\",id:\"base\"}")+"cube(1);");
   Design::Records records;
   for (auto& [id,record] : f.result->records) {
     auto unsourced=std::make_shared<Design::Record>(); unsourced->id=id;unsourced->kind=record->kind;unsourced->label=record->label;unsourced->definition=Design::ownedValue(record->definition);unsourced->evaluated=record->evaluated;
@@ -189,11 +200,11 @@ TEST_CASE("Design values are read once and native GUI and headless captures agre
     Fixture f;f.evaluate(source,editor);REQUIRE(count==1);REQUIRE(f.result->records.at("once")->definition.toString().find("4")!=std::string::npos);
   }
 }
-TEST_CASE("Geometric references retain exact fingerprints and reject nonrigid Section frames", "[design-references]") {
+TEST_CASE("Geometric references retain exact fingerprints and reject nonrigid View frames", "[design-references]") {
   REQUIRE(Design::registerResolver("test-nonrigid",[](const Design::ReferenceToken&,Design::ResolveContext&){Transform3d frame=Transform3d::Identity();frame.linear()(0,0)=2;return Design::Resolution{Design::ResolutionState::Resolved,frame,{},""};}));
   REQUIRE_FALSE(Design::registerResolver("test-nonrigid",[](const Design::ReferenceToken&,Design::ResolveContext&){return Design::Resolution{};}));
-  Fixture f;f.evaluate("height=40;"+section("s","s",",frame:{domain:\"test-nonrigid\"}")+"cube(1);");auto context=resolveContext(f.result->records);
-  REQUIRE(Design::sectionFrame(*f.result->records.at("s"),context).state==Design::ResolutionState::Invalid);
+  Fixture f;f.evaluate(view("s","s",",frame:{domain:\"test-nonrigid\"}")+"cube(1);");auto context=resolveContext(f.result->records);
+  REQUIRE_FALSE(Design::viewCamera(*f.result->records.at("s"),context));
   ObjectType data(nullptr);data.set("inputsFingerprint",Value("inputs"));data.set("configurationFingerprint",Value("config"));
   VectorType point(nullptr),normal(nullptr);for(double value:{1.,2.,3.})point.emplace_back(Value(value));for(double value:{0.,0.,1.})normal.emplace_back(Value(value));
   data.set("point",Value(std::move(point)));data.set("normal",Value(std::move(normal)));Design::ReferenceToken token{"geometric","",Value(std::move(data))};
@@ -204,7 +215,7 @@ TEST_CASE("Identity survives rename moving includes and serialization precision 
   Fixture original;original.evaluate("height=40;"+section("old_name","id",",label:\"Old\"")+"cube(1);");
   Fixture moved;moved.write("moved.scad",section("new_name","id",",label:\"New\""));moved.evaluate("height=40;include <moved.scad> cube(1);");
   REQUIRE(original.result->records.at("id")->id==moved.result->records.at("id")->id);REQUIRE(moved.result->records.at("id")->label=="New");
-  Fixture cyclic;cyclic.evaluate("height=40;"+section("s","s",",frame:{domain:\"design\",id:\"s\"}")+"cube(1);");REQUIRE_FALSE(Design::persistenceClosure({"s"},cyclic.result->records,{EvaluationInputs::fileKey(cyclic.root)}).valid());
+  Fixture cyclic;cyclic.evaluate(view("s","s",",frame:{domain:\"design\",id:\"s\"}")+"cube(1);");REQUIRE_FALSE(Design::persistenceClosure({"s"},cyclic.result->records,{EvaluationInputs::fileKey(cyclic.root)}).valid());
   Fixture precise;precise.evaluate("height=40;"+section("s","precision",",adjust:{offset:0.12345678901234566}")+"cube(1);");
   auto serialized=Design::serialize(*precise.result->records.at("precision"));Fixture reopened;reopened.evaluate("height=40;"+serialized+"cube(1);");
   auto before=std::dynamic_pointer_cast<const Design::Section>(precise.result->records.at("precision")->evaluated);auto after=std::dynamic_pointer_cast<const Design::Section>(reopened.result->records.at("precision")->evaluated);REQUIRE(before->offset==after->offset);

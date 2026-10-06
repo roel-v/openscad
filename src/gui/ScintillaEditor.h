@@ -34,6 +34,8 @@ class ScintillaEditor : public EditorInterface
 public:
   ScintillaEditor(QWidget *parent);
   QsciScintilla *qsci;
+  void appendAnnotationUndo(int token) override;
+  void undoFromAnnotations(bool redo) override;
   QString toPlainText() override;
   void initMargin();
   void initLexer();
@@ -70,6 +72,8 @@ public:
                                                      bool flagAutoCompleteIncludeFunctions);
 
 private:
+  QString savedSourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash({}));
+  bool sourceForcedModified = false;
   void getRange(int *lineFrom, int *lineTo);
   void setColormap(const EditorColorScheme *colorScheme);
   int readInt(const boost::property_tree::ptree& pt, const std::string& name, const int defaultValue);

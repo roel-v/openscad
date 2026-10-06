@@ -26,6 +26,7 @@
 #pragma once
 
 #include <QString>
+#include <QJsonObject>
 #include <QTimer>
 #include <QWidget>
 #include <cstddef>
@@ -62,6 +63,7 @@ public:
   void applyParameters(SourceFile *sourceFile);
   bool childHasFocus();
   bool isModified() const { return modified; }
+  QJsonObject annotationValues() const;
 
 public slots:
   void setModified(bool modified = true);

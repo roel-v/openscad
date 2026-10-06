@@ -1,0 +1,840 @@
+#include "AnnotationController.h"
+#include "AnnotationBridge.h"
+#include "gui/Animate.h"
+#include "gui/Dock.h"
+#include "gui/Editor.h"
+#include "gui/MainWindow.h"
+#include "gui/QGLView.h"
+#include "gui/Preferences.h"
+#include "glview/RenderSettings.h"
+#include "core/SourceFileCache.h"
+#include <QApplication>
+#include <QBuffer>
+#include <QClipboard>
+#include <QDateTime>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFileInfo>
+#include <QGridLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QSet>
+#include <QKeyEvent>
+#include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QMessageBox>
+#include <QMouseEvent>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QVBoxLayout>
+#include <QUuid>
+#include <cmath>
+
+namespace AgentAnnotations {
+namespace {
+QString uuid()
+{
+  return QUuid::createUuid().toString(QUuid::WithoutBraces);
+}
+QString sourceHash(EditorInterface *editor)
+{
+  return editor ? editor->sourceFingerprint : QString();
+}
+QString label(EditorInterface *editor)
+{
+  return editor && !editor->filepath.isEmpty() ? editor->filepath : QString("Untitled.scad");
+}
+class Overlay : public QWidget
+{
+public:
+  Drawing *drawing;
+  Overlay(QWidget *parent, Drawing *drawing) : QWidget(parent), drawing(drawing)
+  {
+    setAttribute(Qt::WA_TransparentForMouseEvents);
+    setAttribute(Qt::WA_NoSystemBackground);
+  }
+  void paintEvent(QPaintEvent *) override
+  {
+    QPainter painter(this);
+    drawing->paint(painter, size());
+  }
+};
+}  // namespace
+
+Controller::Controller(MainWindow *mainWindow)
+  : QObject(mainWindow),
+    windowId(uuid()),
+    viewportId(uuid()),
+    window(mainWindow),
+    view(mainWindow->qglview)
+{
+  dock = new Dock(window);
+  dock->setObjectName("annotationsDock");
+  dock->setName(tr("Annotations"));
+  panel = new QWidget(dock);
+  auto layout = new QVBoxLayout(panel);
+  layout->setAlignment(Qt::AlignTop);
+  ownerLabel = new QLabel(panel);
+  ownerLabel->setWordWrap(true);
+  ownerLabel->setTextFormat(Qt::PlainText);
+  layout->addWidget(ownerLabel);
+  auto annotate = new QPushButton(tr("Annotate issue"), panel);
+  annotate->setObjectName("annotationStart");
+  layout->addWidget(annotate);
+  connect(annotate, &QPushButton::clicked, this, &Controller::startDrawing);
+  auto blank = new QPushButton(tr("Use active document for blank view"), panel);
+  layout->addWidget(blank);
+  connect(blank, &QPushButton::clicked, this, [this] {
+    if (!busy() && !view->getRenderer()) {
+      displayedOwner = window->activeEditor;
+      result = {};
+      refresh();
+      emit changed();
+    }
+  });
+  search = new QLineEdit(panel);
+  search->setPlaceholderText(tr("Search annotations"));
+  layout->addWidget(search);
+  list = new QListWidget(panel);
+  list->setObjectName("annotationList");
+  list->setMinimumHeight(65);
+  list->setMaximumHeight(150);
+  layout->addWidget(list);
+  imageLabel = new QLabel(panel);
+  imageLabel->setAlignment(Qt::AlignCenter);
+  imageLabel->setMinimumHeight(100);
+  imageLabel->setMinimumHeight(180);
+  imageLabel->setMaximumHeight(240);
+  layout->addWidget(imageLabel);
+  commentLabel = new QLabel(panel);
+  commentLabel->setWordWrap(true);
+  commentLabel->setTextFormat(Qt::PlainText);
+  commentLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  layout->addWidget(commentLabel);
+  auto buttons = new QGridLayout;
+  auto edit = new QPushButton(tr("Edit comment"), panel), remove = new QPushButton(tr("Delete"), panel);
+  auto restore = new QPushButton(tr("Restore view here"), panel),
+       save = new QPushButton(tr("Save owner document"), panel);
+  buttons->addWidget(edit, 0, 0);
+  buttons->addWidget(remove, 0, 1);
+  buttons->addWidget(restore, 1, 0);
+  buttons->addWidget(save, 1, 1);
+  layout->addLayout(buttons);
+  connect(search, &QLineEdit::textChanged, this, &Controller::refresh);
+  connect(list, &QListWidget::currentRowChanged, this, &Controller::showSelected);
+  connect(save, &QPushButton::clicked, this, [this] {
+    if (owner() && !drafting()) window->tabManager->save(owner());
+  });
+  connect(edit, &QPushButton::clicked, this, [this] {
+    if (!owner() || !list->currentItem() || drafting()) return;
+    QPointer<EditorInterface> target = owner();
+    QString id = list->currentItem()->data(Qt::UserRole).toString();
+    const auto record = target->annotations->find(id);
+    if (!record) return;
+    const auto revision = target->annotations->revision();
+    QDialog dialog(window);
+    dialog.setWindowTitle(tr("Edit annotation comment"));
+    QVBoxLayout layout(&dialog);
+    QPlainTextEdit text(record->metadata.value("comment").toString(), &dialog);
+    text.setObjectName("annotationEditComment");
+    layout.addWidget(&text);
+    QDialogButtonBox buttons(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+    layout.addWidget(&buttons);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    text.setFocus();
+    if (dialog.exec() == QDialog::Accepted && target && target->annotations->revision() == revision) {
+      if (!target->annotations->edit(id, text.toPlainText()))
+        QMessageBox::warning(window, tr("Annotations"), tr("Comment or undo history limit exceeded."));
+    }
+    panel->setFocus();
+  });
+  connect(remove, &QPushButton::clicked, this, [this] {
+    if (!owner() || !list->currentItem() || drafting()) return;
+    QPointer<EditorInterface> target = owner();
+    auto revision = target->annotations->revision();
+    QString id = list->currentItem()->data(Qt::UserRole).toString();
+    if (QMessageBox::question(window, tr("Delete annotation"),
+                              tr("Delete this annotation and its screenshot?"),
+                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No) == QMessageBox::Yes &&
+        target && target->annotations->revision() == revision)
+      target->annotations->remove(id);
+    panel->setFocus();
+  });
+  connect(restore, &QPushButton::clicked, this, [this] {
+    if (!owner() || !list->currentItem()) return;
+    auto record = owner()->annotations->find(list->currentItem()->data(Qt::UserRole).toString());
+    QString error;
+    if (record && !setCamera(record->metadata.value("camera").toObject(), &error))
+      QMessageBox::warning(window, tr("Restore view"), error);
+  });
+  panel->setFocusPolicy(Qt::StrongFocus);
+  panel->installEventFilter(this);
+  auto scroll = new QScrollArea(dock);
+  scroll->setWidgetResizable(true);
+  scroll->setWidget(panel);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  dock->setWidget(scroll);
+  window->addDockWidget(Qt::RightDockWidgetArea, dock);
+  dock->hide();
+  imageLabel->installEventFilter(this);
+  overlay = new Overlay(view, &drawing);
+  overlay->hide();
+  palette = new QWidget(view);
+  palette->setAutoFillBackground(true);
+  palette->setCursor(Qt::ArrowCursor);
+  palette->setAttribute(Qt::WA_NoMousePropagation);
+  palette->setObjectName("annotationPalette");
+  auto colors = new QGridLayout(palette);
+  colors->addWidget(new QLabel(tr("Enter: comment · Esc: cancel"), palette), 0, 0, 1, 6);
+  const QStringList values{"#ffcf33", "#ff5533", "#ef4da8", "#ab67e0", "#6060ff", "#2299ee",
+                           "#33cccc", "#44bb66", "#aacc33", "#ffffff", "#aaaaaa", "#222222"};
+  int index = 0;
+  for (const auto& value : values) {
+    auto button = new QPushButton(palette);
+    button->setFixedSize(25, 25);
+    button->setToolTip(value);
+    button->setStyleSheet("background-color:" + value + ";border:1px solid #777;");
+    colors->addWidget(button, 1 + index / 6, index % 6);
+    ++index;
+    connect(button, &QPushButton::clicked, this, [this, value] {
+      color = QColor(value);
+      view->setFocus();
+    });
+  }
+  auto undo = new QPushButton(tr("Undo"), palette), redo = new QPushButton(tr("Redo"), palette);
+  colors->addWidget(undo, 3, 0, 1, 3);
+  colors->addWidget(redo, 3, 3, 1, 3);
+  connect(undo, &QPushButton::clicked, this, [this] {
+    drawing.undo();
+    updateLock();
+    view->setFocus();
+  });
+  connect(redo, &QPushButton::clicked, this, [this] {
+    drawing.redo();
+    updateLock();
+    view->setFocus();
+  });
+  palette->adjustSize();
+  view->composeAnnotations=[this](QImage& image) {
+    if (drafting()) { QPainter painter(&image); drawing.paint(painter,image.size(),view->devicePixelRatioF()); }
+  };
+  palette->move(12, 12);
+  palette->hide();
+  displayedOwner = window->activeEditor;
+  view->installEventFilter(this);
+  qApp->installEventFilter(this);
+  originalSaveText = window->fileActionSave->text();
+  originalUndoText = window->editActionUndo->text();
+  connect(qApp, &QApplication::focusChanged, this, [this] { updateActions(); });
+  connect(view, &QGLView::cameraChanged, this, [this] {
+    if (state == DrawingState) {
+      if (drawing.marked()) view->cam = lockedCamera;
+      else {
+        drawing.navigation();
+        lockedCamera = view->cam;
+      }
+    }
+    emit changed();
+  });
+  connect(view, &QGLView::frameAboutToRender, this, [this] {
+    if (drafting() && display() != draftDisplay) {
+      cancelDrawing();
+      return;
+    }
+    if (state != DrawingState) return;
+    if (!drawing.marked() &&
+        (view->cam.object_trans != lockedCamera.object_trans ||
+         view->cam.object_rot != lockedCamera.object_rot ||
+         view->cam.viewer_distance != lockedCamera.viewer_distance ||
+         view->cam.fov != lockedCamera.fov || view->cam.projection != lockedCamera.projection)) {
+      drawing.navigation();
+      lockedCamera = view->cam;
+    }
+  });
+  connect(view, &QGLView::resized, this, [this] {
+    if (drafting()) cancelDrawing();
+    if (capturePending) finishFrame("Viewport resized.");
+  });
+  connect(view, &QGLView::rendererReplaced, this, &Controller::rendererChanged);
+  connect(window->tabManager, &TabManager::tabCountChanged, this, &Controller::bindEditors);
+  connect(window->tabManager, &TabManager::currentEditorChanged, this, [this] { emit changed(); });
+  connect(window->tabManager, &TabManager::editorAboutToClose, this, [this](EditorInterface *editor) {
+    if (editor == draftOwner) cancelDrawing();
+    if (editor == displayedOwner) {
+      displayedOwner.clear();
+      result = {};
+      refresh();
+    }
+    emit changed();
+  });
+  captureTimeout.setSingleShot(true);
+  captureTimeout.setInterval(4000);
+  connect(&captureTimeout, &QTimer::timeout, this,
+          [this] { finishFrame("No viewport frame was presented before timeout."); });
+  draftWatch.setInterval(250);
+  connect(&draftWatch, &QTimer::timeout, this, [this] {
+    if (drafting() && fileState() != draftFiles) cancelDrawing();
+  });
+  bindEditors();
+  refresh();
+  Bridge::instance()->registerController(this);
+}
+Controller::~Controller()
+{
+  view->composeAnnotations={};
+  cancelDrawing();
+  if (capturePending) finishFrame("Viewport closed.");
+  delete palette;
+  delete overlay;
+}
+void Controller::bindEditors()
+{
+  for (auto editor : window->tabManager->editorList) {
+    if (editor->property("annotationControllerBound").toBool()) continue;
+    editor->setProperty("annotationControllerBound", true);
+    connect(editor->annotations, &Store::sessionChanged, this, [this, editor] {
+      if (draftOwner == editor) cancelDrawing();
+      if (owner() == editor) {
+        if (capturePending) finishFrame("Document was replaced.");
+        displayedOwner.clear();
+        result = {};
+        refresh();
+      }
+      emit changed();
+    });
+    connect(editor->annotations, &Store::changed, this, [this, editor] {
+      if (owner() == editor) refresh();
+      emit changed();
+    });
+    connect(editor->annotations, &Store::changed, this,
+            [this] { QTimer::singleShot(0, this, &Controller::updateActions); });
+    connect(editor, &EditorInterface::contentsChanged, this, [this, editor] {
+      if (drafting() && draftOwner == editor) cancelDrawing();
+      emit changed();
+    });
+    connect(editor->parameterWidget, &ParameterWidget::parametersChanged, this, [this, editor] {
+      if (drafting() && draftOwner == editor) cancelDrawing();
+      emit changed();
+    });
+  }
+}
+EditorInterface *Controller::owner() const
+{
+  return displayedOwner;
+}
+QVector<EditorInterface *> Controller::editors() const
+{
+  QVector<EditorInterface *> result;
+  for (auto editor : window->tabManager->editorList) result.append(editor);
+  return result;
+}
+EditorInterface *Controller::actionOwner() const
+{
+  auto focus = QApplication::focusWidget();
+  if (!focus) focus = window->focusWidget();
+  if (focus &&
+      (focus == view || view->isAncestorOf(focus) || focus == dock || dock->isAncestorOf(focus)))
+    return owner();
+  return nullptr;
+}
+bool Controller::busy() const
+{
+  return drafting() || capturePending || !evaluation.isEmpty() || GuiLocker::isLocked();
+}
+void Controller::updateActions()
+{
+  auto target = actionOwner();
+  window->fileActionSave->setText(target ? tr("Save %1").arg(QFileInfo(label(target)).fileName())
+                                         : originalSaveText);
+  window->editActionUndo->setText(target ? tr("Undo in %1").arg(QFileInfo(label(target)).fileName())
+                                         : originalUndoText);
+  if (!target) target = window->activeEditor;
+  window->editActionUndo->setEnabled(target && target->canUndo());
+}
+QJsonObject Controller::display() const
+{
+  return {{"axes", view->showAxes()},
+          {"edges", view->showEdges()},
+          {"crosshairs", view->showCrosshairs()},
+          {"scale", view->showScaleProportional()},
+          {"color_scheme", GlobalPreferences::inst()->getValue("3dview/colorscheme").toString()}};
+}
+void Controller::refresh()
+{
+  const QString selected =
+    list->currentItem() ? list->currentItem()->data(Qt::UserRole).toString() : QString();
+  list->clear();
+  ownerLabel->setText(
+    owner() ? tr("Owner: %1%2")
+                .arg(label(owner()), owner()->annotations->dirty() ? tr(" · annotations unsaved") : "")
+            : tr("No annotation owner. Preview a document or select a blank-view owner."));
+  if (!owner()) {
+    showSelected();
+    return;
+  }
+  if (!owner()->annotations->diagnostic().isEmpty())
+    ownerLabel->setText(ownerLabel->text() + "\n" + owner()->annotations->diagnostic());
+  for (auto it = owner()->annotations->records().crbegin();
+       it != owner()->annotations->records().crend(); ++it) {
+    QString comment = it->metadata.value("comment").toString();
+    if (!comment.contains(search->text(), Qt::CaseInsensitive)) continue;
+    auto item =
+      new QListWidgetItem(comment.isEmpty() ? tr("(No comment)") : comment.simplified().left(110), list);
+    item->setData(Qt::UserRole, it->id());
+    item->setToolTip(it->metadata.value("created_utc").toString());
+    if (it->id() == selected) list->setCurrentItem(item);
+  }
+  if (!list->currentItem() && list->count()) list->setCurrentRow(0);
+  showSelected();
+}
+void Controller::showSelected()
+{
+  imageLabel->clear();
+  commentLabel->clear();
+  if (!owner() || !list->currentItem()) return;
+  auto record = owner()->annotations->find(list->currentItem()->data(Qt::UserRole).toString());
+  if (!record) return;
+  QPixmap image;
+  image.loadFromData(record->png, "PNG");
+  imageLabel->setPixmap(image.scaled(qMax(1, imageLabel->width()), qMax(1, imageLabel->height()),
+                                     Qt::KeepAspectRatio, Qt::SmoothTransformation));
+  commentLabel->setText(record->metadata.value("comment").toString());
+}
+void Controller::setAccessWidget(QWidget *widget)
+{
+  panel->layout()->addWidget(widget);
+}
+
+QJsonObject Controller::camera() const
+{
+  const auto translation = view->cam.getVpt(), rotation = view->cam.getVpr();
+  return {{"translation", QJsonArray{translation.x(), translation.y(), translation.z()}},
+          {"rotation", QJsonArray{rotation.x(), rotation.y(), rotation.z()}},
+          {"distance", view->cam.viewer_distance},
+          {"fov", view->cam.fov},
+          {"projection", view->orthoMode() ? "orthographic" : "perspective"}};
+}
+bool Controller::setCamera(const QJsonObject& value, QString *error)
+{
+  auto fail = [&](QString message) {
+    if (error) *error = message;
+    return false;
+  };
+  if (busy()) return fail("Viewport is busy.");
+  if (!owner()) return fail("Viewport has no matching document.");
+  auto translation = value.value("translation").toArray(), rotation = value.value("rotation").toArray();
+  if (translation.size() != 3 || rotation.size() != 3)
+    return fail("Camera vectors must have three finite numbers.");
+  for (const auto& array : {translation, rotation})
+    for (const auto& number : array)
+      if (!number.isDouble() || !std::isfinite(number.toDouble()) || std::abs(number.toDouble()) > 1e12)
+        return fail("Invalid camera vector.");
+  const double distance = value.value("distance").toDouble(-1), fov = value.value("fov").toDouble(-1);
+  const QString projection = value.value("projection").toString();
+  if (!std::isfinite(distance) || distance <= 0 || distance > 1e12 || !std::isfinite(fov) || fov <= 0 ||
+      fov >= 180 || (projection != "orthographic" && projection != "perspective"))
+    return fail("Invalid camera distance, FOV or projection.");
+  view->cam.setVpt(translation[0].toDouble(), translation[1].toDouble(), translation[2].toDouble());
+  view->cam.setVpr(rotation[0].toDouble(), rotation[1].toDouble(), rotation[2].toDouble());
+  view->cam.setVpd(distance);
+  view->cam.setVpf(fov);
+  view->cam.setProjection(projection == "orthographic" ? Camera::ProjectionType::ORTHOGONAL
+                                                       : Camera::ProjectionType::PERSPECTIVE);
+  view->update();
+  emit changed();
+  return true;
+}
+void Controller::beginEvaluation(const QString& source)
+{
+  if (!evaluation.isEmpty()) {
+    evaluation["customizer"] =
+      evaluationOwner ? evaluationOwner->parameterWidget->annotationValues() : QJsonObject{};
+    return;
+  }
+  if (drafting()) cancelDrawing();
+  if (capturePending) finishFrame("Evaluation replaced the requested frame.");
+  evaluationOwner = window->activeEditor;
+  evaluation = {
+    {"id", QString::number(++generation)},
+    {"document_id", evaluationOwner->annotations->sessionId},
+    {"source_sha256", QString::fromLatin1(Store::hash(source.toUtf8()))},
+    {"path", evaluationOwner->filepath},
+    {"dependency_provenance", "unknown"},
+    {"time", window->animateWidget->getAnimTval()},
+    {"backend", QString::fromStdString(renderBackend3DToString(RenderSettings::inst()->backend3D))},
+    {"customizer", evaluationOwner->parameterWidget->annotationValues()},
+    {"outcome", "evaluating"}};
+  emit changed();
+}
+void Controller::finishEvaluation(bool success)
+{
+  if (evaluation.isEmpty()) {
+    emit changed();
+    return;
+  }
+  lastAttempt = evaluation;
+  lastAttempt["outcome"] = success ? (view->getRenderer() ? "installed" : "empty") : "failed";
+  if (success || !view->getRenderer() || installed.find(view->getRenderer()) == installed.end()) {
+    displayedOwner = evaluationOwner;
+    result = lastAttempt;
+    if (view->getRenderer()) {
+      result["renderer"] = QString::fromLatin1(typeid(*view->getRenderer()).name());
+      installed[view->getRenderer()] = {view->renderer, displayedOwner, result};
+    }
+  }
+  evaluation = {};
+  evaluationOwner.clear();
+  for (auto it = installed.begin(); it != installed.end();) {
+    if (it->second.renderer.expired()) it = installed.erase(it);
+    else ++it;
+  }
+  refresh();
+  emit changed();
+}
+void Controller::rendererChanged()
+{
+  if (drafting()) cancelDrawing();
+  if (capturePending) finishFrame("Renderer changed.");
+  if (!evaluation.isEmpty()) return;
+  auto it = installed.find(view->getRenderer());
+  if (it != installed.end() && !it->second.renderer.expired()) {
+    displayedOwner = it->second.owner;
+    result = it->second.result;
+  } else result = {};
+  refresh();
+  emit changed();
+}
+QJsonObject Controller::status() const
+{
+  QJsonObject value{
+    {"window_id", windowId},
+    {"viewport_id", viewportId},
+    {"document_id", owner() ? owner()->annotations->sessionId : ""},
+    {"active_document_id", window->activeEditor ? window->activeEditor->annotations->sessionId : ""},
+    {"busy", busy()},
+    {"draft", drafting()},
+    {"evaluation", evaluation.isEmpty() ? lastAttempt : evaluation},
+    {"result", result},
+    {"camera", camera()},
+    {"automatic_reload", window->designActionAutoReload->isChecked()},
+    {"current_source_sha256", sourceHash(owner())},
+    {"stale_source", owner() && result.value("source_sha256").toString() != sourceHash(owner())}};
+  return value;
+}
+void Controller::startDrawing()
+{
+  if (busy() || !owner()) return;
+  dock->show();
+  draftOwner = owner();
+  draftResult = result;
+  draftSize = view->size();
+  draftDpr = view->devicePixelRatioF();
+  draftSourceHash = sourceHash(draftOwner);
+  drawing = {};
+  lockedCamera = view->cam;
+  ++draftToken;
+  draftDisplay = display();
+  draftFiles = fileState();
+  draftWatch.start();
+  reloadWasActive = window->autoReloadTimer->isActive();
+  window->autoReloadTimer->stop();
+  animationWasActive = window->animateWidget->animateTimer->isActive();
+  animationInterval = window->animateWidget->animateTimer->interval();
+  window->animateWidget->animateTimer->stop();
+  GuiLocker::lock();
+  state = DrawingState;
+  overlay->setGeometry(view->rect());
+  overlay->show();
+  overlay->raise();
+  palette->show();
+  palette->raise();
+  view->setFocus();
+  view->setCursor(Qt::CrossCursor);
+  emit changed();
+}
+void Controller::updateLock()
+{
+  if (drawing.marked() || state == Capturing || state == Comment)
+    view->annotationCameraLock = lockedCamera;
+  else view->annotationCameraLock.reset();
+  overlay->update();
+  view->update();
+}
+void Controller::cancelDrawing()
+{
+  if (!drafting()) return;
+  ++draftToken;
+  draftWatch.stop();
+  state = Idle;
+  view->annotationCameraLock.reset();
+  overlay->hide();
+  palette->hide();
+  view->unsetCursor();
+  if (commentDialog) commentDialog->reject();
+  drawing = {};
+  draftOwner.clear();
+  GuiLocker::unlock();
+  if (reloadWasActive && window->designActionAutoReload->isChecked()) window->autoReloadTimer->start();
+  if (animationWasActive) window->animateWidget->animateTimer->start(animationInterval);
+  if (capturePending) finishFrame("Annotation draft was cancelled.");
+  emit changed();
+}
+QByteArray Controller::fileState() const
+{
+  QJsonArray files;
+  QSet<QString> visited;
+  std::function<void(const QString&, const SourceFile *)> append = [&](const QString& path,
+                                                                       const SourceFile *source) {
+    if (visited.contains(path) || visited.size() >= 4096) return;
+    visited.insert(path);
+    QFileInfo info(path);
+    files.append(QJsonArray{path, QString::number(info.size()),
+                            QString::number(info.lastModified().toMSecsSinceEpoch()),
+                            source ? QString::number(source->includesChanged()) : QString()});
+    if (source)
+      for (const auto& dependency : source->usedlibs)
+        append(QString::fromStdString(dependency), SourceFileCache::instance()->lookup(dependency));
+  };
+  if (draftOwner) append(draftOwner->filepath, window->rootFile.get());
+  return QJsonDocument(files).toJson(QJsonDocument::Compact);
+}
+bool Controller::eventFilter(QObject *object, QEvent *event)
+{
+  if (object == imageLabel && event->type() == QEvent::Resize) showSelected();
+  if (!drafting() && actionOwner() &&
+      (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress)) {
+    auto key = static_cast<QKeyEvent *>(event);
+    if (key->matches(QKeySequence::Undo) || key->matches(QKeySequence::Redo)) {
+      event->accept();
+      if (event->type() == QEvent::KeyPress)
+        actionOwner()->undoFromAnnotations(key->matches(QKeySequence::Redo));
+      return true;
+    }
+  }
+  if (!drafting()) return QObject::eventFilter(object, event);
+  if (state == DrawingState && !drawing.marked() &&
+      (view->cam.object_trans != lockedCamera.object_trans ||
+       view->cam.object_rot != lockedCamera.object_rot ||
+       view->cam.viewer_distance != lockedCamera.viewer_distance || view->cam.fov != lockedCamera.fov ||
+       view->cam.projection != lockedCamera.projection)) {
+    drawing.navigation();
+    lockedCamera = view->cam;
+  }
+  if (object == view && (event->type() == QEvent::Hide || event->type() == QEvent::Resize)) {
+    cancelDrawing();
+    return false;
+  }
+  if (state == Comment) return false;
+  if (event->type() == QEvent::ShortcutOverride || event->type() == QEvent::KeyPress) {
+    auto key = static_cast<QKeyEvent *>(event);
+    const bool undo = key->matches(QKeySequence::Undo), redo = key->matches(QKeySequence::Redo);
+    if (key->key() == Qt::Key_Escape || key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter ||
+        undo || redo) {
+      event->accept();
+      if (event->type() == QEvent::ShortcutOverride) return true;
+      if (key->key() == Qt::Key_Escape) cancelDrawing();
+      else if (state == DrawingState) {
+        if (undo) drawing.undo();
+        else if (redo) drawing.redo();
+        else acceptDrawing();
+        updateLock();
+      }
+      return true;
+    }
+  }
+  if (object != view) return false;
+  if (event->type() == QEvent::ContextMenu) return true;
+  if (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::MouseButtonRelease ||
+      event->type() == QEvent::MouseMove) {
+    auto mouse = static_cast<QMouseEvent *>(event);
+    if (mouse->button() == Qt::RightButton) {
+      cancelDrawing();
+      return true;
+    }
+    if (state != DrawingState) return true;
+    if (event->type() == QEvent::MouseButtonPress && mouse->button() == Qt::LeftButton &&
+        mouse->modifiers() == Qt::NoModifier) {
+      if (!drawing.marked()) lockedCamera = view->cam;
+      drawing.begin(mouse->position(), view->size(), color);
+      updateLock();
+      return true;
+    }
+    if (drawing.pressed && event->type() == QEvent::MouseMove) {
+      drawing.move(mouse->position(), view->size());
+      updateLock();
+      return true;
+    }
+    if (mouse->button() == Qt::LeftButton && event->type() == QEvent::MouseButtonRelease) {
+      drawing.end(view->size());
+      updateLock();
+      return true;
+    }
+    if (drawing.marked()) return true;
+  }
+  if (event->type() == QEvent::Wheel && drawing.marked()) return true;
+  return false;
+}
+void Controller::capture(const QString& expectedResult,
+                         std::function<void(QJsonObject, QByteArray, QString)> done)
+{
+  if (busy()) {
+    done({}, {}, "Viewport is busy.");
+    return;
+  }
+  requestFrame(false, expectedResult, std::move(done));
+}
+void Controller::requestFrame(bool annotation, const QString& expectedResult,
+                              std::function<void(QJsonObject, QByteArray, QString)> done)
+{
+  if (!owner() || capturePending ||
+      (!expectedResult.isEmpty() && result.value("id").toString() != expectedResult)) {
+    done({}, {}, "Missing owner or stale result.");
+    return;
+  }
+  capturePending = true;
+  captureDone = std::move(done);
+  const auto token = ++captureToken;
+  QPointer<EditorInterface> target = owner();
+  const auto session = target->annotations->sessionId;
+  const auto boundResult = result, boundCamera = camera();
+  const auto size = view->size();
+  const auto dpr = view->devicePixelRatioF();
+  frameConnection = connect(
+    view, &QGLView::frameRendered, this,
+    [this, annotation, token, target, session, boundResult, boundCamera, size, dpr] {
+      if (!capturePending || token != captureToken) return;
+      disconnect(frameConnection);
+      if (!target || target != owner() || target->annotations->sessionId != session ||
+          result != boundResult || camera() != boundCamera || view->size() != size ||
+          view->devicePixelRatioF() != dpr || (!annotation && GuiLocker::isLocked())) {
+        finishFrame("Capture target changed.");
+        return;
+      }
+      QImage image = view->grabFrame(QGLView::CaptureContent::ModelOnly).copy();
+      image.setDevicePixelRatio(1);
+      if (image.isNull() || qint64(image.width()) * image.height() > 64000000) {
+        finishFrame("Invalid/oversized viewport framebuffer.");
+        return;
+      }
+      if (annotation) {
+        QPainter painter(&image);
+        drawing.paint(painter, image.size(), dpr);
+      }
+      QByteArray png;
+      QBuffer buffer(&png);
+      buffer.open(QIODevice::WriteOnly);
+      if (!image.save(&buffer, "PNG") || png.size() > Store::MaxPng) {
+        finishFrame("Cannot encode viewport PNG within limits.");
+        return;
+      }
+      QJsonArray modelview, projection;
+      for (int i = 0; i < 16; ++i) {
+        modelview.append(view->modelview[i]);
+        projection.append(view->projection[i]);
+      }
+      QJsonObject metadata{
+        {"id", uuid()},
+        {"created_utc", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        {"comment", ""},
+        {"width", image.width()},
+        {"height", image.height()},
+        {"dpr", dpr},
+        {"camera", boundCamera},
+        {"modelview", modelview},
+        {"projection_matrix", projection},
+        {"png_sha256", QString::fromLatin1(Store::hash(png))},
+        {"result", boundResult},
+        {"document_id", target->annotations->sessionId},
+        {"path", target->filepath},
+        {"current_source_sha256", sourceHash(target)},
+        {"stale_source", sourceHash(target) != boundResult.value("source_sha256").toString()},
+        {"strokes", annotation ? drawing.json() : QJsonArray{}},
+        {"display", display()}};
+      captureTimeout.stop();
+      capturePending = false;
+      auto done = std::move(captureDone);
+      captureDone = {};
+      done(metadata, png, {});
+      emit changed();
+    },
+    Qt::QueuedConnection);
+  captureTimeout.start();
+  view->update();
+  emit changed();
+}
+void Controller::finishFrame(const QString& error)
+{
+  if (!capturePending) return;
+  disconnect(frameConnection);
+  captureTimeout.stop();
+  capturePending = false;
+  ++captureToken;
+  auto done = std::move(captureDone);
+  captureDone = {};
+  if (done) done({}, {}, error);
+  emit changed();
+}
+void Controller::acceptDrawing()
+{
+  if (state != DrawingState || drawing.pressed) return;
+  if (!draftOwner || draftOwner != owner() || draftResult != result || draftSize != view->size() ||
+      draftDpr != view->devicePixelRatioF() || draftSourceHash != sourceHash(draftOwner) ||
+      display() != draftDisplay) {
+    cancelDrawing();
+    return;
+  }
+  if (drawing.marked()) view->cam = lockedCamera;
+  else lockedCamera = view->cam;
+  state = Capturing;
+  updateLock();
+  const auto token = draftToken;
+  requestFrame(true, result.value("id").toString(),
+               [this, token](QJsonObject metadata, QByteArray png, QString error) {
+                 if (token != draftToken || !draftOwner) return;
+                 if (!error.isEmpty()) {
+                   cancelDrawing();
+                   QMessageBox::warning(window, tr("Annotation capture"), error);
+                   return;
+                 }
+                 state = Comment;
+                 QDialog dialog(window);
+                 commentDialog = &dialog;
+                 dialog.setWindowTitle(tr("Add annotation"));
+                 QVBoxLayout layout(&dialog);
+                 layout.addWidget(new QLabel(
+                   tr("Optional comment. The screenshot is kept exactly as captured."), &dialog));
+                 QPlainTextEdit text(&dialog);
+                 text.setObjectName("annotationComment");
+                 layout.addWidget(&text);
+                 QDialogButtonBox buttons(&dialog);
+                 auto add = buttons.addButton(tr("Add"), QDialogButtonBox::AcceptRole);
+                 auto back = buttons.addButton(tr("Back"), QDialogButtonBox::ActionRole);
+                 buttons.addButton(QDialogButtonBox::Cancel);
+                 layout.addWidget(&buttons);
+                 connect(add, &QPushButton::clicked, &dialog, &QDialog::accept);
+                 connect(back, &QPushButton::clicked, &dialog, [&dialog] { dialog.done(2); });
+                 connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+                 text.setFocus();
+                 dialog.resize(440, 260);
+                 const int answer = dialog.exec();
+                 commentDialog.clear();
+                 if (token != draftToken || !draftOwner) return;
+                 if (answer == 2) {
+                   state = DrawingState;
+                   updateLock();
+                   view->setFocus();
+                   return;
+                 }
+                 if (answer == QDialog::Accepted) {
+                   metadata["comment"] = text.toPlainText();
+                   if (!draftOwner->annotations->add({metadata, png}, &error))
+                     QMessageBox::warning(window, tr("Annotation not added"), error);
+                 }
+                 cancelDrawing();
+                 panel->setFocus();
+               });
+}
+}  // namespace AgentAnnotations

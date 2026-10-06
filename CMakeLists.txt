@@ -1346,6 +1346,11 @@ set(INPUT_DRIVER_SOURCES
   ${INPUT_DRIVER_DBUS_SOURCES})
 
 set(GUI_SOURCES
+  src/gui/annotations/AnnotationTransport.cc
+  src/gui/annotations/AnnotationBridge.cc
+  src/gui/annotations/AnnotationController.cc
+  src/gui/annotations/AnnotationDrawing.cc
+  src/gui/annotations/AnnotationStore.cc
   ${GUI_SOURCES}
   src/openscad_gui.cc
   src/gui/AutoUpdater.cc
@@ -1442,6 +1447,10 @@ set(GUI_HEADER_ONLY
 
 # To be added in Source for QtCreator to show them in project tree
 set(GUI_HEADERS
+  src/gui/annotations/AnnotationTransport.h
+  src/gui/annotations/AnnotationBridge.h
+  src/gui/annotations/AnnotationController.h
+  src/gui/annotations/AnnotationStore.h
     src/gui/Animate.h
     src/gui/AppleEvents.h
     src/gui/AutoUpdater.h
@@ -1619,6 +1628,8 @@ if(ENABLE_GUI_TESTS)
   )
 
   set(GUITESTS_SOURCES
+    src/guitests/TestAnnotations.h
+    src/guitests/TestAnnotations.cc
     src/guitests/guitests.cc
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc

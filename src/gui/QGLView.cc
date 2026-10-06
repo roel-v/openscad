@@ -95,6 +95,7 @@ QGLView::QGLView(QWidget *parent) : QOpenGLWidget(parent)
   setFormat(compatibleWidgetFormat());
   init();
   cameraNavigation = new CameraNavigation(this);
+  cameraNavigation->allowNavigation=[this]{return !annotationCameraLock.has_value();};
   connect(this, &QGLView::cameraChanged, cameraNavigation, &CameraNavigation::observe);
   cube = new NavigationCube(this);
   stats = new ViewportStatistics(this);
@@ -102,8 +103,10 @@ QGLView::QGLView(QWidget *parent) : QOpenGLWidget(parent)
 
 void QGLView::setRenderer(std::shared_ptr<Renderer> renderer)
 {
+  if (getRenderer()==renderer.get()) return;
   GLView::setRenderer(std::move(renderer));
   if (stats) stats->setStale(false);
+  emit rendererReplaced();
 }
 
 QGLView::~QGLView()
@@ -237,10 +240,13 @@ void QGLView::resizeGL(int w, int h)
 
 void QGLView::paintGL()
 {
+  if (!capturing) emit frameAboutToRender();
+  if (annotationCameraLock) cam = *annotationCameraLock;
   cameraNavigation->observe();
   GLView::paintGL();
   if (cube && !capturing) cube->updateContrast();
   if (!capturing && stats) { stats->frameCompleted(); emit viewportPaintCompleted(); }
+  if (!capturing) emit frameRendered();
 
   if (statusLabel) {
     auto status = QString("%1 (%2x%3)")

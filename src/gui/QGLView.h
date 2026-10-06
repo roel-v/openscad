@@ -5,6 +5,7 @@
 #include "gui/MouseSelector.h"
 
 #include <memory>
+#include <optional>
 #include <array>
 #include <QImage>
 #include <QMouseEvent>
@@ -58,6 +59,7 @@ public:
   const QImage& grabFrame(CaptureContent content=CaptureContent::ModelAndAnnotations);
   // Optional composition hook. Model pixels are already clean and the camera has stopped.
   std::function<void(QImage&)> composeAnnotations;
+  std::optional<Camera> annotationCameraLock;
   bool save(const char *filename) const override;
   void resetView();
   void viewAll();
@@ -130,6 +132,9 @@ private slots:
 
 signals:
   void viewportPaintCompleted();
+  void rendererReplaced();
+  void frameAboutToRender();
+  void frameRendered();
   void cameraChanged();
   void resized();
   void doRightClick(QPoint screen_coordinate);

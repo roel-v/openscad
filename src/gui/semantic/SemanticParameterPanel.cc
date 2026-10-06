@@ -19,12 +19,19 @@
 #include <QTimer>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
+#include <QInputDialog>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QFileInfo>
 #include <limits>
 namespace Semantic {
 ParameterPanel::ParameterPanel(MainWindow *owner,Controller *control,QWidget *parent):QWidget(parent),window(owner),controller(control) {
   setObjectName("semanticParameterPanel");auto *layout=new QVBoxLayout(this);
+  setAccessibleName(tr("Component parameters"));
+  auto *heading=new QLabel(tr("Component parameters"),this);auto font=heading->font();font.setBold(true);heading->setFont(font);layout->addWidget(heading);
+  setMinimumHeight(260);
   mode=new QComboBox(this);mode->setObjectName("semanticParameterMode");
-  mode->addItems({tr("Selected target"),tr("Definition defaults"),tr("All parameters (inspection)")});layout->addWidget(mode);
+  mode->addItems({tr("Selected component"),tr("Module defaults"),tr("All components (read-only)")});layout->addWidget(mode);
   status=new QLabel(this);status->setObjectName("semanticParameterStatus");status->setWordWrap(true);layout->addWidget(status);
   scroll=new QScrollArea(this);scroll->setWidgetResizable(true);layout->addWidget(scroll);
   connect(mode,&QComboBox::currentIndexChanged,this,[this]{refresh();});
@@ -65,13 +72,56 @@ bool ParameterPanel::applyCaptured(std::shared_ptr<const Selection::EvaluatedSce
   }
   return true;
 }
+void ParameterPanel::initializeStructureDialog() {
+  if(!window || !window->activeEditor)return;
+  const auto stamp=window->evaluationBinding->stamp();const auto captured=window->evaluationBinding->scene(stamp);
+  const auto filename=QFileInfo(window->activeEditor->filepath).completeBaseName();
+  QPointer<ParameterPanel> self(this);bool accepted=false;
+  const auto name=QInputDialog::getText(window,tr("Add model structure"),
+    tr("Part name (global parameters remain unchanged):"),QLineEdit::Normal,filename.isEmpty()?tr("Model"):filename,&accepted);
+  if(self && accepted){QString detail;if(!self->initializeCaptured(captured,stamp,name.trimmed(),&detail) && self)QMessageBox::information(self->window,tr("Cannot add model structure"),detail);}
+}
+bool ParameterPanel::initializeCaptured(std::shared_ptr<const Selection::EvaluatedScene> captured,Selection::Stamp stamp,
+                                       const QString& name,QString *detail) {
+  auto fail=[&](QString reason){if(detail)*detail=reason;status->setText(reason);return false;};
+  if(!window || !window->activeEditor || !captured || !captured->semantic || !captured->semantic->inputs ||
+     !window->evaluationBinding->validate(stamp) || window->evaluationBinding->scene(stamp)!=captured)
+    return fail(tr("The model changed. Preview the current code before adding structure."));
+  QPointer<EditorInterface> editor=window->activeEditor;const auto& input=captured->semantic->inputs->root();
+  if(!input.editorId || !input.editorRevision || editor->documentId().toStdString()!=*input.editorId ||
+     editor->sourceRevision!=*input.editorRevision || editor->sourceFingerprint.toStdString()!=input.fingerprint)
+    return fail(tr("The source changed. Preview again before adding structure."));
+  if(editor->isSourceReadOnly())return fail(tr("This source is read-only."));
+  const auto edit=Semantic::initializeStructure(*captured->semantic,input.fileKey,name.trimmed().toStdString());
+  if(!edit.editable)return fail(QString::fromStdString(edit.reason));
+  QPointer<MainWindow> ownerWindow=window;QPointer<ParameterPanel> self(this);
+  SourceEditing::EditRequest request{editor->documentId(),editor->sourceRevision,editor->sourceFingerprint,{},{}};
+  request.contextCurrent=[ownerWindow,editor,captured,stamp]{return ownerWindow && editor && ownerWindow->activeEditor==editor &&
+    ownerWindow->evaluationBinding->validate(stamp) && ownerWindow->evaluationBinding->scene(stamp)==captured;};
+  for(const auto& patch:edit.patches)request.edits.append({static_cast<qsizetype>(patch.span.begin),static_cast<qsizetype>(patch.span.end),QByteArray::fromStdString(patch.expected),QByteArray::fromStdString(patch.replacement)});
+  const auto result=SourceEditing::apply(*editor,request);
+  if(!self)return false;
+  if(result.error!=SourceEditing::EditError::None)return fail(result.detail);
+  if(result.changed){status->setText(tr("Model structure added. Previewing…"));QTimer::singleShot(0,window,[ownerWindow,editor]{if(ownerWindow && editor && ownerWindow->activeEditor==editor)ownerWindow->actionRenderPreview();});}
+  return result.changed;
+}
 void ParameterPanel::refresh() {
   if(rebuilding || !window || !controller)return;QScopedValueRollback<bool> guard(rebuilding,true);
   auto *body=new QWidget;body->setLayout(new QVBoxLayout);body->layout()->setContentsMargins(4,4,4,4);
   delete scroll->takeWidget();scroll->setWidget(body);
   const auto stamp=window->evaluationBinding->stamp();const auto captured=window->evaluationBinding->scene(stamp);
-  if(!captured || !captured->semantic || !captured->semantic->marked || !captured->semantic->valid() || !controller->targetService()->validate(stamp)){
-    status->setText(tr("Evaluate a valid semantic model to inspect its parameters"));return;
+  if(!captured || !captured->semantic || !controller->targetService()->validate(stamp)){
+    status->setText(tr("Preview the current code (F5) to inspect component parameters."));return;
+  }
+  if(!captured->semantic->valid()){
+    status->setText(tr("Part or assembly declarations contain errors. Check the model structure and source diagnostics."));return;
+  }
+  if(!captured->semantic->marked){
+    status->setText(tr("This model has no component structure yet. Add a single part to start organizing it. Global parameters remain available."));
+    auto *initialize=new QPushButton(tr("Add model structure…"),body);initialize->setObjectName("semanticInitializeStructure");body->layout()->addWidget(initialize);
+    initialize->setEnabled(window->activeEditor && !window->activeEditor->isSourceReadOnly());
+    if(!initialize->isEnabled())status->setText(tr("This model has no component structure. Its source is read-only."));
+    connect(initialize,&QPushButton::clicked,this,&ParameterPanel::initializeStructureDialog);return;
   }
   auto selected=controller->selectedTarget();
   if(mode->currentIndex()==2){
@@ -80,7 +130,7 @@ void ParameterPanel::refresh() {
       auto *label=new QLabel(QString::fromStdString(path),body);label->setTextInteractionFlags(Qt::TextSelectableByMouse);body->layout()->addWidget(label);
       for(const auto& [name,parameter]:instance.parameters)addParameter(body,{TargetRole::Instance,path},parameter,true,captured,stamp);
     }
-  }else if(!selected){status->setText(tr("Select an instance or definition in the model tree"));}
+  }else if(!selected){status->setText(tr("Select a component or module definition in Model structure."));}
   else{
     if(mode->currentIndex()==1 && selected->role==TargetRole::Instance)selected=TargetKey{TargetRole::Definition,captured->semantic->instances.at(selected->id).definitionId};
     std::map<std::string,Parameter> parameters;

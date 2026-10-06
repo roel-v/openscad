@@ -31,6 +31,11 @@
 #include <QCheckBox>
 #include <QLineEdit>
 #include <QInputMethodEvent>
+#include <QToolButton>
+#include <QMenu>
+#include <QTimer>
+#include <QScopeGuard>
+#include <QInputDialog>
 #include "gui/parameter/ParameterVirtualWidget.h"
 #include <QUuid>
 #include <future>
@@ -92,6 +97,81 @@ void TestSemanticHierarchy::hierarchyAndTargets(){
   auto target=service->resolve(key);QCOMPARE(target.localBounds->max().x(),45.0);QCOMPARE(target.worldBounds->max().x(),105.0);
   QVERIFY(controller->select({Semantic::TargetRole::Definition,"bracket"}));key={Semantic::TargetRole::Definition,"bracket"};QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);QCOMPARE(service->resolve(key).localBounds->max().x(),30.0);
   QVERIFY(controller->select({Semantic::TargetRole::Instance,"/pair"}));key={Semantic::TargetRole::Instance,"/pair"};QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);QCOMPARE(service->resolve(key).localBounds->max().x(),105.0);
+}
+void TestSemanticHierarchy::initializeUnstructuredModel(){
+  window->inspectorDock->hide();
+  auto preview=[&](const QString& source){window->activeEditor->setPlainText(source);QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),15000);QTRY_VERIFY(window->evaluationBinding->current());QTest::qWait(30);};
+  const QString source="// Global parameters\nwidth = 12;\nmodule shape() { cube([width, 8, 3]); }\n// Geometry\nshape(); // Keep this comment";
+  preview(source);if(QTest::currentTestFailed())return;
+  auto *editor=qobject_cast<ScintillaEditor *>(window->activeEditor);QVERIFY(editor);editor->clearUndoHistory();
+  auto *panel=window->semanticController->parameterPanel();QVERIFY(panel);
+  const auto stamp=window->evaluationBinding->stamp();const auto captured=window->evaluationBinding->scene(stamp);QVERIFY(captured && captured->semantic && !captured->semantic->marked);
+  QString detail;editor->qsci->setReadOnly(true);QVERIFY(!panel->initializeCaptured(captured,stamp,"Part",&detail));QVERIFY(detail.contains("read-only"));editor->qsci->setReadOnly(false);QCOMPARE(editor->toPlainText(),source);QVERIFY(!editor->canUndo());
+  auto *overlay=window->qglview->findChild<QWidget *>("modelStructureOverlay");QVERIFY(overlay);QVERIFY(!overlay->isVisible());
+  QVERIFY(!window->qglview->findChild<QPushButton *>("viewportInitializeStructure"));
+  auto *info=window->qglview->findChild<QWidget *>("viewportStatistics");QVERIFY(info);QCOMPARE(info->pos(),QPoint(10,10));
+  QVERIFY(window->inspectorDock->isHidden());window->inspectorDock->show();window->inspectorDock->raise();
+  QPointer<QPushButton> button=panel->findChild<QPushButton *>("semanticInitializeStructure");QVERIFY(button);QVERIFY(button->isVisible());
+  QTimer::singleShot(0,window,[]{if(auto *dialog=qobject_cast<QInputDialog *>(QApplication::activeModalWidget()))dialog->reject();});
+  button->click();QCOMPARE(editor->toPlainText(),source);QVERIFY(!editor->canUndo());
+  QTimer::singleShot(0,window,[]{if(auto *dialog=qobject_cast<QInputDialog *>(QApplication::activeModalWidget())){dialog->setTextValue(QString::fromUtf8("Housing \"α\""));dialog->accept();}});
+  button=panel->findChild<QPushButton *>("semanticInitializeStructure");QVERIFY(button);
+  QSignalSpy done(window,&MainWindow::compilationDone);button->click();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),15000);
+  QTRY_VERIFY(window->evaluationBinding->current());const auto result=window->evaluationBinding->scene(window->evaluationBinding->stamp());QVERIFY(result && result->semantic && result->semantic->valid());QCOMPARE(result->semantic->instances.size(),size_t(1));
+  QCOMPARE(QString::fromStdString(result->semantic->instances.begin()->second.label),QString::fromUtf8("Housing \"α\""));
+  const auto edited=editor->toPlainText();QVERIFY(edited.startsWith("// Global parameters\nwidth = 12;\nmodule shape() { cube([width, 8, 3]); }"));QVERIFY(edited.contains("shape(); // Keep this comment\n}"));
+  auto *service=window->semanticController->targetService();auto key=Semantic::TargetKey{Semantic::TargetRole::Instance,result->semantic->instances.begin()->first};
+  QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);QCOMPARE(service->resolve(key).worldBounds->max().x(),12.0);
+  QTRY_VERIFY(button.isNull());QTRY_VERIFY(overlay->isVisible());editor->undo();QCOMPARE(editor->toPlainText(),source);QVERIFY(!editor->canUndo());editor->redo();QCOMPARE(editor->toPlainText(),edited);
+  for(const auto& unsafe:{QString("cube(1); x=3;"),QString("{cube(1);}"),QString("cube(1); module trailing(){}"),QString("echo($parent_modules); cube(1);"),QString("#cube(1);"),QString("// no geometry\nx=1;")}){
+    preview(unsafe);if(QTest::currentTestFailed())return;editor->clearUndoHistory();
+    const auto currentStamp=window->evaluationBinding->stamp();const auto current=window->evaluationBinding->scene(currentStamp);
+    QVERIFY(!panel->initializeCaptured(current,currentStamp,"Part",&detail));QVERIFY(!detail.isEmpty());QCOMPARE(editor->toPlainText(),unsafe);QVERIFY(!editor->canUndo());
+  }
+  preview(source);if(QTest::currentTestFailed())return;
+  QVERIFY(!overlay->isVisible());QCOMPARE(info->pos(),QPoint(10,10));
+  const auto oldStamp=window->evaluationBinding->stamp();const auto oldScene=window->evaluationBinding->scene(oldStamp);editor->setPlainText(source+"\n// changed");editor->clearUndoHistory();
+  QVERIFY(!panel->initializeCaptured(oldScene,oldStamp,"Part",&detail));QCOMPARE(editor->toPlainText(),source+"\n// changed");QVERIFY(!editor->canUndo());
+}
+void TestSemanticHierarchy::viewportStructureInteractions(){
+  evaluate(pair);if(QTest::currentTestFailed())return;
+  auto *controller=window->semanticController;auto *view=window->qglview;auto *tree=controller->treeView();
+  auto *overlay=view->findChild<QWidget *>("modelStructureOverlay");QVERIFY(overlay);QVERIFY(overlay->isVisible());
+  QCOMPARE(overlay->parentWidget(),view);QVERIFY(view->rect().contains(overlay->geometry()));
+  auto *info=view->findChild<QWidget *>("viewportStatistics");QVERIFY(info);
+  QVERIFY(info->x()>overlay->geometry().right());QCOMPARE(info->y(),overlay->y());
+  QVERIFY(!tree->viewport()->autoFillBackground());
+  auto *toggle=window->findChild<QAction *>("viewModelStructure");QVERIFY(toggle);QVERIFY(toggle->isChecked());
+  auto *collapse=overlay->findChild<QToolButton *>("modelStructureCollapse");QVERIFY(collapse);
+  const auto right=controller->model()->find(Semantic::TreeRole::Instance,"/pair/right");
+  tree->scrollTo(right);QTest::mouseClick(tree->viewport(),Qt::LeftButton,Qt::NoModifier,tree->visualRect(right).center());
+  QVERIFY(controller->selectedTarget());QCOMPARE(controller->selectedTarget()->id,std::string("/pair/right"));
+  QTest::keyClick(tree,Qt::Key_Space);QTRY_VERIFY(controller->visibility().hidden.count("/pair/right"));
+  QTest::keyClick(tree,Qt::Key_Space);QTRY_VERIFY(!controller->visibility().hidden.count("/pair/right"));
+  bool menuAction=false;
+  QTimer::singleShot(0,tree,[&]{for(auto *menu:tree->findChildren<QMenu *>())if(menu->isVisible()){
+    for(auto *action:menu->actions())if(action->text()=="Solo selected instance" && action->isEnabled()){action->trigger();menuAction=true;break;}menu->close();
+  }});
+  emit tree->customContextMenuRequested(tree->visualRect(right).center());
+  QVERIFY(menuAction);QVERIFY(controller->visibility().solo);QCOMPARE(*controller->visibility().solo,std::string("/pair/right"));QVERIFY(controller->setSolo({}));
+  const int expandedHeight=overlay->height();QTest::mouseClick(collapse,Qt::LeftButton);QVERIFY(!tree->isVisible());QVERIFY(overlay->height()<expandedHeight);
+  QTest::mouseClick(collapse,Qt::LeftButton);QVERIFY(tree->isVisible());QCOMPARE(controller->selectedTarget()->id,std::string("/pair/right"));
+  toggle->trigger();QVERIFY(!overlay->isVisible());QCOMPARE(info->pos(),QPoint(10,10));
+  toggle->trigger();QVERIFY(overlay->isVisible());QVERIFY(info->x()>overlay->geometry().right());
+  const auto originalSize=window->size();window->resize(800,600);QTest::qWait(30);QVERIFY(view->rect().contains(overlay->geometry()));window->resize(originalSize);
+  const auto *originalScheme=view->colorscheme;ColorScheme scheme=*originalScheme;
+  const auto restoreScheme=qScopeGuard([&]{view->setColorScheme(*originalScheme);view->update();});
+  for(bool dark:{false,true}){
+    scheme[RenderColor::BACKGROUND_COLOR]=scheme[RenderColor::BACKGROUND_STOP_COLOR]=dark?Color4f(0.02f,0.02f,0.02f,1.0f):Color4f(0.98f,0.98f,0.98f,1.0f);
+    view->setColorScheme(scheme);view->update();QTest::qWait(60);
+    QCOMPARE(tree->palette().color(QPalette::Text),QColor(dark?Qt::white:Qt::black));
+    const auto composed=view->grab().toImage();const auto model=view->grabFramebuffer();
+    const auto point=overlay->mapTo(view,QPoint(overlay->width()-3,2));
+    const auto a=composed.pixelColor(point*composed.devicePixelRatio()),b=model.pixelColor(point*model.devicePixelRatio());
+    QVERIFY(std::abs(a.red()-b.red())<3 && std::abs(a.green()-b.green())<3 && std::abs(a.blue()-b.blue())<3);
+    const auto output=qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT");if(!output.isEmpty())QVERIFY(composed.save(output+(dark?"/structure-dark.png":"/structure-light.png")));
+  }
+  view->setColorScheme(*originalScheme);view->update();
 }
 void TestSemanticHierarchy::parameterWidgetsAndUndo(){
   const auto source=part+"@{type:Component,id:\"a\"} bracket();";
@@ -157,7 +237,9 @@ void TestSemanticHierarchy::parameterOwnerAndContextGuards(){
   QVERIFY(!panel->applyCaptured(captured,stamp,key,parameter,Value(50.0)));QCOMPARE(rootEditor->toPlainText(),root);
 }
 void TestSemanticHierarchy::closeWindowWithPendingTargets(){
-  auto extra=std::make_unique<MainWindow>(QStringList{});extra->designActionAutoReload->setChecked(false);extra->show();extra->activeEditor->setPlainText(pair);
+  auto extra=std::make_unique<MainWindow>(QStringList{});extra->designActionAutoReload->setChecked(false);extra->show();
+  QVERIFY(QTest::qWaitForWindowExposed(extra.get()));QTRY_VERIFY(extra->qglview->isValid());QTest::qWait(30);
+  extra->activeEditor->setPlainText(pair);
   QSignalSpy evaluated(extra.get(),&MainWindow::compilationDone);extra->actionRenderPreview();QTRY_VERIFY(!evaluated.empty());QTRY_COMPARE(extra->inspectionPresentation->status(),InspectionPresentationController::Status::Ready);
   auto captured=extra->evaluationBinding->scene(extra->evaluationBinding->stamp());QVERIFY(captured);
   std::promise<void> held,release;auto gate=release.get_future().share();auto blocker=std::async(std::launch::async,[&]{NativeExecutionGuard native;held.set_value();gate.wait();});
@@ -168,6 +250,12 @@ void TestSemanticHierarchy::closeWindowWithPendingTargets(){
   QVERIFY(target.state==Design::ResolutionState::Resolved);QCOMPARE(target.localBounds->max().x(),45.0);
 }
 void TestSemanticHierarchy::typedParameterControlsAndGlobalCustomizer(){
+  auto *panel=window->semanticController->parameterPanel();QVERIFY(panel);
+  QVERIFY(window->inspectorDock->isAncestorOf(panel));
+  QCOMPARE(window->parameterDock->widget(),static_cast<QWidget *>(window->activeEditor->parameterWidget));
+  QVERIFY(!window->parameterDock->isAncestorOf(panel));
+  QVERIFY(!window->findChild<QTabWidget *>("semanticCustomizerTabs"));
+  window->inspectorDock->refresh();QCOMPARE(window->semanticController->parameterPanel(),panel);
   QString source="@{type:Part,id:\"typed\"} module typed(flag=true,label=\"α\",dims=[12,3,2,1,0.12345678901234567]){cube([dims[0],dims[1],dims[2]]);}\n@{type:Component,id:\"a\"} typed();";
   evaluate(source);if(QTest::currentTestFailed())return;auto *controller=window->semanticController;QVERIFY(controller->select({Semantic::TargetRole::Instance,"/a"}));
   auto *row=controller->parameterPanel()->findChild<QWidget *>("semanticParameter-flag");auto *check=row->findChild<QCheckBox *>();QVERIFY(check);check->click();row->findChild<QPushButton *>("semanticApply-flag")->click();

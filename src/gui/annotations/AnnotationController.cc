@@ -247,9 +247,9 @@ Controller::Controller(MainWindow *mainWindow)
         lockedCamera = view->cam;
       }
     }
-    emit changed();
+    emit cameraStateChanged();
   });
-  connect(view->navigation(), &CameraNavigation::displayChanged, this, [this] { viewRevision(); emit changed(); });
+  connect(view->navigation(), &CameraNavigation::displayChanged, this, [this] { viewRevision(); emit cameraStateChanged(); });
   connect(view, &QGLView::frameAboutToRender, this, [this] {
     viewRevision();
     if (drafting() && display() != draftDisplay) {

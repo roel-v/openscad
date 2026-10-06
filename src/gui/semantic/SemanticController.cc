@@ -12,7 +12,9 @@
 #include "core/design/DesignKinds.h"
 #include "core/node.h"
 #include <algorithm>
-#include <QDockWidget>
+#include <QToolButton>
+#include <QPainter>
+#include <QScrollBar>
 #include <QTreeView>
 #include <QHeaderView>
 #include <QLabel>
@@ -24,13 +26,103 @@
 #include <QFileDialog>
 #include <QDialog>
 #include <QComboBox>
-#include <QTabWidget>
 #include <QDialogButtonBox>
 #include <QTimer>
 #include <QScopedValueRollback>
 #include <QUuid>
 #include <QtConcurrent/QtConcurrentRun>
 namespace Semantic {
+// A normal Qt tree on the GL widget keeps keyboard, checkbox, menu and accessibility
+// behavior. Only its chrome and placement change; there is no second selection model.
+class StructureTree : public QTreeView {
+public:
+  using QTreeView::QTreeView;
+protected:
+  void drawBranches(QPainter *painter,const QRect& rect,const QModelIndex& index) const override {
+    if(!model()->hasChildren(index))return;
+    const QPoint center(rect.right()-indentation()/2,rect.center().y());
+    const int r=4;QPolygon arrow;
+    if(isExpanded(index))arrow<<center+QPoint(-r,-2)<<center+QPoint(r,-2)<<center+QPoint(0,r);
+    else arrow<<center+QPoint(-2,-r)<<center+QPoint(-2,r)<<center+QPoint(r,0);
+    painter->save();painter->setPen(Qt::NoPen);painter->setBrush(palette().color(QPalette::Text));painter->drawPolygon(arrow);painter->restore();
+  }
+};
+class StructureOverlay : public QWidget {
+public:
+  StructureOverlay(QGLView *view,ModelTreeModel *model,QMenu *menu):QWidget(view),view(view) {
+    setObjectName("modelStructureOverlay");setAccessibleName(tr("Model structure"));setAutoFillBackground(false);
+    auto *layout=new QVBoxLayout(this);layout->setSizeConstraint(QLayout::SetNoConstraint);layout->setContentsMargins(0,0,0,0);layout->setSpacing(3);
+    title=new QToolButton(this);title->setObjectName("modelStructureCollapse");title->setText(tr("Model structure"));
+    title->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);title->setCheckable(true);title->setChecked(true);
+    title->setArrowType(Qt::DownArrow);title->setAutoRaise(true);title->setToolTip(tr("Expand or collapse model structure"));
+    layout->addWidget(title,0,Qt::AlignLeft);
+    status=new QLabel(this);status->setWordWrap(true);layout->addWidget(status);
+    tree=new StructureTree(this);tree->setModel(model);tree->setFrameShape(QFrame::NoFrame);
+    tree->setAccessibleName(tr("Model structure"));tree->setUniformRowHeights(true);
+    tree->setAutoFillBackground(false);tree->viewport()->setAutoFillBackground(false);
+    tree->header()->setStretchLastSection(false);tree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    layout->addWidget(tree);
+    toggle=menu->addAction(tr("Model structure"));toggle->setObjectName("viewModelStructure");toggle->setCheckable(true);
+    connect(toggle,&QAction::toggled,this,[this](bool visible){setVisible(visible && hasStructure);relayout();});
+    connect(title,&QToolButton::toggled,this,[this](bool expanded){
+      title->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);relayout();
+    });
+    connect(tree,&QTreeView::expanded,this,[this]{relayout();});
+    connect(tree,&QTreeView::collapsed,this,[this]{relayout();});
+    connect(model,&QAbstractItemModel::modelReset,this,[this]{QTimer::singleShot(0,this,[this]{relayout();});});
+    connect(view,&QGLView::resized,this,[this]{relayout();});
+    connect(view,&QGLView::frameRendered,this,[this]{updateContrast();});
+    hide();relayout();updateContrast();
+  }
+  ~StructureOverlay() override {delete toggle;}
+  void open(){toggle->setChecked(true);}
+  void setHasStructure(bool value){hasStructure=value;setVisible(value && toggle->isChecked());relayout();}
+  void relayout(){
+    const int margin=10,availableWidth=std::max(1,view->width()-2*margin),availableHeight=std::max(1,view->height()-2*margin);
+    const int width=std::min(availableWidth,std::clamp(view->width()*2/5,240,440));
+    int rows=0;
+    std::function<void(QModelIndex)> count=[&](QModelIndex parent){for(int i=0;i<tree->model()->rowCount(parent);++i){auto index=tree->model()->index(i,0,parent);++rows;if(tree->isExpanded(index))count(index);}};
+    count({});
+    tree->setVisible(title->isChecked());
+    status->setVisible(title->isChecked() && !status->text().isEmpty());
+    const int heading=title->sizeHint().height()+6;
+    const int statusHeight=status->isHidden()?0:status->heightForWidth(width)+3;
+    const int content=tree->header()->sizeHint().height()+rows*(tree->fontMetrics().height()+8)+tree->horizontalScrollBar()->sizeHint().height();
+    const int height=title->isChecked()?std::min(std::max(heading,availableHeight/2),heading+statusHeight+content):heading;
+    setGeometry(margin,margin,width,std::min(height,availableHeight));updateInfoPosition();updateContrast();
+  }
+  void updateInfoPosition(){
+    if(auto *info=view->findChild<QWidget *>("viewportStatistics",Qt::FindDirectChildrenOnly))
+      info->move(isHidden()?10:geometry().right()+11,10);
+  }
+  void showEvent(QShowEvent *event) override {QWidget::showEvent(event);updateInfoPosition();}
+  void hideEvent(QHideEvent *event) override {QWidget::hideEvent(event);updateInfoPosition();}
+  void updateContrast(){
+    if(!view->colorscheme)return;
+    const auto top=ColorMap::getColor(*view->colorscheme,RenderColor::BACKGROUND_COLOR);
+    const auto bottom=ColorMap::getColor(*view->colorscheme,RenderColor::BACKGROUND_STOP_COLOR);
+    const double t=std::clamp((y()+height()/2.0)/std::max(1,view->height()),0.0,1.0);
+    auto linear=[](double c){return c<=0.04045?c/12.92:std::pow((c+0.055)/1.055,2.4);};
+    const double luminance=0.2126*linear(top.r()*(1-t)+bottom.r()*t)+0.7152*linear(top.g()*(1-t)+bottom.g()*t)+0.0722*linear(top.b()*(1-t)+bottom.b()*t);
+    const QColor foreground=luminance>0.179?Qt::black:Qt::white;
+    if(foreground==contrast)return;contrast=foreground;
+    const QColor inverse=foreground==Qt::black?Qt::white:Qt::black;
+    auto colors=palette();for(auto role:{QPalette::Text,QPalette::WindowText,QPalette::ButtonText})colors.setColor(role,foreground);
+    colors.setColor(QPalette::Base,inverse);colors.setColor(QPalette::Highlight,foreground);colors.setColor(QPalette::HighlightedText,inverse);setPalette(colors);
+    setStyleSheet(QString("QWidget#modelStructureOverlay, QTreeView, QTreeView::viewport, QLabel, QHeaderView, QHeaderView::section, QToolButton { background: transparent; color: %1; border: none; } "
+      "QTreeView::item { padding-right: 8px; } QTreeView::item:selected { background: %1; color: %2; } QToolButton:hover { border: 1px solid %1; }").arg(foreground.name(),inverse.name()));
+    tree->viewport()->setAutoFillBackground(false);
+  }
+  QTreeView *tree;
+  QLabel *status;
+
+private:
+  bool hasStructure=false;
+  QGLView *view;
+  QToolButton *title;
+  QAction *toggle;
+  QColor contrast;
+};
 namespace {
 bool rigidFrame(const Transform3d& frame) {
   const auto linear=frame.linear();
@@ -41,13 +133,11 @@ Controller::Controller(MainWindow *owner) : QObject(owner),window(owner) {
   setObjectName("semanticController");
   dispatcher=std::shared_ptr<QObject>(new QObject,[](QObject *object){object->deleteLater();});
   service=new TargetService(window);
-  dock=new QDockWidget(tr("Model tree"),window);dock->setObjectName("modelTreeDock");
-  auto *body=new QWidget(dock);auto *layout=new QVBoxLayout(body);
-  status=new QLabel(body);status->setObjectName("semanticTreeStatus");status->setWordWrap(true);layout->addWidget(status);
-  treeModel=new ModelTreeModel(this);tree=new QTreeView(body);tree->setObjectName("semanticModelTree");tree->setModel(treeModel);
+  treeModel=new ModelTreeModel(this);structure=new StructureOverlay(window->qglview,treeModel,window->menuWindow);
+  status=structure->status;status->setObjectName("semanticTreeStatus");
+  tree=structure->tree;tree->setObjectName("semanticModelTree");
   tree->setSelectionBehavior(QAbstractItemView::SelectRows);tree->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
-  tree->setContextMenuPolicy(Qt::CustomContextMenu);layout->addWidget(tree);dock->setWidget(body);
-  window->addDockWidget(Qt::RightDockWidgetArea,dock);window->menuWindow->addAction(dock->toggleViewAction());dock->hide();
+  tree->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(treeModel,&ModelTreeModel::eyeChanged,this,[this](QString id,bool visible){setHidden(id.toStdString(),!visible);});
   connect(tree->selectionModel(),&QItemSelectionModel::currentChanged,this,[this](const QModelIndex& index){
     if(refreshing || !current() || index.data(ModelTreeModel::ResultRole).toString()!=sourceStamp.resultId)return;
@@ -89,29 +179,25 @@ Controller::Controller(MainWindow *owner) : QObject(owner),window(owner) {
   connect(window->inspectionPresentation,&InspectionPresentationController::statusChanged,this,[this]{
     if(current() && scene->semantic->marked)status->setText(window->inspectionPresentation->reason());
     treeModel->setVisibility(visibility(),prepared());
+    structure->relayout();
   });
   connect(window->selectionService,&Selection::SelectionService::selectionChanged,this,&Controller::picked);
   connect(service,&TargetService::changed,this,[this]{if(window){window->qglview->update();window->inspectorDock->refresh();QTimer::singleShot(0,this,&Controller::refreshParameters);}});
   connect(service,&TargetService::exportFinished,this,[this](bool success,QString message){if(window)window->statusBar()->showMessage(success?tr("Exported %1").arg(message):message,10000);});
   inspector=window->inspectorDock->registerContribution({"semantic-model",20,this,[this](const auto&,const auto&){return buildInspector();}});
+  connect(this,&Controller::targetChanged,this,&Controller::prepareHighlight);
+  connect(service,&TargetService::changed,this,&Controller::prepareHighlight);
+  connect(window->inspectionPresentation,&InspectionPresentationController::meshesChanged,this,&Controller::prepareHighlight);
+  connect(window->evaluationBinding,&Selection::EvaluationBinding::installed,this,&Controller::prepareHighlight);
+  connect(window->evaluationBinding,&Selection::EvaluationBinding::invalidated,this,&Controller::prepareHighlight);
   overlay=window->viewportOverlays->registerOverlay(this,Selection::OverlayLayer::WorldOverlay,20,[this](const auto&){drawHighlight();});
-  connect(window->tabManager,&TabManager::editorAboutToClose,this,[this](EditorInterface *editor){documents.erase(editor->documentId());releaseCustomizer(editor->documentId());});
-  if(window->activeEditor)window->parameterDock->setWidget(customizerWidget(window->activeEditor));
+  connect(window->tabManager,&TabManager::editorAboutToClose,this,[this](EditorInterface *editor){documents.erase(editor->documentId());});
+  parameters=new ParameterPanel(window,this,window->inspectorDock);
+  window->inspectorDock->addPanel(parameters);
   refresh();
 }
-Controller::~Controller(){inspector.reset();overlay.reset();request.reset();provider.reset();delete service;while(!customizers.empty())releaseCustomizer(customizers.begin()->first);delete dock;}
-QWidget *Controller::customizerWidget(EditorInterface *editor){
-  if(!editor)return nullptr;auto found=customizers.find(editor->documentId());if(found!=customizers.end())return found->second.tabs;
-  auto *tabs=new QTabWidget(editor);tabs->setObjectName("semanticCustomizerTabs");
-  tabs->addTab(editor->parameterWidget,tr("Global"));auto *panel=new ParameterPanel(window,this,tabs);tabs->addTab(panel,tr("Model"));
-  customizers.emplace(editor->documentId(),CustomizerHost{editor,tabs,panel});panel->refresh();return tabs;
-}
-ParameterPanel *Controller::parameterPanel() const {if(!window || !window->activeEditor)return nullptr;auto found=customizers.find(window->activeEditor->documentId());return found==customizers.end()?nullptr:found->second.panel.data();}
-void Controller::releaseCustomizer(const QString& id){
-  auto found=customizers.find(id);if(found==customizers.end())return;auto host=found->second;customizers.erase(found);
-  if(host.editor && host.tabs){host.tabs->removeTab(0);host.editor->parameterWidget->setParent(host.editor);if(window && window->parameterDock->widget()==host.tabs)window->parameterDock->setWidget(host.editor->parameterWidget);}
-  delete host.tabs;
-}
+Controller::~Controller(){inspector.reset();overlay.reset();request.reset();provider.reset();delete parameters;delete service;delete structure;}
+ParameterPanel *Controller::parameterPanel() const {return parameters;}
 void Controller::refreshParameters(){if(auto *panel=parameterPanel())panel->refresh();}
 bool Controller::current() const {return window && scene && window->evaluationBinding->validate(window->evaluationBinding->stamp()) && service->validate(sourceStamp);}
 bool Controller::prepared() const {return current() && window->inspectionPresentation->meshes() && window->inspectionPresentation->meshes()->resultId==sourceStamp.resultId.toStdString() &&
@@ -124,18 +210,20 @@ void Controller::refresh(){
   auto stamp=window->evaluationBinding->stamp();auto retained=window->evaluationBinding->scene(stamp);
   if(retained && retained==scene && service->validate(sourceStamp)){applyMask();refreshParameters();return;}
   scene.reset();drawPaths.clear();lastMask=lastGeneration=0;
-  if(!retained || !retained->semantic){treeModel->setScene({},stamp.resultId,window->evaluationBinding->staleReason());status->setText(tr("Model inspection is stale or unavailable"));refreshParameters();return;}
+  if(!retained || !retained->semantic){treeModel->setScene({},stamp.resultId,window->evaluationBinding->staleReason());status->setText(tr("Preview the current code (F5) to inspect model structure."));structure->setHasStructure(false);refreshParameters();return;}
   scene=retained;sourceStamp=stamp;auto& state=documents[stamp.documentId];state.visibility.prune(*scene->semantic);
   if(state.selected && (state.selected->role==TargetRole::Instance?!scene->semantic->instances.count(state.selected->id):!scene->semantic->definitions.count(state.selected->id)))state.selected.reset();
   treeModel->setScene(scene->semantic,stamp.resultId);tree->expandAll();
   if(scene->semantic->marked && scene->semantic->valid()){
     provider.setEnabled(true);if(!request)request=window->inspectionPresentation->requestMeshes("semantic-model-tree",this);
-    if(!state.shown){dock->show();state.shown=true;}
+    if(!state.shown){structure->open();state.shown=true;}
   }else {provider.setEnabled(false);request.reset();}
   status->setText(scene->semantic->valid()?QString():tr("Semantic declarations are invalid; inspect source diagnostics"));
+  structure->setHasStructure(scene->semantic->marked && (!scene->semantic->instances.empty() || !scene->semantic->definitions.empty()));
   if(state.selected){auto index=treeModel->find(state.selected->role==TargetRole::Instance?TreeRole::Instance:TreeRole::Definition,state.selected->id);tree->setCurrentIndex(index);service->resolve(*state.selected);}
   window->inspectorDock->refresh();
   refreshParameters();
+  structure->relayout();
 }
 bool Controller::setHidden(const std::string& path,bool hidden){
   if(!prepared() || (!path.empty() && !scene->semantic->instances.count(path)))return false;
@@ -155,14 +243,14 @@ void Controller::applyMask(){
     auto stamp=window->evaluationBinding->stamp();if(request.setMask(mask,stamp,meshes->geometryGeneration)){lastMask=maskSerial+1;lastGeneration=meshes->geometryGeneration;}
     treeModel->setVisibility(state,true);
   }
-  rebind();window->qglview->update();
+  rebind();prepareHighlight();window->qglview->update();
 }
 bool Controller::select(TargetKey key){
   if(!current() || (key.role==TargetRole::Instance?!scene->semantic->instances.count(key.id):!scene->semantic->definitions.count(key.id)))return false;
   documents[sourceStamp.documentId].selected=key;service->resolve(key);
   {QScopedValueRollback<bool> guard(refreshing,true);tree->setCurrentIndex(treeModel->find(key.role==TargetRole::Instance?TreeRole::Instance:TreeRole::Definition,key.id));}
   rebind();window->inspectorDock->refresh();window->qglview->update();refreshParameters();
-  if(window->activeEditor){auto host=customizers.find(window->activeEditor->documentId());if(host!=customizers.end() && host->second.tabs)host->second.tabs->setCurrentIndex(1);}
+  window->inspectorDock->show();window->inspectorDock->raise();
   emit targetChanged();return true;
 }
 void Controller::rebind(){
@@ -233,10 +321,15 @@ QWidget *Controller::buildInspector(){
   button(tr("Retry target preparation"),"semanticRetryTarget",!resolved,[this,key]{service->retry(*key);});
   return body;
 }
-void Controller::drawHighlight(){
+void Controller::prepareHighlight(){
+  highlightBounds.reset();
   const auto key=selectedTarget();if(!key || !prepared())return;const auto target=service->resolve(*key);if(target.state!=Design::ResolutionState::Resolved || !target.worldBounds || target.worldBounds->isEmpty())return;
   if(key->role==TargetRole::Instance && !visibility().visible(key->id) && !visibility().solo)return;
+  highlightBounds=*target.worldBounds;
+}
+void Controller::drawHighlight(){
+  if(!highlightBounds || !window->evaluationBinding->current())return;
   glColor4f(1.0f,0.8f,0.1f,1.0f);glLineWidth(2.0f);glBegin(GL_LINES);
-  for(int corner=0;corner<8;++corner)for(int bit=0;bit<3;++bit)if(!(corner&(1<<bit))){const Vector3d a=target.worldBounds->corner(static_cast<BoundingBox::CornerType>(corner)),b=target.worldBounds->corner(static_cast<BoundingBox::CornerType>(corner|(1<<bit)));glVertex3dv(a.data());glVertex3dv(b.data());}glEnd();
+  for(int corner=0;corner<8;++corner)for(int bit=0;bit<3;++bit)if(!(corner&(1<<bit))){const Vector3d a=highlightBounds->corner(static_cast<BoundingBox::CornerType>(corner)),b=highlightBounds->corner(static_cast<BoundingBox::CornerType>(corner|(1<<bit)));glVertex3dv(a.data());glVertex3dv(b.data());}glEnd();
 }
 }

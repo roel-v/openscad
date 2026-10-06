@@ -30,6 +30,14 @@ SourceInput editorInput(EditorInterface& editor)
 namespace Selection {
 EvaluationBinding::EvaluationBinding(MainWindow *window) : QObject(window), window(window)
 {
+  if (auto app = qobject_cast<OpenSCADApp *>(QCoreApplication::instance()))
+    connect(&app->windowManager, &WindowManager::windowsChanged, this,
+      &EvaluationBinding::editorsChanged, Qt::QueuedConnection);
+  connect(&inputWatcher, &QFileSystemWatcher::fileChanged, this, [this] {
+    diskInputsChanged = true;
+    if (fresh && retainedScene && !inputsCurrent(*retainedScene->inputs, *this->window))
+      invalidate(tr("An evaluation file changed"));
+  });
   connect(window->qglview, &QGLView::rendererReplaced, this, &EvaluationBinding::rendererChanged);
   connect(window->tabManager, &TabManager::currentEditorChanged, this,
     [this](EditorInterface *) { emit invalidated(); });
@@ -85,6 +93,7 @@ void EvaluationBinding::install(std::shared_ptr<const EvaluatedScene> scene, Edi
                                 const QString& resultId, const QString& configuration)
 {
   retainedScene = std::move(scene);
+  diskInputsChanged = false;
   owner = editor;
   installedStamp = {editor->annotations->sessionId, resultId, editor->sourceFingerprint, configuration,
     editor->sourceRevision, viewportGeneration};
@@ -142,11 +151,25 @@ bool EvaluationBinding::replacePresentationRenderer(std::shared_ptr<Renderer> re
   return true;
 }
 
+void EvaluationBinding::editorsChanged()
+{
+  observeInputs();
+  if (retainedScene && fresh && !inputsCurrent(*retainedScene->inputs, *window))
+    invalidate(tr("An open evaluation input changed"));
+}
+
 void EvaluationBinding::observeInputs()
 {
   for (auto connection : inputConnections) QObject::disconnect(connection);
   inputConnections.clear();
+  if (!inputWatcher.files().isEmpty()) inputWatcher.removePaths(inputWatcher.files());
   if (!retainedScene) return;
+  QSet<MainWindow *> windows{window.data()};
+  if (auto app = qobject_cast<OpenSCADApp *>(QCoreApplication::instance()))
+    windows.unite(app->windowManager.getWindows());
+  for (auto openWindow : windows)
+    inputConnections.push_back(connect(openWindow->tabManager, &TabManager::tabCountChanged,
+      this, &EvaluationBinding::editorsChanged, Qt::QueuedConnection));
   for (auto editor : openEditors(*window)) {
     const auto key = editorInput(*editor).fileKey;
     if (!retainedScene->inputs->consumed().count(key)) continue;
@@ -160,6 +183,15 @@ void EvaluationBinding::observeInputs()
       inputConnections.push_back(connect(editor->parameterWidget, &ParameterWidget::parametersChanged, this,
         [this] { invalidate(tr("Evaluation parameters changed")); }));
   }
+  QStringList paths;
+  for (const auto& [key, input] : retainedScene->inputs->consumed()) {
+    const auto path = QString::fromStdString(key);
+    if (!path.startsWith("session:")) paths.append(path);
+  }
+  if (!paths.isEmpty() && !inputWatcher.addPaths(paths).isEmpty()) {
+    fresh = false;
+    reason = tr("An evaluation dependency could not be watched");
+  }
 }
 
 bool EvaluationBinding::current() const
@@ -167,12 +199,12 @@ bool EvaluationBinding::current() const
   return fresh && window && owner && retainedScene &&
     owner->annotations->sessionId == installedStamp.documentId &&
     owner->sourceRevision == installedStamp.sourceRevision &&
-    owner->sourceFingerprint == installedStamp.sourceFingerprint &&
-    inputsCurrent(*retainedScene->inputs, *window);
+    owner->sourceFingerprint == installedStamp.sourceFingerprint;
 }
 bool EvaluationBinding::validate(const Stamp& expected, QString *detail) const
 {
-  const bool valid = installedStamp == expected && current() && window->activeEditor == owner;
+  const bool valid = installedStamp == expected && current() && window->activeEditor == owner &&
+    inputsCurrent(*retainedScene->inputs, *window, detail);
   if (!valid && detail) *detail = reason.isEmpty() ? tr("Stale or wrong-document evaluated result") : reason;
   return valid;
 }

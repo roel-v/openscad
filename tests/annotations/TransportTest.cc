@@ -45,6 +45,32 @@ class TransportTest : public QObject
     return result;
   }
 private slots:
+  void cameraUpdatesPreserveEvidence()
+  {
+    Transport transport;
+    transport.start();
+    const auto info = transport.connection();
+    const auto viewport = uuid();
+    const QJsonObject evidence{{"result_id", "retained:1"}};
+    Snapshot snapshot;
+    snapshot.status = {{"viewports", QJsonArray{QJsonObject{{"viewport_id", viewport},
+      {"view_revision", "1"}, {"evaluation", evidence}, {"busy", false}}}}};
+    snapshot.reads.insert("/v1/test-evidence", evidence);
+    transport.publish(snapshot);
+    const auto before = request(info, "/v1/status").second;
+    const QJsonObject camera{{"distance", 42}};
+    transport.publishCameras({QJsonObject{{"viewport_id", viewport}, {"camera", camera}, {"view_revision", "2"}}});
+    const auto after = request(info, "/v1/status").second;
+    const auto view = after.value("viewports").toArray().first().toObject();
+    QCOMPARE(view.value("camera").toObject(), camera);
+    QCOMPARE(view.value("view_revision").toString(), QString("2"));
+    QCOMPARE(view.value("evaluation").toObject(), evidence);
+    QCOMPARE(view.value("busy").toBool(), false);
+    QVERIFY(before.value("state_generation") != after.value("state_generation"));
+    QCOMPARE(request(info, "/v1/test-evidence").second, evidence);
+    transport.publishCameras({QJsonObject{{"viewport_id", uuid()}, {"view_revision", "99"}}});
+    QCOMPARE(request(info, "/v1/status").second.value("viewports"), after.value("viewports"));
+  }
   void directHelpAndImages()
   {
     qint64 time = 1000;

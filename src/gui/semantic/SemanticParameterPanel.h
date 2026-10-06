@@ -16,6 +16,9 @@ class ParameterPanel : public QWidget {
 public:
   ParameterPanel(MainWindow *,Controller *,QWidget *parent);
   void refresh();
+  void initializeStructureDialog();
+  bool initializeCaptured(std::shared_ptr<const Selection::EvaluatedScene>,Selection::Stamp,
+                          const QString& name,QString *detail=nullptr);
   // Same captured transaction used by the value-widget adapters and native tests.
   bool applyCaptured(std::shared_ptr<const Selection::EvaluatedScene>,Selection::Stamp,
                      TargetKey,const Parameter&,const Value&,bool reset=false,QString *detail=nullptr);

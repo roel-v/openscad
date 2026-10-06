@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "providerId": "scadmaxx.builtin", "providerVersion": "1.0.0", "label": "OpenSCAD primitives", "libraries": [],
+  "items": [
+    {
+      "id": "cube", "label": "Cube", "category": ["Primitives"], "description": "Millimetre dimensions; bottom-centre contact.",
+      "operation": "additive", "insertionRole": "geometry",
+      "parameters": [
+        {"id":"width","label":"Width","type":"number","default":10,"unit":"mm","min":0,"exclusiveMin":true,"max":100000},
+        {"id":"depth","label":"Depth","type":"number","default":20,"unit":"mm","min":0,"exclusiveMin":true,"max":100000},
+        {"id":"height","label":"Height","type":"number","default":30,"unit":"mm","min":0,"exclusiveMin":true,"max":100000}
+      ],
+      "recipes": [{"profileIds":[],"imports":[],"helpers":[],"moduleBindings":[],
+        "geometry":{"module":"cube","arguments":[
+          {"name":"size","value":{"vector":[{"parameter":"width"},{"parameter":"depth"},{"parameter":"height"}]}},
+          {"name":"center","value":{"constant":false}}],"children":[]},
+        "placement":{"origin":[{"operator":"div","arguments":[{"parameter":"width"},{"constant":2}]},{"operator":"div","arguments":[{"parameter":"depth"},{"constant":2}]},{"constant":0}],
+          "normal":[{"constant":0},{"constant":0},{"constant":-1}],"up":[{"constant":0},{"constant":1},{"constant":0}],"label":"Bottom centre"}}]
+    },
+    {
+      "id":"sphere","label":"Sphere","category":["Primitives"],"description":"Analytic bottom contact; tessellation can lie inside the surface.",
+      "operation":"additive","insertionRole":"geometry",
+      "parameters":[{"id":"radius","label":"Radius","type":"number","default":5,"unit":"mm","min":0,"exclusiveMin":true,"max":100000}],
+      "recipes":[{"profileIds":[],"imports":[],"helpers":[],"moduleBindings":[],
+        "geometry":{"module":"sphere","arguments":[{"name":"r","value":{"parameter":"radius"}}],"children":[]},
+        "placement":{"origin":[{"constant":0},{"constant":0},{"operator":"neg","arguments":[{"parameter":"radius"}]}],
+          "normal":[{"constant":0},{"constant":0},{"constant":-1}],"up":[{"constant":0},{"constant":1},{"constant":0}],"label":"Analytic bottom"}}]
+    },
+    {
+      "id":"cylinder","label":"Cylinder","category":["Primitives"],"description":"Positive Z cylinder with bottom contact.",
+      "operation":"additive","insertionRole":"geometry",
+      "parameters":[
+        {"id":"diameter","label":"Diameter","type":"number","default":10,"unit":"mm","min":0,"exclusiveMin":true,"max":100000},
+        {"id":"height","label":"Height","type":"number","default":20,"unit":"mm","min":0,"exclusiveMin":true,"max":100000}],
+      "recipes":[{"profileIds":[],"imports":[],"helpers":[],"moduleBindings":[],
+        "geometry":{"module":"cylinder","arguments":[{"name":"d","value":{"parameter":"diameter"}},{"name":"h","value":{"parameter":"height"}},{"name":"center","value":{"constant":false}}],"children":[]},
+        "placement":{"origin":[{"constant":0},{"constant":0},{"constant":0}],"normal":[{"constant":0},{"constant":0},{"constant":-1}],"up":[{"constant":0},{"constant":1},{"constant":0}],"label":"Bottom"}}]
+    },
+    {
+      "id":"plain-hole","label":"Plain hole","category":["Holes"],"description":"Positive mask for subtraction; Mate points it into the target surface.",
+      "operation":"subtractive","insertionRole":"geometry",
+      "parameters":[
+        {"id":"diameter","label":"Diameter","type":"number","default":4,"unit":"mm","min":0,"exclusiveMin":true,"max":100000},
+        {"id":"depth","label":"Depth","type":"number","default":12,"unit":"mm","min":0,"exclusiveMin":true,"max":100000}],
+      "recipes":[{"profileIds":[],"imports":[],"helpers":[],"moduleBindings":[],
+        "geometry":{"module":"cylinder","arguments":[{"name":"d","value":{"parameter":"diameter"}},{"name":"h","value":{"parameter":"depth"}},{"name":"center","value":{"constant":false}}],"children":[]},
+        "placement":{"origin":[{"constant":0},{"constant":0},{"constant":0}],"normal":[{"constant":0},{"constant":0},{"constant":1}],"up":[{"constant":0},{"constant":1},{"constant":0}],"label":"Mask entry"}}]
+    }
+  ]
+}

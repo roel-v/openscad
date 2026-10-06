@@ -36,5 +36,9 @@ struct PickResult {
   std::optional<Hit> hit;
   QString detail;
 };
-struct State { std::optional<ObjectKey> object; std::optional<Hit> surface; };
+struct State {
+  std::optional<ObjectKey> object;
+  std::optional<Hit> surface;
+  std::optional<BoundingBox> bounds;
+};
 }

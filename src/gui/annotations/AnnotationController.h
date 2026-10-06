@@ -60,6 +60,7 @@ public:
   void pruneInspection();
 signals:
   void changed();
+  void cameraStateChanged();
 
 private:
   enum State { Idle, DrawingState, Capturing, Comment } state = Idle;

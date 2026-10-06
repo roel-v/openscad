@@ -7,11 +7,13 @@
 void WindowManager::add(MainWindow *mainwin)
 {
   this->windows.insert(mainwin);
+  emit windowsChanged();
 }
 
 void WindowManager::remove(MainWindow *mainwin)
 {
   this->windows.remove(mainwin);
+  emit windowsChanged();
 }
 
 const QSet<MainWindow *>& WindowManager::getWindows() const

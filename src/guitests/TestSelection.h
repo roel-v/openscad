@@ -8,6 +8,8 @@ private slots:
   void init();
   void cleanup();
   void dirtyDependencies();
+  void reloadIgnoresUnsavedEdits();
+  void cachedDisplayFreshness();
   void conflictingBuffers();
   void staleAndWrongDocument();
   void retainedSceneAfterClose();
@@ -16,10 +18,12 @@ private slots:
   void surfaceCapabilities();
   void recenteredSurface();
   void inspectionMeshes();
+  void inspectionColors();
   void inspectionProviderLifetime();
   void toolLifecycle();
   void inspectorExtensions();
   void overlayIsolation();
+  void visibleSelectionFeedback();
   void dragAndMeasurementOwnership();
   void resizedBordersAndInstances();
   void staleDependencyDuringPick();

@@ -79,6 +79,7 @@ public:
   QString reason() const { return statusReason; }
   std::shared_ptr<const InspectionMeshSet> meshes() const { return registry.meshes(); }
   Selection::Stamp stamp() const;
+  uint64_t meshUploadCount() const;
 signals:
   void statusChanged();
   void meshesChanged();

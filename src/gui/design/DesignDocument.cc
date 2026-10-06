@@ -132,7 +132,13 @@ std::shared_ptr<const Record> DesignDocument::updated(const Record& record,const
 LifecycleResult DesignDocument::updateDraft(const std::string& token,const std::vector<FieldChange>& changes) {
   auto found=editing.find(token);if(found==editing.end())return {false,"Draft no longer exists"};
   if(!valid(found->second.stamp)){editing.erase(found);return {false,"Draft evaluation became stale"};}
-  std::string error;auto merged=found->second.changes;merged.insert(merged.end(),changes.begin(),changes.end());
+  std::string error;auto merged=found->second.changes;
+  for(const auto& change:changes){
+    // Built-in fields are absolute values. Retain only their latest gesture value;
+    // consumer adapters continue to receive their ordered change stream.
+    auto previous=std::find_if(merged.begin(),merged.end(),[&](const auto& item){return !found->second.consumer && item.kind==change.kind;});
+    if(previous==merged.end())merged.push_back(change);else *previous=change;
+  }
   if(found->second.consumer) {
     auto draft=found->second;auto adapter=adapters.find(draft.kind);
     if(adapter==adapters.end() || !adapter->second.owner)return {false,"Lifecycle owner closed"};

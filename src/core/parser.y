@@ -69,7 +69,6 @@ struct ParserSourceLocation {
 #include "core/ParserInspection.h"
 #include "core/EvaluationSession.h"
 #include "core/provenance/SourceProvenance.h"
-#include "core/EvaluationSession.h"
 #include "core/function.h"
 #include "io/fileutils.h"
 #include "utils/printutils.h"

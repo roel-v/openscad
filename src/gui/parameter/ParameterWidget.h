@@ -75,8 +75,6 @@ public:
   ParameterSet evaluationValues() const;
   bool applyEvaluationValues(const ParameterSet&,SourceFile *);
   void updateParameterStates();
-  ParameterSet evaluationValues() const;
-  bool applyEvaluationValues(const ParameterSet&,SourceFile *);
 
 public slots:
   void setModified(bool modified = true);

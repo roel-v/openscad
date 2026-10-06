@@ -65,6 +65,13 @@ struct CancelDialogs {
   });timer.start();}
 };
 }
+void TestDesignObjects::initTestCase(){
+  // Reopening a file may reuse the empty startup tab. Keep a spare tab so the
+  // save/close fixtures cannot destroy the MainWindow used by the next case.
+  window->tabManager->actionNew();
+  window->activeEditor->setPlainText("// Keep the lifecycle test window alive.\n");
+  window->activeEditor->setContentModified(true);
+}
 void TestDesignObjects::nativeDeclarationsAndParametricEdits(){
   window->designActionAutoReload->setChecked(false);window->hide();window->show();window->raise();window->activateWindow();QVERIFY(QTest::qWaitForWindowExposed(window));
   window->tabManager->actionNew();auto *editor=window->activeEditor;editor->setPlainText(QString::fromUtf8(sourceSection()));QVERIFY(compile(*window));

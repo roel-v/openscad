@@ -3,6 +3,7 @@
 class TestDesignObjects : public UXTest {
   Q_OBJECT
 private slots:
+  void initTestCase();
   void nativeDeclarationsAndParametricEdits();
   void promotionUndoRedoIdentityAndDelete();
   void transactionFailureHistoryAndLifetime();

@@ -41,7 +41,7 @@ void TestModuleCache::testBasicCache()
   window->actionReloadRenderPreview();
   QVERIFY2(previousFile == currentFile,
            "The file should be the same as the file cache should have done its work.");
-  sleep(1);
+  QTest::qSleep(1000);
 
   touchFile(filename);
   window->actionReloadRenderPreview();

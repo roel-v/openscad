@@ -118,6 +118,27 @@ void Transport::publish(Snapshot value)
   snapshot = std::move(value);
   heartbeat = now();
 }
+void Transport::publishCameras(const QJsonArray& cameras)
+{
+  auto viewports = snapshot.status.value("viewports").toArray();
+  bool changed = false;
+  for (int index = 0; index < viewports.size(); ++index) {
+    auto viewport = viewports[index].toObject();
+    for (const auto& entry : cameras) {
+      const auto camera = entry.toObject();
+      if (camera.value("viewport_id") != viewport.value("viewport_id")) continue;
+      if (camera.value("camera") == viewport.value("camera") &&
+          camera.value("view_revision") == viewport.value("view_revision")) break;
+      viewport["camera"] = camera.value("camera");
+      viewport["view_revision"] = camera.value("view_revision");
+      viewports[index] = viewport;
+      changed = true;
+      break;
+    }
+  }
+  if (changed) { snapshot.status["viewports"] = viewports; ++stateGeneration; }
+  heartbeat = now();
+}
 void Transport::respond(QTcpSocket *socket, int code, QJsonObject value)
 {
   if (socket->state() == QAbstractSocket::UnconnectedState) return;

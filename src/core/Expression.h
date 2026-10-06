@@ -375,18 +375,6 @@ private:
   std::shared_ptr<Expression> expr;
 };
 
-class ObjectExpression : public Expression
-{
-public:
-  ObjectExpression(AssignmentList members, const Location& loc);
-  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
-  void print(std::ostream& stream, const std::string& indent) const override;
-  const AssignmentList& getMembers() const { return members; }
-
-private:
-  AssignmentList members;
-};
-
 class ObjectComprehension : public Object
 {
 public:
@@ -450,4 +438,15 @@ public:
 private:
   AssignmentList arguments;
   std::shared_ptr<Expression> expr;
+};
+class ObjectExpression : public Expression
+{
+public:
+  ObjectExpression(AssignmentList members, const Location& loc);
+  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
+  const AssignmentList& getMembers() const { return members; }
+
+private:
+  AssignmentList members;
 };

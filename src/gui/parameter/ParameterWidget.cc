@@ -251,9 +251,7 @@ void ParameterWidget::updateParameterStates()
 
 void ParameterWidget::updateGroupVisibility()
 {
-  for (auto *group : this->findChildren<GroupWidget *>()) {
-    group->updateVisibility();
-  }
+  for (auto *group : this->findChildren<GroupWidget *>()) group->updateVisibility();
 }
 
 void ParameterWidget::applyParameters(SourceFile *sourceFile)
@@ -696,6 +694,7 @@ void ParameterWidget::updateDependentAttributes(ParameterObject *parameter,
     updateDependentAttributes(dependentParam, visited);
   }
 }
+
 ParameterSet ParameterWidget::evaluationValues() const
 {
   ParameterSet values;
@@ -712,5 +711,5 @@ bool ParameterWidget::applyEvaluationValues(const ParameterSet& values,SourceFil
   }
   parameters.importValues(values);
   for(const auto& [parameter,fields]:widgets)for(auto *field:fields)field->setValue();
-  parameters.apply(sourceFile);return true;
+  updateParameterStates();parameters.apply(sourceFile);return true;
 }

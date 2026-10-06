@@ -38,11 +38,13 @@
 #include "core/AST.h"
 #include "core/ModuleInstantiation.h"
 #include "core/progress.h"
+#include "core/provenance/ProvenanceCollector.h"
 
 size_t AbstractNode::idx_counter;
 
 AbstractNode::AbstractNode(const ModuleInstantiation *mi) : modinst(mi), idx(idx_counter++)
 {
+  if (SourceProvenance::nativeCollector) SourceProvenance::nativeCollector->emitted(idx);
 }
 
 std::string AbstractNode::toString() const

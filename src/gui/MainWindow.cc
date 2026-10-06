@@ -37,6 +37,8 @@
 #include "gui/selection/EvaluationBinding.h"
 #include "gui/selection/SelectionService.h"
 #include "core/EvaluationInputs.h"
+#include "core/provenance/ProvenanceCollector.h"
+#include "gui/selection/ProvenanceService.h"
 
 #include <sys/stat.h>
 
@@ -327,6 +329,7 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   annotationController = new AgentAnnotations::Controller(this);
   inspectionPresentation = new InspectionPresentationController(this);
   inspectorDock = new Selection::InspectorDock(this);
+  new SourceProvenance::ProvenanceService(this);
   setupDocks();
   auto agentAccess = menuWindow->addAction(tr("Agent Access..."));
   connect(agentAccess, &QAction::triggered, this,
@@ -663,6 +666,7 @@ MainWindow::~MainWindow()
   // destruction can trigger another window's freshness checks.
   scadApp->windowManager.remove(this);
   viewportTools->cancel(viewportTools->active(),Selection::CancelReason::OwnerDestroyed);
+  delete SourceProvenance::ProvenanceService::forWindow(this);
   delete inspectorDock;
   inspectorDock = nullptr;
   delete annotationController;
@@ -874,6 +878,7 @@ void MainWindow::compile(bool reload, bool forcedone)
     }
 
     if (this->rootFile) {
+      SourceProvenance::ParseScope syntaxScope(evaluationInputs && evaluationBacking ? evaluationBacking->syntax.get() : nullptr);
       std::unique_ptr<NativeEvaluationScope> inputScope;
       if (evaluationInputs && evaluationBacking)
         inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
@@ -910,6 +915,7 @@ void MainWindow::compile(bool reload, bool forcedone)
 void MainWindow::waitAfterReload()
 {
   no_exceptions_for_warnings();
+  SourceProvenance::ParseScope syntaxScope(evaluationBacking ? evaluationBacking->syntax.get() : nullptr);
   std::unique_ptr<NativeEvaluationScope> inputScope;
   if (evaluationInputs && evaluationBacking)
     inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
@@ -1056,6 +1062,7 @@ void MainWindow::compileEnded()
 #ifdef ENABLE_GUI_TESTS
 std::shared_ptr<AbstractNode> MainWindow::instantiateRootFromSource(SourceFile *file)
 {
+  SourceProvenance::ParseScope syntaxScope(file == rootFile.get() && evaluationInputs && evaluationBacking ? evaluationBacking->syntax.get() : nullptr);
   std::unique_ptr<NativeEvaluationScope> inputScope;
   if (file == rootFile.get() && evaluationInputs && evaluationBacking)
     inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
@@ -1078,6 +1085,7 @@ void MainWindow::instantiateRoot()
   auto backing = std::make_shared<Selection::EvaluationBacking>();
   backing->inputs = evaluationInputs;
   backing->libraries = evaluationBacking->libraries;
+  backing->syntax = evaluationBacking->syntax;
   backing->parsedRoot = rootFile;
   evaluationBacking = std::move(backing);
 
@@ -1111,7 +1119,9 @@ void MainWindow::instantiateRoot()
 
     NativeEvaluationScope inputScope(*evaluationInputs, *evaluationBacking->libraries);
     AbstractNode::resetIndexCounter();
+    SourceProvenance::ParseScope syntaxScope(evaluationBacking->syntax.get());
     evaluationBacking->session = std::make_shared<EvaluationSession>(doc.parent_path().string());
+    evaluationBacking->session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(evaluationBacking->syntax);
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(evaluationBacking->session.get())};
     evaluationBacking->builtin = *builtin_context;
     setRenderVariables(builtin_context);
@@ -1147,6 +1157,7 @@ void MainWindow::instantiateRoot()
       scene->backing = evaluationBacking;
       scene->inputs = evaluationInputs;
       scene->root = rootNode;
+      scene->provenance = evaluationBacking->session->provenanceCollector->finish(*rootNode);
       scene->documentPath = doc.parent_path().string();
       evaluatedScene = std::move(scene);
     }
@@ -1249,6 +1260,15 @@ void MainWindow::compileCSG()
       }
     } else {
       this->backgroundProducts.reset();
+    }
+
+    if (evaluatedScene && evaluatedScene->provenance) {
+      std::vector<std::shared_ptr<CSGNode>> provenanceRoots{this->csgRoot};
+      provenanceRoots.insert(provenanceRoots.end(), highlight_terms.begin(), highlight_terms.end());
+      provenanceRoots.insert(provenanceRoots.end(), background_terms.begin(), background_terms.end());
+      auto scene = std::make_shared<Selection::EvaluatedScene>(*evaluatedScene);
+      scene->provenance = scene->provenance->withPreview(provenanceRoots);
+      evaluatedScene = std::move(scene);
     }
 
     if (this->rootProduct && (this->rootProduct->size() >
@@ -1922,10 +1942,12 @@ void MainWindow::parseTopLevelDocument()
   evaluationInputs = Selection::EvaluationBinding::capture(*this, *activeEditor);
   evaluationBacking = std::make_shared<Selection::EvaluationBacking>();
   evaluationBacking->inputs = evaluationInputs;
+  evaluationBacking->syntax = std::make_shared<SourceProvenance::SyntaxTable>(evaluationInputs);
   evaluationBacking->libraries = std::make_shared<SourceFileCache>(evaluationInputs.get());
 
   activeEditor->resetHighlighting();
   NativeEvaluationScope inputScope(*evaluationInputs, *evaluationBacking->libraries);
+  SourceProvenance::ParseScope syntaxScope(evaluationBacking->syntax.get());
   this->rootFile = parseDocument(activeEditor);
   this->parsedFile = this->rootFile;
   evaluationBacking->parsedRoot = rootFile;

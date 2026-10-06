@@ -16,6 +16,7 @@
 
 class Value;
 class ContextFrame;
+namespace SourceProvenance { class ProvenanceCollector; }
 
 enum class NativeCapability { ExternalInput, FontInput, UnseededRandom, ExternalCallback };
 class EvaluationCapabilityError : public std::runtime_error {
@@ -26,6 +27,7 @@ public:
 class EvaluationSession
 {
 public:
+  std::shared_ptr<SourceProvenance::ProvenanceCollector> provenanceCollector;
   std::function<void(NativeCapability)> capabilityGuard;
   void requireCapability(NativeCapability capability) const { if (capabilityGuard) capabilityGuard(capability); }
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}

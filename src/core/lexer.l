@@ -85,18 +85,21 @@ extern YYLTYPE parserlloc;
 
 #define LOCATION(loc) Location(loc.first_line, loc.first_column, loc.last_line, loc.last_column, sourcefile())
 #define LOCATION_INIT(loc) do { (loc).first_line = (loc).first_column = (loc).last_line = (loc).last_column = yylineno = 1; } while (0)
-#define LOCATION_NEXT(loc) do { (loc).first_column = (loc).last_column; (loc).first_line = (loc).last_line; } while (0)
-#define LOCATION_ADD_LINES(loc, cnt) do { (loc).last_column = 1; (loc).last_line += cnt; LOCATION_NEXT(loc); } while (0)
-
-#define LOCATION_COUNT_LINES(loc, text) \
-    for(int i = 0; (text[i]) != '\0'; i++) { \
-        if((text[i]) == '\n') { \
-            (loc).last_line++; \
-            (loc).last_column = 1; \
-        } \
-    }
-
-#define YY_USER_ACTION parserlloc.last_column += yyleng;
+#define YY_USER_ACTION do { \
+  parserlloc.first_line = parserlloc.last_line; \
+  parserlloc.first_column = parserlloc.last_column; \
+  parserlloc.first_file = parserlloc.last_file = sourcefile().get(); \
+  for (int i = 0; i < yyleng; ++i) { \
+    if (yytext[i] == '\n') { ++parserlloc.last_line; parserlloc.last_column = 1; } \
+    else ++parserlloc.last_column; \
+  } \
+} while (0);
+static YYLTYPE compositeStart;
+static void restoreCompositeStart() {
+  parserlloc.first_line = compositeStart.first_line;
+  parserlloc.first_column = compositeStart.first_column;
+  parserlloc.first_file = compositeStart.first_file;
+}
 
 extern void parsererror(char const *s);
 void to_utf8(const char *, char *);
@@ -106,6 +109,8 @@ std::shared_ptr<fs::path> sourcefile();
 std::shared_ptr<fs::path> parser_sourcefile;
 std::vector<std::shared_ptr<fs::path>> filename_stack;
 std::vector<YYLTYPE> loc_stack;
+// Token locations remain valid after lookahead pops an include buffer.
+std::vector<std::shared_ptr<fs::path>> location_files;
 std::vector<FILE*> openfiles;
 std::vector<std::string> openfilenames;
 
@@ -157,33 +162,28 @@ UIDREST  ({IDREST}|{UNICODEID})
 
 %%
 
-%{
-LOCATION_NEXT(parserlloc);
-%}
-
-include[ \t\r\n]*"<"    { BEGIN(cond_include); filepath = filename = ""; LOCATION_COUNT_LINES(parserlloc, yytext); }
+include[ \t\r\n]*"<"    { compositeStart = parserlloc; BEGIN(cond_include); filepath = filename = ""; }
 <cond_include>{
 [\n\r]                  {
-                            LOCATION_ADD_LINES(parserlloc, yyleng);
                             // see merge request #4221
                             LOG(message_group::Warning,LOCATION(parserlloc),"","new lines in 'include<>'-statement is not defined - behavior may change in the future");
 }
 [^\t\r\n>]*"/"          { filepath = yytext; }
 [^\t\r\n>/]+            { filename = yytext; }
-">"                     { BEGIN(INITIAL); includefile(LOCATION(parserlloc));  }
+">"                     { restoreCompositeStart(); BEGIN(INITIAL); includefile(LOCATION(parserlloc)); }
 <<EOF>>                 { parsererror("Unterminated include statement"); return TOK_ERROR; }
 }
 
 
-use[ \t\r\n]*"<"        { BEGIN(cond_use); LOCATION_COUNT_LINES(parserlloc, yytext); }
+use[ \t\r\n]*"<"        { compositeStart = parserlloc; BEGIN(cond_use); }
 <cond_use>{
 [\n\r]                  {
-                            LOCATION_ADD_LINES(parserlloc, yyleng);
                             // see merge request #4221
                             LOG(message_group::Warning,LOCATION(parserlloc),"","new lines 'use<>'-statement is not defined - behavior may change in the future");
 }
 [^\t\r\n>]+             { filename = yytext; }
  ">"                    {
+                            restoreCompositeStart();
                             BEGIN(INITIAL);
                             fs::path fullpath = find_valid_path(sourcefile()->parent_path(), fs::path(filename), &openfilenames);
                             if (fullpath.empty()) {
@@ -200,14 +200,14 @@ use[ \t\r\n]*"<"        { BEGIN(cond_use); LOCATION_COUNT_LINES(parserlloc, yyte
 <<EOF>>                 { parsererror("Unterminated use statement"); return TOK_ERROR; }
 }
 
-\"                      { BEGIN(cond_string); stringcontents.clear(); }
+\"                      { compositeStart = parserlloc; BEGIN(cond_string); stringcontents.clear(); }
 <cond_string>{
 %{/* Termination */%}
-\"                      { BEGIN(INITIAL); parserlval.text = strdup(stringcontents.c_str()); return TOK_STRING; }
+\"                      { restoreCompositeStart(); BEGIN(INITIAL); parserlval.text = strdup(stringcontents.c_str()); return TOK_STRING; }
 <<EOF>>                 { parsererror("Unterminated string"); return TOK_ERROR; }
 
 %{/* Escape sequences */%}
-\\\r?\n                  { LOCATION_ADD_LINES(parserlloc, 1); }
+\\\r?\n                  ;
 \\n                     { stringcontents += '\n'; }
 \\t                     { stringcontents += '\t'; }
 \\r                     { stringcontents += '\r'; }
@@ -218,7 +218,7 @@ use[ \t\r\n]*"<"        { BEGIN(cond_use); LOCATION_COUNT_LINES(parserlloc, yyte
 \\                      { LOG(message_group::Warning, LOCATION(parserlloc), "", "Undefined escape sequence"); }
 
 %{/* Special characters */%}
-\n                      { LOCATION_ADD_LINES(parserlloc, yyleng); }
+\n                      ;
 
 %{/* Everything else */%}
 {UNICODE}               { /* parser_error_pos -= strlen(lexertext) - 1; */ stringcontents += lexertext; }
@@ -226,13 +226,13 @@ use[ \t\r\n]*"<"        { BEGIN(cond_use); LOCATION_COUNT_LINES(parserlloc, yyte
 
 }
 
-[\t ]                   { LOCATION_NEXT(parserlloc); }
-[\n]                    { LOCATION_ADD_LINES(parserlloc, yyleng); }
+[\t ]                   ;
+[\n]                    ;
 [\r]                    ;
 
 \/\/                    { BEGIN(cond_lcomment); }
 <cond_lcomment>{
-\n                      { BEGIN(INITIAL); LOCATION_ADD_LINES(parserlloc, yyleng); }
+\n                      { BEGIN(INITIAL); }
 {UNICODE}               { /* parser_error_pos -= strlen(lexertext) - 1; */ }
 [^\n]
 }
@@ -242,7 +242,7 @@ use[ \t\r\n]*"<"        { BEGIN(cond_use); LOCATION_COUNT_LINES(parserlloc, yyte
 "*/"                    { BEGIN(INITIAL); }
 {UNICODE}               { /* parser_error_pos -= strlen(lexertext) - 1; */ }
 .
-[\n]                    { LOCATION_ADD_LINES(parserlloc, yyleng); }
+[\n]                    ;
 <<EOF>>                 { parsererror("Unterminated comment"); return TOK_ERROR; }
 }
 
@@ -250,7 +250,7 @@ use[ \t\r\n]*"<"        { BEGIN(cond_use); LOCATION_COUNT_LINES(parserlloc, yyte
     if (!filename_stack.empty()) filename_stack.pop_back();
     if (!loc_stack.empty()) {
         parserlloc = loc_stack.back();
-        yylineno = parserlloc.first_line;
+        yylineno = parserlloc.last_line;
         loc_stack.pop_back();
     }
     if ((parserInspection || nativeEvaluationInputs) && !openfilenames.empty()) openfilenames.pop_back();
@@ -417,6 +417,7 @@ static int unicode_identifier(const char *text, size_t length)
 void lexer_set_parser_sourcefile(const fs::path& path)
 {
     parser_sourcefile = std::make_shared<fs::path>(path);
+    location_files.push_back(parser_sourcefile);
 }
 
 // Filename of the source file currently being lexed.
@@ -472,6 +473,7 @@ void includefile(const Location& loc)
     yy_switch_to_buffer(previous);
     yypush_buffer_state(buffer);
     filename_stack.push_back(std::make_shared<fs::path>(fullpath));
+    location_files.push_back(filename_stack.back());
     openfilenames.push_back(fullname);
     loc_stack.push_back(parserlloc);
     LOCATION_INIT(parserlloc);
@@ -482,6 +484,7 @@ void includefile(const Location& loc)
 
   filepath.clear();
   filename_stack.push_back(std::make_shared<fs::path>(fullpath));
+  location_files.push_back(filename_stack.back());
 
   handle_dep(fullname);
 
@@ -512,6 +515,7 @@ void lexerdestroy()
     openfilenames.clear();
     filename_stack.clear();
     loc_stack.clear();
+    location_files.clear();
 }
 
 std::function<void()> preserveLexerInspectionState()
@@ -520,10 +524,14 @@ std::function<void()> preserveLexerInspectionState()
   const auto oldFilename = filename;
   const auto oldFilepath = filepath;
   const auto oldString = stringcontents;
-  return [oldSource, oldFilename, oldFilepath, oldString] {
+  const auto oldComposite = compositeStart;
+  const auto oldLocationFiles = location_files;
+  return [oldSource, oldFilename, oldFilepath, oldString, oldComposite, oldLocationFiles] {
     parser_sourcefile = oldSource;
     filename = oldFilename;
     filepath = oldFilepath;
     stringcontents = oldString;
+    compositeStart = oldComposite;
+    location_files = oldLocationFiles;
   };
 }

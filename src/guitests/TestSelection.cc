@@ -15,6 +15,7 @@
 #include "glview/SurfacePick.h"
 #include "glview/PolySetRenderer.h"
 #include "glview/RenderSettings.h"
+#include "glview/ColorMap.h"
 #include "geometry/GeometryEvaluator.h"
 #include "core/Tree.h"
 #include <QFile>
@@ -114,6 +115,8 @@ void assertSurface(MainWindow *window, const SurfaceFixture& fixture, bool final
     QVERIFY(normalError <= 0.1);
     if (!final) QVERIFY(hit.localPoint && hit.localToWorld);
     else QVERIFY(!hit.localPoint && !hit.localToWorld);
+    QVERIFY(window->selectionService->state().bounds);
+    QVERIFY(window->selectionService->state().bounds->exteriorDistance(hit.worldPoint) <= 1e-5*diagonal);
     QVERIFY(window->selectionService->selectObject(hit.object, stamp));
     QVERIFY(window->selectionService->pick(logical, stamp).hit);
     QCOMPARE(view->grabFrame(QGLView::CaptureContent::ModelOnly), reference);
@@ -207,6 +210,53 @@ void TestSelection::cleanup()
   discardFixtureDialogs(discard);
   restoreWindowInitialState();
   window->designActionAutoReload->setChecked(false);
+}
+
+void TestSelection::visibleSelectionFeedback()
+{
+  window->activeEditor->setPlainText("for(x=[-8,8]) translate([x,0,0]) cube(10,center=true);");
+  QSignalSpy completed(window,&MainWindow::compilationDone);
+  window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!completed.empty(),15000);
+  auto view=window->qglview;
+  window->inspectorDock->show();window->inspectorDock->raise();
+  QTest::qWait(100);
+  // Keep projection stable when Inspector's property text changes its size hint.
+  const auto oldMinimum=view->minimumSize(),oldMaximum=view->maximumSize();
+  view->setFixedSize(view->size());
+  const auto oldScheme=view->colorscheme;
+  struct Restore {QGLView *view;QSize minimum,maximum;const ColorScheme *scheme;
+    ~Restore(){view->setMinimumSize(minimum);view->setMaximumSize(maximum);view->setColorScheme(*scheme);}
+  } restore{view,oldMinimum,oldMaximum,oldScheme};
+  view->navigation()->apply({CameraPose::upright(Vector3d(0,-1,0)),Vector3d::Zero(),65,45,Camera::ProjectionType::ORTHOGONAL});
+  for (bool light : {false,true}) {
+    ColorScheme scheme=*oldScheme;
+    scheme[RenderColor::BACKGROUND_COLOR]=light?Color4f(.95f,.95f,.95f,1.f):Color4f(.06f,.06f,.06f,1.f);
+    view->setColorScheme(scheme);
+    window->selectionService->clear();view->repaint();
+    const auto empty=view->grabFramebuffer();
+    const auto model=view->grabFrame(QGLView::CaptureContent::ModelOnly);
+    for(double x : {-8.,8.}) {
+      const auto pick=window->selectionService->pick(projectedPixel(*view,{x,-5,0}),window->evaluationBinding->stamp());
+      QVERIFY2(pick.hit,qPrintable(pick.detail));
+      const auto& state=window->selectionService->state();QVERIFY(state.bounds);
+      QVERIFY((state.bounds->center()-Vector3d(x,0,0)).norm()<1e-6);
+      view->repaint();const auto selected=view->grabFramebuffer();
+      QVERIFY(selected!=empty);
+      QCOMPARE(view->grabFrame(QGLView::CaptureContent::ModelOnly),model);
+      if(x==8 && !qEnvironmentVariableIsEmpty("OPENSCAD_GUI_TEST_OUTPUT"))
+        QVERIFY(selected.save(qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT")+(light?"/selection-light.png":"/selection-dark.png")));
+    }
+    window->selectionService->clear();view->repaint();
+    QCOMPARE(view->grabFramebuffer(),empty);
+    view->setColorScheme(*oldScheme);
+  }
+  window->inspectorDock->beginSelection();
+  QVERIFY(window->viewportTools->active());
+  QTest::mouseClick(view,Qt::LeftButton,Qt::NoModifier,projectedPixel(*view,{8,-5,0}).toPoint());
+  QVERIFY(!window->viewportTools->active());
+  QVERIFY(window->selectionService->state().surface);
+  window->activeEditor->setPlainText("cube(1);");
+  QVERIFY(!window->selectionService->state().bounds);
 }
 
 void TestSelection::surfacePreview()
@@ -462,6 +512,42 @@ void TestSelection::retainedSceneAfterClose()
   QVERIFY(!binding->validate(stamp));
   QVERIFY(result.get().find("cube") != std::string::npos);
   QCOMPARE(evaluatedBounds(scene).max().x(), 19.0);
+}
+
+void TestSelection::inspectionColors()
+{
+  window->activeEditor->setPlainText("cube(10,center=true);");
+  QSignalSpy compiled(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY(!compiled.empty());
+  auto view=window->qglview;auto coordinator=window->inspectionPresentation;
+  const auto originalScheme=view->colorscheme;
+  ColorScheme blue=*originalScheme,green=*originalScheme;
+  blue[RenderColor::OPENCSG_FACE_FRONT_COLOR]=Color4f(.1f,.2f,.9f,1.f);
+  green[RenderColor::OPENCSG_FACE_FRONT_COLOR]=Color4f(.1f,.9f,.2f,1.f);
+  struct Restore {QGLView *view;const ColorScheme *scheme;~Restore(){view->setColorScheme(*scheme);}} restore{view,originalScheme};
+  view->setColorScheme(blue);
+  const auto stamp=coordinator->stamp();auto meshes=inspectionFixture(window,stamp);
+  meshes->pieces[0].localToWorld=Transform3d(Eigen::Translation3d(-8,0,0));meshes->pieces[0].color=Color4f();
+  meshes->pieces[1].localToWorld=Transform3d(Eigen::Translation3d(8,0,0));meshes->pieces[1].color=Color4f(.9f,.1f,.1f,1.f);
+  QObject lifetime;int starts=0;
+  auto provider=coordinator->registerMeshProvider("theme-fixture",0,&lifetime,[&](auto,auto,auto done){
+    ++starts;done({InspectionPresentationController::Status::Ready,meshes,{}});return InspectionPresentationController::Cancel{};
+  });
+  auto request=coordinator->requestMeshes("theme-fixture",&lifetime);
+  QTRY_COMPARE(coordinator->status(),InspectionPresentationController::Status::Ready);
+  view->navigation()->apply({CameraPose::upright(Vector3d(0,-1,0)),Vector3d::Zero(),65,45,Camera::ProjectionType::ORTHOGONAL});
+  QTest::qWait(30);
+  auto sample=[&](const QImage& image,double x){return image.pixelColor((projectedPixel(*view,{x,-5,0})*view->devicePixelRatio()).toPoint());};
+  const auto initial=view->grabFrame(QGLView::CaptureContent::ModelOnly);
+  const auto initialStarts=starts;
+  QVERIFY(sample(initial,-8).blue()>sample(initial,-8).green());
+  const auto explicitColor=sample(initial,8);QVERIFY(explicitColor.red()>explicitColor.blue());
+  // Theme changes must update existing VBO colors without rerunning the geometry provider.
+  view->setColorScheme(green);
+  const auto changed=view->grabFrame(QGLView::CaptureContent::ModelOnly);
+  QVERIFY(sample(changed,-8).green()>sample(changed,-8).blue());
+  QCOMPARE(sample(changed,8),explicitColor);QCOMPARE(starts,initialStarts);
+  view->setColorScheme(green);QCOMPARE(view->grabFrame(QGLView::CaptureContent::ModelOnly),changed);
+  request.reset();view->setColorScheme(*originalScheme);
 }
 
 void TestSelection::inspectionMeshes()

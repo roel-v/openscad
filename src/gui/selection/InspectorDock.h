@@ -1,5 +1,6 @@
 #pragma once
 #include "gui/selection/SelectionTypes.h"
+#include "gui/selection/ViewportOverlays.h"
 #include <QDockWidget>
 #include <QPointer>
 #include <functional>
@@ -56,6 +57,8 @@ private:
   QVBoxLayout *panels;
   QAction *selectAction;
   uint64_t tool=0;
+  ViewportOverlays::Token selectionOverlay;
+  void drawSelection(const OverlayContext& context);
   std::map<QString,Entry> entries;
   void remove(const QString& id);
 };

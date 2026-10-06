@@ -35,6 +35,7 @@ Controller::Controller(MainWindow *window) : QObject(window),window(window),jobs
   connect(window->tabManager,&TabManager::currentEditorChanged,this,[this](auto){cancelGesture();bind();refresh();});
   connect(window->inspectionPresentation,&InspectionPresentationController::statusChanged,this,[this]{refresh();});
   connect(window->inspectionPresentation,&InspectionPresentationController::meshesChanged,this,[this]{refresh();});
+  connect(window->inspectionPresentation,&InspectionPresentationController::draftDisplayChanged,this,[this]{refresh();});
   connect(window->viewportTools,&Selection::ViewportToolRouter::feedback,this,[this](QString value){message=value;emit changed();});
   connect(window->qglview->navigation(),&CameraNavigation::displayChanged,this,[this]{if(tool){cancelGesture();refresh();}});
   connect(window->qglview,&QGLView::resized,this,[this]{if(tool){cancelGesture();refresh();}});
@@ -142,6 +143,10 @@ void Controller::setHelperEnabled(const std::string& id,bool value){if(value)hel
 void Controller::select(const std::string& id){cancelGesture();selected=id;savePersonal();emit changed();window->qglview->update();}
 bool Controller::editable(const std::string& id,QString *reason) const {
   if(id.empty())return false;
+  if(window->inspectionPresentation->draftActive()){
+    if(reason)*reason=tr("Finish or cancel the insertion preview before editing cross sections.");
+    return false;
+  }
 
   if(GuiLocker::isLocked()){
     if(reason)*reason=window->inspectionPresentation->status()==InspectionPresentationController::Status::Preparing

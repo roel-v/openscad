@@ -14,6 +14,7 @@
 #include "gui/parameter/ParameterWidget.h"
 #include "core/SourceFile.h"
 #include "glview/RenderSettings.h"
+#include "glview/InspectionMeshRenderer.h"
 #include <QSignalSpy>
 #include <QTest>
 #include <QElapsedTimer>
@@ -326,7 +327,13 @@ void TestContextualInsertion::actualClippingAndVisibilitySuspendAndRestore(){
   QVERIFY(controller->begin(*hit));QVERIFY(choose(window,"scadmaxx.builtin:plain-hole"));controller->approveShared(true);
   QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Ready,20000);QCOMPARE(controller->proof()->volumes.size(),size_t(2));
   QVERIFY(candidateBounds(*controller->proof()).max().isApprox(Vector3d(30,10,10)));
-  QVERIFY(clip->enabled("cut") && clip->globalEnabled());QVERIFY(!clip->frame("cut"));
+  QVERIFY(clip->enabled("cut") && clip->globalEnabled());
+  // World-space definitions remain valid during drafts; the candidate renderer
+  // suspends live clipping without deleting or invalidating their definition.
+  QVERIFY(clip->frame("cut"));QVERIFY(clip->frame("cut")->matrix().isApprox(frame->matrix()));
+  QVERIFY(window->inspectionPresentation->draftActive());
+  QVERIFY(std::dynamic_pointer_cast<InspectionMeshRenderer>(window->qglview->renderer));
+  QVERIFY(!clip->editable("cut"));
   QVERIFY(semantic->visibility().hidden.count("/b"));QCOMPARE(semantic->visibility().solo,std::string("/a"));
   auto offset=clip->dock->findChild<QDoubleSpinBox *>("sectionOriginZ");QVERIFY(offset && !offset->isEnabled());
   controller->cancel();QTRY_VERIFY(offset->isEnabled());QVERIFY(clip->enabled("cut") && clip->globalEnabled());

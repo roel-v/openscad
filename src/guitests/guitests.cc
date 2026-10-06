@@ -15,6 +15,7 @@
 #include "TestProvenance.h"
 #include "TestClipping.h"
 #include "TestSemanticHierarchy.h"
+#include "TestAnchors.h"
 #include "TestInspectionDraft.h"
 
 template <typename TestClass>
@@ -49,6 +50,7 @@ int runAllTest(MainWindow *window)
     return QTest::qExec(&test, arguments);
   }
   int totalTestFailures = 0;
+  if (qEnvironmentVariableIsSet("OPENSCAD_ANCHOR_TESTS_ONLY")) return runTests<TestAnchors>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_SEMANTIC_TESTS_ONLY")) return runTests<TestSemanticHierarchy>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_PROVENANCE_TESTS_ONLY")) return runTests<TestProvenance>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_CLIPPING_TESTS_ONLY")) return runTests<TestClipping>(window);
@@ -72,6 +74,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestProvenance>(window);
   totalTestFailures += runTests<TestClipping>(window);
   totalTestFailures += runTests<TestSemanticHierarchy>(window);
+  totalTestFailures += runTests<TestAnchors>(window);
   totalTestFailures += runTests<TestInspectionDraft>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;

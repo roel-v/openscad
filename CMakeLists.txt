@@ -1067,6 +1067,15 @@ set(CORE_SOURCES
   src/core/providers/ProviderRegistry.cc
   src/core/providers/ScadFragmentWriter.cc
   src/core/semantic/SemanticKinds.cc
+  src/core/anchors/ReferenceKinds.cc
+  src/core/anchors/ReferenceCollector.cc
+  src/core/anchors/ReferenceScene.cc
+  src/core/anchors/AnchorFrames.cc
+  src/core/anchors/AttachmentGraph.cc
+  src/core/anchors/AttachmentSolver.cc
+  src/core/anchors/AnchorOperations.cc
+  src/core/anchors/AnchorResolver.cc
+  src/core/anchors/AnchorSourceEdits.cc
   src/core/semantic/SemanticScene.cc
   src/core/semantic/SemanticPlacement.cc
   src/core/semantic/SemanticEvaluation.cc
@@ -1429,6 +1438,9 @@ set(GUI_SOURCES
   src/gui/semantic/ModelTreeModel.cc
   src/gui/semantic/SemanticMeshJob.cc
   src/gui/semantic/SemanticController.cc
+  src/gui/anchors/AnchorController.cc
+  src/gui/anchors/AnchorInspectorContribution.cc
+  src/gui/anchors/AnchorOverlay.cc
   src/gui/semantic/SemanticParameterPanel.cc
   src/gui/selection/EvaluationBinding.cc
   src/gui/source/EditorUndoRegistry.cc
@@ -1559,6 +1571,7 @@ set(GUI_HEADERS
   src/gui/design/DesignEdits.h
   src/gui/design/DesignDocument.h
   src/gui/design/SavedViewContribution.h
+  src/gui/anchors/AnchorController.h
   src/gui/selection/SelectionService.h
   src/gui/InspectionPresentationController.h
   src/gui/selection/ViewportToolRouter.h
@@ -1749,6 +1762,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestSelection.h
     src/guitests/TestProvenance.h
     src/guitests/TestSemanticHierarchy.h
+    src/guitests/TestAnchors.h
     src/guitests/UXTest.h
   )
 
@@ -1768,6 +1782,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestSelection.cc
     src/guitests/TestProvenance.cc
     src/guitests/TestSemanticHierarchy.cc
+    src/guitests/TestAnchors.cc
     src/guitests/UXTest.cc
   )
 
@@ -1943,6 +1958,7 @@ if(NOT APPLE OR APPLE_UNIX)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/examples DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/fonts DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" PATTERN ".uuid" EXCLUDE)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/libraries DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" PATTERN ".git*" EXCLUDE)
+  install(FILES ${CMAKE_CURRENT_LIST_DIR}/doc/anchors-and-attachments.md DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}/doc")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/locale DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*/LC_MESSAGES/openscad.mo")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/shaders DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/templates DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*.json")

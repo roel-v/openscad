@@ -1,0 +1,24 @@
+{
+  "version": [
+    2,
+    0,
+    766
+  ],
+  "descriptors": [
+    "prismoid",
+    "conoid",
+    "spheroid",
+    "point"
+  ],
+  "function": "smx_bosl2_anchor",
+  "externalLibraryBundled": false,
+  "apiHashes": {
+    "linalg.scad": "9a1f29e4737e73b81887ded77da734081c55478c8201943147c348325c0cebfc",
+    "version.scad": "11c746f7fcd65aa406f843e1c457ee4c4247df7362f2771c64b5ae9588858d74",
+    "transforms.scad": "56e1121d53e8800f764b58cd219eb3c286c80e110d3c2668eba828d76ccbe58b",
+    "attachments.scad": "fd401f60d680fcff06b6c17576fce17f42428ef7c94bdd90e34365907bfc3d2e"
+  },
+  "library": "BOSL2",
+  "helper": "bosl2-anchors.scad",
+  "commit": "e173fa0ae45f9e2082e0d8c0382dae98621b7c20"
+}

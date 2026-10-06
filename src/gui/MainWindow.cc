@@ -33,6 +33,7 @@
 #include "gui/selection/ViewportToolRouter.h"
 #include "gui/selection/ViewportOverlays.h"
 #include "gui/selection/InspectorDock.h"
+#include "gui/anchors/AnchorController.h"
 #include "gui/design/SavedViewContribution.h"
 #include "gui/annotations/AnnotationBridge.h"
 #include "gui/selection/EvaluationBinding.h"
@@ -337,6 +338,7 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   inspectorDock = new Selection::InspectorDock(this);
   new SourceProvenance::ProvenanceService(this);
   semanticController = new Semantic::Controller(this);
+  anchorController = new Anchors::Controller(this);
   Design::SavedViewContribution::forWindow(*this);
   Clipping::Controller::forWindow(*this);
   setupDocks();
@@ -675,6 +677,8 @@ MainWindow::~MainWindow()
   // destruction can trigger another window's freshness checks.
   scadApp->windowManager.remove(this);
   viewportTools->cancel(viewportTools->active(),Selection::CancelReason::OwnerDestroyed);
+  delete anchorController;
+  anchorController = nullptr;
   delete semanticController;
   semanticController = nullptr;
   delete SourceProvenance::ProvenanceService::forWindow(this);

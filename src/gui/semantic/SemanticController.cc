@@ -283,9 +283,11 @@ void Controller::createSection(){
   if(target.state!=Design::ResolutionState::Resolved || !target.worldBounds || target.worldBounds->isEmpty() || !rigidFrame(target.localToWorld))return;
   auto vector=[](Vector3d v){VectorType values(nullptr);for(int i=0;i<3;++i)values.emplace_back(v[i]);return Value(std::move(values));};
   ObjectType value(nullptr);value.set("id",Value("section-"+QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString()));
-  value.set("target",Design::ownedValue(targetToken(*key).data));value.set("frame",Design::ownedValue(targetToken(*key).data));
-  Vector3d origin=Vector3d::Zero();if(target.localBounds && !target.localBounds->isEmpty())origin=target.localBounds->center();
-  value.set("origin",vector(origin));value.set("normal",vector(Vector3d::UnitZ()));
+  // Copy the current placement once; cross sections never retain geometry links.
+  Vector3d origin=target.worldBounds->center();
+  if(target.localBounds && !target.localBounds->isEmpty())origin=target.localToWorld*target.localBounds->center();
+  value.set("origin",vector(origin));value.set("normal",vector(target.localToWorld.linear()*Vector3d::UnitZ()));
+  value.set("up",vector(target.localToWorld.linear()*Vector3d::UnitY()));
   std::string error;auto document=Design::DesignDocument::forEditor(*window->activeEditor,*window);
   if(!document->createTransient("Section",Value(std::move(value)),&error))window->statusBar()->showMessage(QString::fromStdString(error),10000);
 }

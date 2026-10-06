@@ -221,8 +221,10 @@ void DesignDocument::cancelDraft(const std::string& token){restoredConsumers.era
 LifecycleResult DesignDocument::changeTransient(const std::string& id,std::shared_ptr<const Record> replacement){
   if(!owner)return {false,"Document closed"};auto found=transient.find(id);if(found==transient.end())return {false,"Transient id is missing"};
   auto before=found->second;QPointer<DesignDocument> guard(this);auto participant=std::make_shared<SourceEditing::UndoParticipant>();participant->lifetime=this;
-  participant->undo=[guard,id,before]{if(guard){guard->transient.insert_or_assign(id,before);emit guard->changed();}};
-  participant->redo=[guard,id,replacement]{if(guard){if(replacement)guard->transient.insert_or_assign(id,replacement);else guard->transient.erase(id);emit guard->changed();}};
+  // Session transactions emit externalEditStarting too. Their participants finish
+  // synchronously; do not leave consumers suppressed until the timer fallback.
+  participant->undo=[guard,id,before]{if(guard){guard->transient.insert_or_assign(id,before);guard->sourceMutation=false;emit guard->changed();}};
+  participant->redo=[guard,id,replacement]{if(guard){if(replacement)guard->transient.insert_or_assign(id,replacement);else guard->transient.erase(id);guard->sourceMutation=false;emit guard->changed();}};
   SourceEditing::EditRequest request{owner->documentId(),owner->sourceRevision,owner->sourceFingerprint,{},participant};
   auto result=SourceEditing::apply(*owner,request);return {result.changed,result.error==SourceEditing::EditError::None?std::string():result.detail.toStdString()};
 }

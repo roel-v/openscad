@@ -30,6 +30,16 @@ EditRequest requestFor(ScintillaEditor& editor, QVector<ByteEdit> edits)
 }
 }
 
+TEST_CASE("Source transaction context is rechecked after synchronous external edit observers", "[source-editing]")
+{
+  ensureApplication();ScintillaEditor editor(nullptr);editor.setPlainText("width=30;");editor.clearUndoHistory();
+  bool current=true;auto request=requestFor(editor,{{6,8,"30","40"}});request.contextCurrent=[&]{return current;};
+  auto connection=QObject::connect(&editor,&EditorInterface::externalEditStarting,&editor,[&]{current=false;});
+  const auto result=apply(editor,request);REQUIRE(result.error==EditError::StaleContext);
+  REQUIRE(editor.toPlainText()=="width=30;");REQUIRE_FALSE(editor.canUndo());
+  QObject::disconnect(connection);
+}
+
 TEST_CASE("Source transactions reject invalid original snapshots atomically", "[source-editing]")
 {
   const auto source = QString::fromUtf8("// \xc3\xa9 \xf0\x9f\x98\x80\na=10; b=20;\n").toUtf8();

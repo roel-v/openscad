@@ -3,10 +3,13 @@
 #include <QByteArray>
 #include <QString>
 #include <QVector>
+#include <memory>
+#include <functional>
 
 class EditorInterface;
 
 namespace SourceEditing {
+struct UndoParticipant;
 struct ByteEdit {
   qsizetype begin, end;
   QByteArray expected, replacement;
@@ -16,9 +19,12 @@ struct EditRequest {
   quint64 sourceRevision;
   QString sourceFingerprint;
   QVector<ByteEdit> edits;
+  std::shared_ptr<const UndoParticipant> participant;
+  // Rechecked after synchronous external-edit observers, before the undo group.
+  std::function<bool()> contextCurrent;
 };
 enum class EditError {
-  None, WrongDocument, StaleSource, ReadOnly, InvalidRange, InvalidUtf8, Overlap, ExpectedTextMismatch
+  None, WrongDocument, StaleSource, ReadOnly, InvalidRange, InvalidUtf8, Overlap, ExpectedTextMismatch, InvalidParticipant, StaleContext
 };
 struct EditResult {
   EditError error = EditError::None;

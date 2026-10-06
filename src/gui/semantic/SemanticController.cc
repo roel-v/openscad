@@ -57,14 +57,13 @@ public:
     title->setArrowType(Qt::DownArrow);title->setAutoRaise(true);title->setToolTip(tr("Expand or collapse model structure"));
     layout->addWidget(title,0,Qt::AlignLeft);
     status=new QLabel(this);status->setWordWrap(true);layout->addWidget(status);
-    initialize=new QPushButton(tr("Add model structure…"),this);initialize->setObjectName("viewportInitializeStructure");layout->addWidget(initialize,0,Qt::AlignLeft);initialize->hide();
     tree=new StructureTree(this);tree->setModel(model);tree->setFrameShape(QFrame::NoFrame);
     tree->setAccessibleName(tr("Model structure"));tree->setUniformRowHeights(true);
     tree->setAutoFillBackground(false);tree->viewport()->setAutoFillBackground(false);
     tree->header()->setStretchLastSection(false);tree->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     layout->addWidget(tree);
     toggle=menu->addAction(tr("Model structure"));toggle->setObjectName("viewModelStructure");toggle->setCheckable(true);
-    connect(toggle,&QAction::toggled,this,[this](bool visible){setVisible(visible);relayout();});
+    connect(toggle,&QAction::toggled,this,[this](bool visible){setVisible(visible && hasStructure);relayout();});
     connect(title,&QToolButton::toggled,this,[this](bool expanded){
       title->setArrowType(expanded?Qt::DownArrow:Qt::RightArrow);relayout();
     });
@@ -77,22 +76,27 @@ public:
   }
   ~StructureOverlay() override {delete toggle;}
   void open(){toggle->setChecked(true);}
-  void setUnstructured(bool value){unstructured=value;relayout();}
+  void setHasStructure(bool value){hasStructure=value;setVisible(value && toggle->isChecked());relayout();}
   void relayout(){
     const int margin=10,availableWidth=std::max(1,view->width()-2*margin),availableHeight=std::max(1,view->height()-2*margin);
     const int width=std::min(availableWidth,std::clamp(view->width()*2/5,240,440));
     int rows=0;
     std::function<void(QModelIndex)> count=[&](QModelIndex parent){for(int i=0;i<tree->model()->rowCount(parent);++i){auto index=tree->model()->index(i,0,parent);++rows;if(tree->isExpanded(index))count(index);}};
     count({});
-    tree->setVisible(title->isChecked() && !unstructured);
-    initialize->setVisible(title->isChecked() && unstructured);
+    tree->setVisible(title->isChecked());
     status->setVisible(title->isChecked() && !status->text().isEmpty());
     const int heading=title->sizeHint().height()+6;
     const int statusHeight=status->isHidden()?0:status->heightForWidth(width)+3;
-    const int content=unstructured?initialize->sizeHint().height():tree->header()->sizeHint().height()+rows*(tree->fontMetrics().height()+8)+tree->horizontalScrollBar()->sizeHint().height();
+    const int content=tree->header()->sizeHint().height()+rows*(tree->fontMetrics().height()+8)+tree->horizontalScrollBar()->sizeHint().height();
     const int height=title->isChecked()?std::min(std::max(heading,availableHeight/2),heading+statusHeight+content):heading;
-    setGeometry(margin,margin,width,std::min(height,availableHeight));updateContrast();
+    setGeometry(margin,margin,width,std::min(height,availableHeight));updateInfoPosition();updateContrast();
   }
+  void updateInfoPosition(){
+    if(auto *info=view->findChild<QWidget *>("viewportStatistics",Qt::FindDirectChildrenOnly))
+      info->move(isHidden()?10:geometry().right()+11,10);
+  }
+  void showEvent(QShowEvent *event) override {QWidget::showEvent(event);updateInfoPosition();}
+  void hideEvent(QHideEvent *event) override {QWidget::hideEvent(event);updateInfoPosition();}
   void updateContrast(){
     if(!view->colorscheme)return;
     const auto top=ColorMap::getColor(*view->colorscheme,RenderColor::BACKGROUND_COLOR);
@@ -106,14 +110,14 @@ public:
     auto colors=palette();for(auto role:{QPalette::Text,QPalette::WindowText,QPalette::ButtonText})colors.setColor(role,foreground);
     colors.setColor(QPalette::Base,inverse);colors.setColor(QPalette::Highlight,foreground);colors.setColor(QPalette::HighlightedText,inverse);setPalette(colors);
     setStyleSheet(QString("QWidget#modelStructureOverlay, QTreeView, QTreeView::viewport, QLabel, QHeaderView, QHeaderView::section, QToolButton { background: transparent; color: %1; border: none; } "
-      "QTreeView::item { padding-right: 8px; } QTreeView::item:selected { background: %1; color: %2; } QToolButton:hover { border: 1px solid %1; } QPushButton#viewportInitializeStructure { color: %1; background: transparent; border: 1px solid %1; border-radius: 3px; padding: 4px; }").arg(foreground.name(),inverse.name()));
+      "QTreeView::item { padding-right: 8px; } QTreeView::item:selected { background: %1; color: %2; } QToolButton:hover { border: 1px solid %1; }").arg(foreground.name(),inverse.name()));
     tree->viewport()->setAutoFillBackground(false);
   }
   QTreeView *tree;
   QLabel *status;
-  QPushButton *initialize;
+
 private:
-  bool unstructured=false;
+  bool hasStructure=false;
   QGLView *view;
   QToolButton *title;
   QAction *toggle;
@@ -131,7 +135,6 @@ Controller::Controller(MainWindow *owner) : QObject(owner),window(owner) {
   service=new TargetService(window);
   treeModel=new ModelTreeModel(this);structure=new StructureOverlay(window->qglview,treeModel,window->menuWindow);
   status=structure->status;status->setObjectName("semanticTreeStatus");
-  connect(structure->initialize,&QPushButton::clicked,this,[this]{if(auto *panel=parameterPanel())panel->initializeStructureDialog();});
   tree=structure->tree;tree->setObjectName("semanticModelTree");
   tree->setSelectionBehavior(QAbstractItemView::SelectRows);tree->header()->setSectionResizeMode(0,QHeaderView::ResizeToContents);
   tree->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -207,7 +210,7 @@ void Controller::refresh(){
   auto stamp=window->evaluationBinding->stamp();auto retained=window->evaluationBinding->scene(stamp);
   if(retained && retained==scene && service->validate(sourceStamp)){applyMask();refreshParameters();return;}
   scene.reset();drawPaths.clear();lastMask=lastGeneration=0;
-  if(!retained || !retained->semantic){treeModel->setScene({},stamp.resultId,window->evaluationBinding->staleReason());status->setText(tr("Preview the current code (F5) to inspect model structure."));structure->setUnstructured(false);refreshParameters();return;}
+  if(!retained || !retained->semantic){treeModel->setScene({},stamp.resultId,window->evaluationBinding->staleReason());status->setText(tr("Preview the current code (F5) to inspect model structure."));structure->setHasStructure(false);refreshParameters();return;}
   scene=retained;sourceStamp=stamp;auto& state=documents[stamp.documentId];state.visibility.prune(*scene->semantic);
   if(state.selected && (state.selected->role==TargetRole::Instance?!scene->semantic->instances.count(state.selected->id):!scene->semantic->definitions.count(state.selected->id)))state.selected.reset();
   treeModel->setScene(scene->semantic,stamp.resultId);tree->expandAll();
@@ -216,10 +219,7 @@ void Controller::refresh(){
     if(!state.shown){structure->open();state.shown=true;}
   }else {provider.setEnabled(false);request.reset();}
   status->setText(scene->semantic->valid()?QString():tr("Semantic declarations are invalid; inspect source diagnostics"));
-  const bool unstructured=scene->semantic->valid() && !scene->semantic->marked;
-  if(unstructured){status->setText(tr("This model has no component structure yet. Add a single part to start organizing it."));if(!state.shown){structure->open();state.shown=true;}}
-  structure->initialize->setEnabled(window->activeEditor && !window->activeEditor->isSourceReadOnly());
-  structure->setUnstructured(unstructured);
+  structure->setHasStructure(scene->semantic->marked && (!scene->semantic->instances.empty() || !scene->semantic->definitions.empty()));
   if(state.selected){auto index=treeModel->find(state.selected->role==TargetRole::Instance?TreeRole::Instance:TreeRole::Definition,state.selected->id);tree->setCurrentIndex(index);service->resolve(*state.selected);}
   window->inspectorDock->refresh();
   refreshParameters();

@@ -1,4 +1,5 @@
 #include "gui/source/SourceEditTransaction.h"
+#include "gui/source/EditorUndoRegistry.h"
 #include "gui/ScintillaEditor.h"
 #include "platform/PlatformUtils.h"
 #include <QApplication>
@@ -38,6 +39,46 @@ TEST_CASE("Source transaction context is rechecked after synchronous external ed
   const auto result=apply(editor,request);REQUIRE(result.error==EditError::StaleContext);
   REQUIRE(editor.toPlainText()=="width=30;");REQUIRE_FALSE(editor.canUndo());
   QObject::disconnect(connection);
+}
+
+TEST_CASE("Read-only editors allow session undo participants but reject source edits", "[source-editing]")
+{
+  ensureApplication();
+  ScintillaEditor editor(nullptr);
+  editor.setPlainText("cube(10);");
+  editor.clearUndoHistory();
+  editor.qsci->setReadOnly(true);
+  const auto revision = editor.sourceRevision;
+  const auto fingerprint = editor.sourceFingerprint;
+  int position = 0;
+  auto participant = std::make_shared<UndoParticipant>();
+  participant->lifetime = &editor;
+  participant->undo = [&] { position = 0; };
+  participant->redo = [&] { position = 3; };
+  auto request = requestFor(editor, {});
+  request.participant = participant;
+
+  const auto result = apply(editor, request);
+  REQUIRE(result.error == EditError::None);
+  REQUIRE(result.changed);
+  REQUIRE(position == 3);
+  REQUIRE(editor.qsci->isReadOnly());
+  REQUIRE(editor.canUndo());
+  editor.undoFromAnnotations(false);
+  REQUIRE(position == 0);
+  REQUIRE(editor.qsci->isReadOnly());
+  editor.undoFromAnnotations(true);
+  REQUIRE(position == 3);
+  REQUIRE(editor.qsci->isReadOnly());
+
+  auto textEdit = requestFor(editor, {{5, 7, "10", "20"}});
+  REQUIRE(apply(editor, textEdit).error == EditError::ReadOnly);
+  textEdit.participant = participant;
+  REQUIRE(apply(editor, textEdit).error == EditError::ReadOnly);
+  REQUIRE(editor.toPlainText() == "cube(10);");
+  REQUIRE(editor.sourceRevision == revision);
+  REQUIRE(editor.sourceFingerprint == fingerprint);
+  REQUIRE(editor.qsci->isReadOnly());
 }
 
 TEST_CASE("Source transactions reject invalid original snapshots atomically", "[source-editing]")

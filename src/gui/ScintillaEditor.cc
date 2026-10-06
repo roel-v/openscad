@@ -400,7 +400,7 @@ void ScintillaEditor::publishSourceChange()
 void ScintillaEditor::applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits,
                                            std::shared_ptr<const SourceEditing::UndoParticipant> participant)
 {
-  if (sourceEditBatch || qsci->isReadOnly() || (edits.isEmpty() && !participant) || (participant && !participant->valid()))
+  if (sourceEditBatch || (qsci->isReadOnly() && !edits.isEmpty()) || (edits.isEmpty() && !participant) || (participant && !participant->valid()))
     throw std::logic_error("Invalid validated source edit operation");
   const auto caret = qsci->SendScintilla(QsciScintillaBase::SCI_GETCURRENTPOS);
   const auto anchor = qsci->SendScintilla(QsciScintillaBase::SCI_GETANCHOR);
@@ -428,7 +428,10 @@ void ScintillaEditor::applyValidatedByteEdits(const QVector<SourceEditing::ByteE
     static_cast<long>(SourceEditing::transformPosition(caret, edits)));
   if(participant){
     auto token=SourceEditing::EditorUndoRegistry::forEditor(*this)->add(participant);
+    const bool readOnly=qsci->isReadOnly();
+    qsci->setReadOnly(false);
     qsci->SendScintilla(QsciScintillaBase::SCI_ADDUNDOACTION,static_cast<unsigned long>(token),0L);
+    qsci->setReadOnly(readOnly);
   }
 }
 void ScintillaEditor::clearUndoHistory(){

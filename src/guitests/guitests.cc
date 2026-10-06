@@ -12,6 +12,7 @@
 #include "TestNavigation.h"
 #include "TestSelection.h"
 #include "TestClipping.h"
+#include "TestInspectionDraft.h"
 
 template <typename TestClass>
 int runTests(MainWindow *window)
@@ -30,6 +31,7 @@ int runTests(MainWindow *window)
 
 int runAllTest(MainWindow *window)
 {
+  if(qEnvironmentVariableIsSet("OPENSCAD_INSPECTION_DRAFT_TESTS_ONLY"))return runTests<TestInspectionDraft>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_NAVIGATION_TESTS_ONLY")) {
     TestNavigation test;
     test.setWindow(window);
@@ -57,6 +59,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestNavigation>(window);
   totalTestFailures += runTests<TestSelection>(window);
   totalTestFailures += runTests<TestClipping>(window);
+  totalTestFailures += runTests<TestInspectionDraft>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;
   std::cout << "Failures: " << totalTestFailures << std::endl;

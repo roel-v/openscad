@@ -50,8 +50,26 @@ void Collector::collect(const Context& context, const LocalScope& scope, Declara
     auto mark = metadata(*assignment); if (!mark.marked) continue;
     if (invalidLocal.count(assignment.get())) continue;
     auto key = sourceKey(*assignment);
-    if (!mark.error.empty()) { result.diagnostics.push_back({"invalid-metadata", mark.error, key}); continue; }
-    if (counts[assignment->getName()] != 1) { result.diagnostics.push_back({"design-reassignment", "Marked assignment is reassigned: " + assignment->getName(), key}); continue; }
+    // Syntax/reassignment rejection must reach registered consumers even before a value can be dispatched.
+    auto reject = [&](const std::string& code, const std::string& message) {
+      Diagnostic diagnostic{code,message,key}; result.diagnostics.push_back(diagnostic);
+      const auto *annotation = assignment->annotation("NativeAttributes");
+      const auto *object = annotation ? dynamic_cast<const ObjectExpression *>(annotation->getExpr().get()) : nullptr;
+      if (!object) return;
+      std::set<std::string> notified;
+      for (const auto& member : object->getMembers()) if (member->getName() == "type") {
+        const auto *lookup = dynamic_cast<const Lookup *>(member->getExpr().get());
+        if (!lookup || !notified.insert(lookup->get_name()).second) continue;
+        auto handler = kind(lookup->get_name());
+        if (!handler || handler->destination != RecordDestination::Consumer || !handler->reject) continue;
+        auto origin = inputs && key && key->fileKey != inputs->root().fileKey ? SourceOrigin::Include : SourceOrigin::Root;
+        for (auto parent=context.getParent();parent;parent=parent->getParent())
+          if (const auto *file=dynamic_cast<const FileContext *>(parent.get());file && file->isUseLibrary()) { origin=SourceOrigin::UseLibrary;break; }
+        handler->reject({diagnostic},{key.value_or(DeclarationKey{"","",assignment->getName()}),declarationScope,&context,&scope,origin},*context.session());
+      }
+    };
+    if (!mark.error.empty()) { reject("invalid-metadata",mark.error); continue; }
+    if (counts[assignment->getName()] != 1) { reject("design-reassignment","Marked assignment is reassigned: " + assignment->getName()); continue; }
     auto handler = kind(mark.kind);
     if (!handler) { result.diagnostics.push_back({"unknown-kind", "Unknown design kind: " + mark.kind, key}); continue; }
     DeclarationKey declaration = key.value_or(DeclarationKey{"", "", assignment->getName()});
@@ -78,9 +96,15 @@ void Collector::validateLocalDeclarations(const LocalScope& scope,bool file) {
 void Collector::dispatch(const std::string& name, const Value& value, const EvaluatedDeclaration& declaration, EvaluationSession& session) {
   auto handler = kind(name);
   if (!handler) { result.diagnostics.push_back({"unknown-kind", "Unknown design kind: " + name, declaration.source}); return; }
-  if (declaration.origin == SourceOrigin::UseLibrary && declaration.scope == DeclarationScope::File) return;
+  if (declaration.origin == SourceOrigin::UseLibrary && declaration.scope == DeclarationScope::File &&
+      declaration.source.host == DeclarationHost::Assignment) return;
+  const auto diagnosticBegin=result.diagnostics.size();
   auto record = makeRecord(*handler, value, {declaration.source, declaration.scope}, result.diagnostics);
-  if (!record) return;
+  if (!record) {
+    if(handler->destination==RecordDestination::Consumer && handler->reject)
+      handler->reject(std::vector<Diagnostic>(result.diagnostics.begin()+diagnosticBegin,result.diagnostics.end()),declaration,session);
+    return;
+  }
   if (handler->destination == RecordDestination::Consumer) {
     Record owned;
     owned.id = record->id; owned.kind = record->kind; owned.label = record->label;

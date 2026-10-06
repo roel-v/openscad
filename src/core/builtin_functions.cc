@@ -140,6 +140,7 @@ Value builtin_sign(Arguments arguments, const Location& loc)
 
 Value builtin_rands(Arguments arguments, const Location& loc)
 {
+  if (arguments.size() != 4) arguments.session()->requireCapability(NativeCapability::UnseededRandom);
   if (arguments.size() < 3 || arguments.size() > 4) {
     print_argCnt_warning("rands", arguments.size(), "3 or 4", loc, arguments.documentRoot());
     return Value::undefined.clone();

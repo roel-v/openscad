@@ -53,7 +53,7 @@ std::shared_ptr<EvaluationInputs> EvaluationBinding::capture(MainWindow& window,
   std::vector<SourceInput> editors;
   for (auto editor : openEditors(window))
     if (!editor->filepath.isEmpty() || editor == &root) editors.push_back(editorInput(*editor));
-  return std::make_shared<EvaluationInputs>(editorInput(root), std::move(editors));
+  return std::make_shared<EvaluationInputs>(editorInput(root), std::move(editors), EvaluationInputs::ReadPolicy::CaptureMissing);
 }
 
 bool EvaluationBinding::inputsCurrent(const EvaluationInputs& inputs, MainWindow& window, QString *detail)
@@ -61,7 +61,7 @@ bool EvaluationBinding::inputsCurrent(const EvaluationInputs& inputs, MainWindow
   auto fail = [detail](const QString& message) { if (detail) *detail = message; return false; };
   const auto editors = openEditors(window);
   try {
-    for (const auto& [key, input] : inputs.consumed()) {
+    for (const auto& [key, input] : inputs.validationInputs()) {
       bool matched = false;
       for (auto editor : editors) {
         const auto live = editorInput(*editor);
@@ -172,7 +172,7 @@ void EvaluationBinding::observeInputs()
       this, &EvaluationBinding::editorsChanged, Qt::QueuedConnection));
   for (auto editor : openEditors(*window)) {
     const auto key = editorInput(*editor).fileKey;
-    if (!retainedScene->inputs->consumed().count(key)) continue;
+    if (!retainedScene->inputs->validationInputs().count(key)) continue;
     inputConnections.push_back(connect(editor, &EditorInterface::contentsChanged, this,
       [this] { invalidate(tr("An evaluation input was edited")); }));
     inputConnections.push_back(connect(editor, &QObject::destroyed, this,
@@ -184,7 +184,7 @@ void EvaluationBinding::observeInputs()
         [this] { invalidate(tr("Evaluation parameters changed")); }));
   }
   QStringList paths;
-  for (const auto& [key, input] : retainedScene->inputs->consumed()) {
+  for (const auto& [key, input] : retainedScene->inputs->validationInputs()) {
     const auto path = QString::fromStdString(key);
     if (!path.startsWith("session:")) paths.append(path);
   }
@@ -203,9 +203,17 @@ bool EvaluationBinding::current() const
 }
 bool EvaluationBinding::validate(const Stamp& expected, QString *detail) const
 {
-  const bool valid = installedStamp == expected && current() && window->activeEditor == owner &&
+  const bool valid = !hypotheticalPixels && installedStamp == expected && current() && window->activeEditor == owner &&
     inputsCurrent(*retainedScene->inputs, *window, detail);
   if (!valid && detail) *detail = reason.isEmpty() ? tr("Stale or wrong-document evaluated result") : reason;
+  return valid;
+}
+bool EvaluationBinding::validateModel(const Stamp& expected, QString *detail) const
+{
+  auto model=expected,installed=installedStamp;model.viewportGeneration=installed.viewportGeneration=0;
+  const bool valid=model==installed && current() && window->activeEditor==owner &&
+    inputsCurrent(*retainedScene->inputs, *window, detail);
+  if(!valid && detail)*detail=reason.isEmpty()?tr("Stale or wrong-document model inputs"):reason;
   return valid;
 }
 std::shared_ptr<const EvaluatedScene> EvaluationBinding::scene(const Stamp& expected) const

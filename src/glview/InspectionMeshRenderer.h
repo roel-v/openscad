@@ -5,7 +5,7 @@
 
 class InspectionMeshRenderer : public VBORenderer {
 public:
-  explicit InspectionMeshRenderer(std::shared_ptr<const InspectionMeshSet> meshes);
+  explicit InspectionMeshRenderer(std::shared_ptr<const InspectionMeshSet> meshes, bool surfacePicking = true);
   void prepare(const ShaderUtils::ShaderInfo *shader) override;
   void setColorScheme(const ColorScheme& scheme) override;
   void draw(bool edges,const ShaderUtils::ShaderInfo *shader) const override;
@@ -15,6 +15,7 @@ public:
   Vector3d positionOrigin() const { return origin; }
   uint64_t uploadCount() const { return uploads; }
 private:
+  bool surfacePicking;
   std::shared_ptr<const InspectionMeshSet> meshes;
   BoundingBox bounds;
   Vector3d origin=Vector3d::Zero();

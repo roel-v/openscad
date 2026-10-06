@@ -7,6 +7,7 @@ Value ownedValue(const Value& value)
   if (value.type() == Value::Type::OBJECT) {
     ObjectType result(nullptr);
     for (const auto& key : value.toObject().keys()) result.set(key, ownedValue(value.toObject().get(key)));
+    for (const auto& key : value.toObject().literalDuplicateKeys()) result.recordLiteralDuplicateKey(key);
     return Value(std::move(result));
   }
   if (value.type() == Value::Type::VECTOR || value.type() == Value::Type::EMBEDDED_VECTOR) {

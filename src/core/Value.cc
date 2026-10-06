@@ -25,6 +25,7 @@
  */
 
 #include "core/Value.h"
+#include <algorithm>
 
 #include <double-conversion/double-conversion.h>
 #include <double-conversion/ieee.h>
@@ -1448,6 +1449,15 @@ bool ObjectType::empty() const
 {
   return ptr->values.empty();
 }
+const std::vector<std::string>& ObjectType::literalDuplicateKeys() const
+{
+  return ptr->literalDuplicates;
+}
+void ObjectType::recordLiteralDuplicateKey(const std::string& key)
+{
+  for(const auto& existing:ptr->literalDuplicates)if(existing==key)return;
+  ptr->literalDuplicates.push_back(key);
+}
 const std::vector<std::string>& ObjectType::keys() const
 {
   return ptr->keys;
@@ -1525,6 +1535,9 @@ void ObjectType::ObjectObject::merge(Value&& value, const Location& loc)
   }
 
   ObjectType o = value.toObject();
+  for(const auto& key:o.literalDuplicateKeys()){
+    if(std::find(literalDuplicates.begin(),literalDuplicates.end(),key)==literalDuplicates.end())literalDuplicates.push_back(key);
+  }
   for (auto iter = o.ptr->keys.begin(); iter != o.ptr->keys.end(); ++iter) {
     const auto& k = *iter;
     this->set(k, o[k].clone());

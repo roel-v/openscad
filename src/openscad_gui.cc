@@ -57,6 +57,7 @@
 #include "gui/AppleEvents.h"
 #include "gui/input/InputDriverManager.h"
 #include "version.h"
+#include "feature-build-title.h"
 #ifdef ENABLE_HIDAPI
 #include "gui/input/HidApiInputDriver.h"
 #endif
@@ -222,7 +223,9 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
   QCoreApplication::setOrganizationDomain("openscad.org");
   QCoreApplication::setApplicationName("OpenSCAD");
   QCoreApplication::setApplicationVersion(QString::fromStdString(std::string(openscad_versionnumber)));
-  QGuiApplication::setApplicationDisplayName("OpenSCAD");
+  const auto featureTitle = QString::fromUtf8(SCADMAXX_TITLE_LABEL);
+  QGuiApplication::setApplicationDisplayName(featureTitle.isEmpty()
+    ? QStringLiteral("OpenSCAD") : QStringLiteral("OpenSCAD [%1]").arg(featureTitle));
   QGuiApplication::setDesktopFileName(DESKTOP_FILENAME);
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
   QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);

@@ -1,0 +1,2 @@
+#pragma once
+#define SCADMAXX_TITLE_LABEL "@SCADMAXX_TITLE_LABEL@"

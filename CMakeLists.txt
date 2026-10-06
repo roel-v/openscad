@@ -28,6 +28,7 @@ if(POLICY CMP0167) # Since CMake 3.30
   cmake_policy(SET CMP0167 NEW)
 endif()
 
+include("cmake/Modules/scadmaxx_feature_title.cmake")
 include("cmake/Modules/openscad_version.cmake")
 configure_file(
   ${CMAKE_SOURCE_DIR}/src/version.cc.in

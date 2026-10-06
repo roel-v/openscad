@@ -38,7 +38,9 @@ public:
   QsciScintilla *qsci;
   Vim::EditorController *vimController;
   bool isSourceReadOnly() const override { return qsci->isReadOnly(); }
-  void applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits) override;
+  void applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits,
+                             std::shared_ptr<const SourceEditing::UndoParticipant> participant = {}) override;
+  void clearUndoHistory() override;
   void appendAnnotationUndo(int token) override;
   void undoFromAnnotations(bool redo) override;
   QString toPlainText() override;

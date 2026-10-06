@@ -29,7 +29,9 @@ public:
   QString documentId() const { return annotations->sessionId; }
   bool prepareExternalEdit();
   virtual bool isSourceReadOnly() const = 0;
-  virtual void applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits) = 0;
+  virtual void applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits,
+                                     std::shared_ptr<const SourceEditing::UndoParticipant> participant = {}) = 0;
+  virtual void clearUndoHistory() = 0;
   virtual void appendAnnotationUndo(int token) = 0;
   virtual void undoFromAnnotations(bool redo) = 0;
   bool hasViewChanges() const;

@@ -1412,6 +1412,12 @@ set(GUI_SOURCES
   src/gui/ScadApi.cc
   src/gui/ScadLexer.cc
   src/gui/ScintillaEditor.cc
+  src/gui/source/EditorUndoRegistry.cc
+  src/gui/source/SourceEditTransaction.cc
+  src/gui/source/EditorUndoRegistry.h
+  src/gui/source/SourceEditTransaction.h
+  src/gui/source/DiskSourceState.cc
+  src/gui/source/DiskSourceState.h
   src/gui/SettingsWriter.cc
   src/gui/TabManager.cc
   src/gui/UIUtils.cc
@@ -1625,6 +1631,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/guitests.h
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
+    src/guitests/TestSourceTransactions.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
     src/guitests/UXTest.h
@@ -1636,6 +1643,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/guitests.cc
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
+    src/guitests/TestSourceTransactions.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
     src/guitests/UXTest.cc
@@ -1815,7 +1823,7 @@ if(NOT APPLE OR APPLE_UNIX)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/templates DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*.json")
 
   if(ENABLE_GUI_TESTS)
-    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests)
+    install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests/data)
   endif()
 
 else()

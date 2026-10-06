@@ -1473,7 +1473,7 @@ void MainWindow::on_fileActionReload_triggered()
 {
   auto guard = scopedSetCurrentOutput();
   if (checkEditorModified()) {
-    fileChangedOnDisk();                  // force cached autoReloadId to update
+    fileChangedOnDisk();                 // update the last observed disk snapshot
     (void)tabManager->refreshDocument();  // ignore errors opening the file
   }
 }
@@ -1708,22 +1708,15 @@ void MainWindow::setRenderVariables(ContextHandle<BuiltinContext>& context)
 
 /*!
    Returns true if the current document is a file on disk and that file has new content.
-   Returns false if a file on disk has disappeared or if we haven't yet saved.
+   Missing and unreadable destinations also count as changed. Untitled buffers have no destination.
  */
 bool MainWindow::fileChangedOnDisk()
 {
   if (!activeEditor->filepath.isEmpty()) {
-    struct stat st;
-    memset(&st, 0, sizeof(struct stat));
-    const bool valid = (stat(activeEditor->filepath.toLocal8Bit(), &st) == 0);
-    // If file isn't there, just return and use current editor text
-    if (!valid) return false;
-
-    auto newid = str(boost::format("%x.%x") % st.st_mtime % st.st_size);
-    if (newid != activeEditor->autoReloadId) {
-      activeEditor->autoReloadId = newid;
-      return true;
-    }
+    const auto disk = SourceEditing::DiskSourceState::capture(activeEditor->filepath);
+    const bool changed = !activeEditor->sourceDiskObserved || !activeEditor->sourceDiskObserved->matches(disk);
+    activeEditor->sourceDiskObserved = disk;
+    return changed;
   }
   return false;
 }
@@ -2972,17 +2965,14 @@ void MainWindow::onEditorDockVisibilityChanged(bool isVisible)
 {
   auto e = (ScintillaEditor *)this->activeEditor;
   if (isVisible) {
-    e->qsci->setReadOnly(false);
+    e->qsci->setEnabled(true);
     e->setupAutoComplete(false);
     editorDock->raise();
     tabManager->setFocus();
   } else {
-    // Workaround manually disabling interactions with editor by setting it
-    // to read-only when not being shown.  This is an upstream bug from Qt
-    // (tracking ticket: https://bugreports.qt.io/browse/QTBUG-82939) and
-    // may eventually get resolved at which point this bit and the stuff in
-    // the else should be removed. Currently known to affect 5.14.1 and 5.15.0
-    e->qsci->setReadOnly(true);
+    // Suppress hidden-widget keyboard input (QTBUG-82939) without changing
+    // source write protection. Panel edits must still be able to update text.
+    e->qsci->setEnabled(false);
     e->setupAutoComplete(true);
   }
   updateExportActions();

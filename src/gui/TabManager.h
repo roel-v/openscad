@@ -68,9 +68,9 @@ private:
 
   bool maybeSave(int);
   bool save(EditorInterface *edt, const QString& path);
-  bool saveSource(EditorInterface *edt, const QString& path, bool copy);
+  bool saveSource(EditorInterface *edt, const QString& path, bool copy,
+                  const SourceEditing::DiskSourceState& expected);
   bool saveDocument(EditorInterface *edt, const QString& path, bool copy, bool writeSource);
-  void saveError(const QIODevice& file, const std::string& msg, const QString& filepath);
   void applyAction(QObject *object, const std::function<void(int, EditorInterface *)>& func);
   void setTabsCloseButtonVisibility(int tabIndice, bool isVisible);
 

@@ -29,6 +29,9 @@
 #include <QJsonArray>
 #include <QLineEdit>
 #include <QDateTime>
+#include <QAbstractButton>
+#include <QMessageBox>
+#include <QTimer>
 
 void TestNavigation::settingsOnStartup()
 {
@@ -131,6 +134,32 @@ void TestNavigation::savedViewTransactions()
 
 void TestNavigation::savedViewDocumentLifecycle()
 {
+  // Earlier annotation cases intentionally leave dirty metadata in temporary documents.
+  // Close those test-owned tabs before this case exercises Save All on its own document.
+  QTimer discard, deadline;
+  bool unexpectedDialog = false, timedOut = false;
+  discard.setInterval(20);
+  deadline.setSingleShot(true); deadline.setInterval(4000);
+  connect(&discard, &QTimer::timeout, window, [&] {
+    auto widget = QApplication::activeModalWidget();
+    if (!widget) return;
+    auto box = qobject_cast<QMessageBox *>(widget);
+    if (box && box->standardButtons().testFlag(QMessageBox::Discard)) {
+      box->button(QMessageBox::Discard)->click();
+    } else {
+      unexpectedDialog = true;
+      if (auto dialog = qobject_cast<QDialog *>(widget)) dialog->reject();
+    }
+  });
+  connect(&deadline, &QTimer::timeout, window, [&] {
+    timedOut = true;
+    if (auto dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+  });
+  discard.start(); deadline.start();
+  restoreWindowInitialState();
+  discard.stop(); deadline.stop();
+  QVERIFY(!unexpectedDialog && !timedOut);
+  QCOMPARE(window->tabManager->count(), size_t(1));
   QTemporaryDir directory;
   window->tabManager->createTab("");
   auto editor=window->activeEditor;

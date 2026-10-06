@@ -1,4 +1,5 @@
 #include "gui/ScintillaEditor.h"
+#include "gui/source/EditorUndoRegistry.h"
 
 #include <QColor>
 #include <QCursor>
@@ -13,6 +14,7 @@
 #include <QMenu>
 #include <QObject>
 #include <QPoint>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QShortcut>
 #include <QString>
@@ -29,6 +31,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -113,7 +116,7 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
   findState = 0;  // FIND_HIDDEN
   filepath = "";
 
-  // Force EOL mode to Unix, since QTextStream will manage local EOL modes.
+  // New lines use Unix EOL; transactions retain existing buffer line endings.
   qsci->setEolMode(QsciScintilla::EolUnix);
 
   //
@@ -219,15 +222,12 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
   initMargin();
 
   connect(qsci, &QsciScintilla::textChanged, this, [this] {
-    ++sourceRevision;
-    sourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash(qsci->text().toUtf8()));
-    emit contentsChanged();
-    emit modificationChanged(this);
+    if (!sourceEditBatch) publishSourceChange();
   });
   connect(qsci, &QsciScintillaBase::SCN_MODIFIED, this,
           [this](int, int type, const char *, int, int, int, int, int, int token, int) {
     if (type & QsciScintillaBase::SC_MOD_CONTAINER) {
-      annotations->applyHistory(token, (type & QsciScintillaBase::SC_PERFORMED_UNDO) != 0);
+      SourceEditing::EditorUndoRegistry::forEditor(*this)->dispatch(token,(type & QsciScintillaBase::SC_PERFORMED_UNDO) != 0);
     }
   });
   connect(qsci, &QsciScintilla::modificationChanged, this, &ScintillaEditor::fireModificationChanged);
@@ -376,11 +376,62 @@ void ScintillaEditor::setupAutoComplete(const bool forceOff)
 
 void ScintillaEditor::fireModificationChanged()
 {
+  if (!sourceEditBatch) emit modificationChanged(this);
+}
+
+void ScintillaEditor::publishSourceChange()
+{
+  ++sourceRevision;
+  sourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash(qsci->text().toUtf8()));
+  emit contentsChanged();
   emit modificationChanged(this);
+}
+
+void ScintillaEditor::applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits,
+                                           std::shared_ptr<const SourceEditing::UndoParticipant> participant)
+{
+  if (sourceEditBatch || (qsci->isReadOnly() && !edits.isEmpty()) || (edits.isEmpty() && !participant) || (participant && !participant->valid()))
+    throw std::logic_error("Invalid validated source edit operation");
+  const auto caret = qsci->SendScintilla(QsciScintillaBase::SCI_GETCURRENTPOS);
+  const auto anchor = qsci->SendScintilla(QsciScintillaBase::SCI_GETANCHOR);
+  sourceEditBatch = true;
+  qsci->beginUndoAction();
+  struct BatchGuard {
+    ScintillaEditor *editor;
+    bool source;
+    ~BatchGuard() {
+      editor->qsci->endUndoAction();
+      editor->sourceEditBatch = false;
+      if(source)editor->publishSourceChange();
+    }
+  } guard{this,!edits.isEmpty()};
+  for (const auto& edit : edits) {
+    qsci->SendScintilla(QsciScintillaBase::SCI_SETTARGETSTART, static_cast<unsigned long>(edit.begin));
+    qsci->SendScintilla(QsciScintillaBase::SCI_SETTARGETEND, static_cast<unsigned long>(edit.end));
+    const auto length = qsci->SendScintilla(QsciScintillaBase::SCI_REPLACETARGET,
+      static_cast<uintptr_t>(edit.replacement.size()), edit.replacement.constData());
+    if (length != edit.replacement.size())
+      throw std::runtime_error("Scintilla failed a validated source replacement");
+  }
+  qsci->SendScintilla(QsciScintillaBase::SCI_SETSEL,
+    static_cast<unsigned long>(SourceEditing::transformPosition(anchor, edits)),
+    static_cast<long>(SourceEditing::transformPosition(caret, edits)));
+  if(participant){
+    auto token=SourceEditing::EditorUndoRegistry::forEditor(*this)->add(participant);
+    const bool readOnly=qsci->isReadOnly();
+    qsci->setReadOnly(false);
+    qsci->SendScintilla(QsciScintillaBase::SCI_ADDUNDOACTION,static_cast<unsigned long>(token),0L);
+    qsci->setReadOnly(readOnly);
+  }
+}
+void ScintillaEditor::clearUndoHistory(){
+  SourceEditing::EditorUndoRegistry::forEditor(*this)->clear();annotations->clearHistory();
+  qsci->SendScintilla(QsciScintillaBase::SCI_EMPTYUNDOBUFFER);
 }
 
 void ScintillaEditor::setPlainText(const QString& text)
 {
+  if (!prepareExternalEdit()) return;
   annotations->clearHistory();
   qsci->setText(text);
   setContentModified(false);
@@ -388,14 +439,21 @@ void ScintillaEditor::setPlainText(const QString& text)
 
 void ScintillaEditor::appendAnnotationUndo(int token)
 {
+  if (!prepareExternalEdit()) return;
   const bool readOnly = qsci->isReadOnly();
   qsci->setReadOnly(false);
-  qsci->SendScintilla(QsciScintillaBase::SCI_ADDUNDOACTION, static_cast<unsigned long>(token), 0L);
+  QPointer<AgentAnnotations::Store> store(annotations);
+  auto participant=std::make_shared<SourceEditing::UndoParticipant>();participant->lifetime=annotations;
+  participant->undo=[store,token]{if(store)store->applyHistory(token,true);};
+  participant->redo=[store,token]{if(store)store->applyHistory(token,false);};
+  auto containerToken=SourceEditing::EditorUndoRegistry::forEditor(*this)->add(participant);
+  qsci->SendScintilla(QsciScintillaBase::SCI_ADDUNDOACTION, static_cast<unsigned long>(containerToken), 0L);
   qsci->setReadOnly(readOnly);
 }
 
 void ScintillaEditor::undoFromAnnotations(bool redo)
 {
+  if (!prepareExternalEdit()) return;
   const bool readOnly = qsci->isReadOnly();
   qsci->setReadOnly(false);
   if (redo) qsci->redo(); else qsci->undo();
@@ -800,27 +858,32 @@ void ScintillaEditor::setHighlightScheme(const QString& name)
 
 void ScintillaEditor::insert(const QString& text)
 {
+  if (text.isEmpty() || !prepareExternalEdit()) return;
   qsci->insert(text);
 }
 
 void ScintillaEditor::setText(const QString& text)
 {
+  if (qsci->text() == text || !prepareExternalEdit()) return;
   qsci->selectAll(true);
   qsci->replaceSelectedText(text);
 }
 
 void ScintillaEditor::undo()
 {
+  if (!prepareExternalEdit()) return;
   qsci->undo();
 }
 
 void ScintillaEditor::redo()
 {
+  if (!prepareExternalEdit()) return;
   qsci->redo();
 }
 
 void ScintillaEditor::cut()
 {
+  if (!prepareExternalEdit()) return;
   qsci->cut();
 }
 
@@ -831,6 +894,7 @@ void ScintillaEditor::copy()
 
 void ScintillaEditor::paste()
 {
+  if (!prepareExternalEdit()) return;
   qsci->paste();
 }
 
@@ -911,6 +975,7 @@ bool ScintillaEditor::find(const QString& expr, bool findNext, bool findBackward
 bool ScintillaEditor::replaceSelectedText(const QString& newText)
 {
   if ((qsci->selectedText() != newText) && (qsci->hasSelectedText())) {
+    if (!prepareExternalEdit()) return false;
     qsci->replaceSelectedText(newText);
     return true;
   }
@@ -919,13 +984,16 @@ bool ScintillaEditor::replaceSelectedText(const QString& newText)
 
 void ScintillaEditor::insertOrReplaceText(const QString& newText)
 {
+  QPointer<ScintillaEditor> guard(this);
   if (!replaceSelectedText(newText)) {
-    qsci->insert(newText);
+    if (!guard) return;
+    insert(newText);
   }
 }
 
 void ScintillaEditor::replaceAll(const QString& findText, const QString& replaceText)
 {
+  if (findText.isEmpty() || findText == replaceText || !prepareExternalEdit()) return;
   // We need to issue a Select All first due to a bug in QScintilla:
   // It doesn't update the find range when just doing findFirst() + findNext() causing the search
   // to end prematurely if the replaced string is larger than the selected string.
@@ -965,6 +1033,7 @@ void ScintillaEditor::getRange(int *lineFrom, int *lineTo)
 
 void ScintillaEditor::indentSelection()
 {
+  if (!prepareExternalEdit()) return;
   int lineFrom, lineTo;
   qsci->beginUndoAction();
   getRange(&lineFrom, &lineTo);
@@ -992,6 +1061,7 @@ void ScintillaEditor::indentSelection()
 
 void ScintillaEditor::unindentSelection()
 {
+  if (!prepareExternalEdit()) return;
   int lineFrom, lineTo;
   qsci->beginUndoAction();
   getRange(&lineFrom, &lineTo);
@@ -1019,6 +1089,7 @@ void ScintillaEditor::unindentSelection()
 
 void ScintillaEditor::commentSelection()
 {
+  if (!prepareExternalEdit()) return;
   auto hasSelection = qsci->hasSelectedText();
 
   int lineFrom, lineTo;
@@ -1034,6 +1105,7 @@ void ScintillaEditor::commentSelection()
 
 void ScintillaEditor::uncommentSelection()
 {
+  if (!prepareExternalEdit()) return;
   auto hasSelection = qsci->hasSelectedText();
 
   int lineFrom, lineTo;
@@ -1057,6 +1129,7 @@ QString ScintillaEditor::selectedText()
 
 bool ScintillaEditor::eventFilter(QObject *obj, QEvent *e)
 {
+  QPointer<ScintillaEditor> guard(this);
   if (e->type() == QEvent::KeyPress) {
     auto keyEvent = static_cast<QKeyEvent *>(e);
     if (keyEvent->key() == Qt::Key_Escape) {
@@ -1084,6 +1157,7 @@ bool ScintillaEditor::eventFilter(QObject *obj, QEvent *e)
                 (wheelEvent->modifiers() & Qt::AltModifier ? "Alt" : "Other Button"));
       bool enableNumberScrollWheel = Settings::Settings::enableNumberScrollWheel.value();
       if (enableNumberScrollWheel && handleWheelEventNavigateNumber(wheelEvent)) {
+        if (!guard) return true;
         qsci->SendScintilla(QsciScintilla::SCI_SETCARETWIDTH, 1);
         return true;
       }
@@ -1106,13 +1180,13 @@ bool ScintillaEditor::eventFilter(QObject *obj, QEvent *e)
                 (keyEvent->modifiers() & Qt::KeypadModifier ? "KEYPAD" : "keypad") %
                 (keyEvent->modifiers() & Qt::GroupSwitchModifier ? "GROUP" : "group"));
 
-      if (handleKeyEventNavigateNumber(keyEvent)) {
+      if (handleKeyEventNavigateNumber(keyEvent) || !guard) {
         return true;
       }
-      if (handleKeyEventBlockCopy(keyEvent)) {
+      if (handleKeyEventBlockCopy(keyEvent) || !guard) {
         return true;
       }
-      if (handleKeyEventBlockMove(keyEvent)) {
+      if (handleKeyEventBlockMove(keyEvent) || !guard) {
         return true;
       }
     }
@@ -1158,6 +1232,7 @@ bool ScintillaEditor::handleKeyEventBlockMove(QKeyEvent *keyEvent)
     return false;
   }
 
+  if (!prepareExternalEdit()) return false;
   qsci->beginUndoAction();
   QString textToMove = qsci->text(lineToMove);
   QString text;
@@ -1211,6 +1286,7 @@ bool ScintillaEditor::handleKeyEventBlockCopy(QKeyEvent *keyEvent)
   int selectionLineFrom = up ? lineFrom : lineTo + 1;
   selectionLineTo += up ? lineTo : 2 * lineTo - lineFrom + 1;
 
+  if (!prepareExternalEdit()) return false;
   qsci->beginUndoAction();
   QString text;
   for (int line = lineFrom; line <= lineTo; ++line) {
@@ -1396,6 +1472,7 @@ bool ScintillaEditor::modifyNumber(int key)
   }
   if (negative) newnr.prepend('-');
   else if (sign) newnr.prepend('+');
+  if (!prepareExternalEdit()) return false;
   qsci->beginUndoAction();
   qsci->setSelection(line, begin, line, end);
   qsci->replaceSelectedText(newnr);
@@ -1441,6 +1518,7 @@ void ScintillaEditor::onUserListSelected(const int, const QString& text)
     }
   }
 
+  if (!prepareExternalEdit()) return;
   qsci->insert(content);
 
   int line, index;

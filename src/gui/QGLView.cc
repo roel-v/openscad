@@ -25,6 +25,9 @@
  */
 
 #include "gui/QGLView.h"
+#include "gui/CameraNavigation.h"
+#include "gui/NavigationCube.h"
+#include "gui/ViewportStatistics.h"
 #include <cmath>
 #include <memory>
 #include <QtCore/qpoint.h>
@@ -91,6 +94,16 @@ QGLView::QGLView(QWidget *parent) : QOpenGLWidget(parent)
 {
   setFormat(compatibleWidgetFormat());
   init();
+  cameraNavigation = new CameraNavigation(this);
+  connect(this, &QGLView::cameraChanged, cameraNavigation, &CameraNavigation::observe);
+  cube = new NavigationCube(this);
+  stats = new ViewportStatistics(this);
+}
+
+void QGLView::setRenderer(std::shared_ptr<Renderer> renderer)
+{
+  GLView::setRenderer(std::move(renderer));
+  if (stats) stats->setStale(false);
 }
 
 QGLView::~QGLView()
@@ -111,15 +124,24 @@ void QGLView::init()
 
 void QGLView::resetView()
 {
-  cam.resetView();
+  if (!cameraNavigation) {
+    cam.resetView();
+    return;
+  }
+  auto target = cam;
+  target.resetView();
+  cameraNavigation->navigate(CameraPose::from(target));
 }
 
 void QGLView::viewAll()
 {
+  if (!cameraNavigation->permitted()) return;
   if (auto renderer = this->getRenderer()) {
-    auto bbox = renderer->getBoundingBox();
+    auto target = cam;
+    target.autocenter = true;
+    target.viewAll(renderer->getBoundingBox());
     cam.autocenter = true;
-    cam.viewAll(renderer->getBoundingBox());
+    cameraNavigation->navigate(CameraPose::from(target));
   }
 }
 
@@ -215,7 +237,10 @@ void QGLView::resizeGL(int w, int h)
 
 void QGLView::paintGL()
 {
+  cameraNavigation->observe();
   GLView::paintGL();
+  if (cube && !capturing) cube->updateContrast();
+  if (!capturing && stats) { stats->frameCompleted(); emit viewportPaintCompleted(); }
 
   if (statusLabel) {
     auto status = QString("%1 (%2x%3)")
@@ -228,6 +253,7 @@ void QGLView::paintGL()
 
 void QGLView::mousePressEvent(QMouseEvent *event)
 {
+  cameraNavigation->cancel();
   if (!mouse_drag_active) {
     mouse_drag_moved = false;
   }
@@ -448,11 +474,22 @@ void QGLView::mouseReleaseEvent(QMouseEvent *event)
   mouse_drag_moved = false;
 }
 
-const QImage& QGLView::grabFrame()
+const QImage& QGLView::grabFrame(CaptureContent content)
 {
-  // Force reading from front buffer. Some configurations will read from the back buffer here.
-  glReadBuffer(GL_FRONT);
-  this->frame = grabFramebuffer();
+  cameraNavigation->cancel();
+  const bool axes=showaxes,scale=showscale,crosshairs=showcrosshairs;
+  auto restore=sg::make_scope_guard([&] {
+    showaxes=axes; showscale=scale; showcrosshairs=crosshairs;
+    capturing=false;
+    update();
+  });
+  capturing=true;
+  showaxes=showscale=showcrosshairs=false;
+  makeCurrent();
+  paintGL();
+  // QOpenGLWidget reads its framebuffer, excluding all child widgets and popup windows.
+  frame=grabFramebuffer();
+  if (content==CaptureContent::ModelAndAnnotations && composeAnnotations) composeAnnotations(frame);
   return this->frame;
 }
 
@@ -463,6 +500,7 @@ bool QGLView::save(const char *filename) const
 
 void QGLView::wheelEvent(QWheelEvent *event)
 {
+  cameraNavigation->cancel();
   const auto pos = Q_WHEEL_EVENT_POSITION(event);
   const int v = event->angleDelta().y();
   if (QApplication::keyboardModifiers() & Qt::ShiftModifier) {

@@ -41,6 +41,7 @@ public:
   bool saveAs(EditorInterface *edt);
   bool saveAs(EditorInterface *edt, const QString& filepath);
   bool saveACopy(EditorInterface *edt);
+  bool saveACopy(EditorInterface *edt, const QString& path);
   void open(const QString& filename);
   size_t count();
 
@@ -67,6 +68,8 @@ private:
 
   bool maybeSave(int);
   bool save(EditorInterface *edt, const QString& path);
+  bool saveSource(EditorInterface *edt, const QString& path, bool copy);
+  bool saveDocument(EditorInterface *edt, const QString& path, bool copy, bool writeSource);
   void saveError(const QIODevice& file, const std::string& msg, const QString& filepath);
   void applyAction(QObject *object, const std::function<void(int, EditorInterface *)>& func);
   void setTabsCloseButtonVisibility(int tabIndice, bool isVisible);

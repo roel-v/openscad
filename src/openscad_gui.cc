@@ -37,6 +37,7 @@
 #include <QObject>
 #include <QPalette>
 #include <QSurfaceFormat>
+#include <QStandardPaths>
 #include <QStringList>
 #include <QStyleHints>
 #include <Qt>
@@ -199,6 +200,15 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
         char **argv, const std::string& gui_test, const bool reset_window_settings)
 {
   configureOpenGLContext();
+#ifdef ENABLE_GUI_TESTS
+  const auto testSettings = qEnvironmentVariable("OPENSCAD_TEST_SETTINGS_DIR");
+  if (!testSettings.isEmpty()) {
+    QStandardPaths::setTestModeEnabled(true);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, testSettings);
+    QSettings::setPath(QSettings::IniFormat, QSettings::SystemScope, testSettings);
+  }
+#endif
   OpenSCADApp app(argc, argv);
   setGlobalTheme();
 

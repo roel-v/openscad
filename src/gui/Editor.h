@@ -19,6 +19,7 @@ class EditorInterface : public QWidget
   Q_OBJECT
 public:
   EditorInterface(QWidget *parent) : QWidget(parent) {}
+  bool hasViewChanges() const;
   QSize sizeHint() const override
   {
     QSize size;

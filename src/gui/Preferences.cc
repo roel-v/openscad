@@ -81,6 +81,7 @@
 #include "gui/OctoPrint.h"
 #include "gui/PrintService.h"
 #include "gui/QSettingsCached.h"
+#include "gui/NavigationSettings.h"
 #include "gui/SettingsWriter.h"
 #include "gui/ShortcutConfigurator.h"
 
@@ -144,6 +145,7 @@ class SettingsReader : public Settings::SettingsVisitor
 Preferences::Preferences(QWidget *parent) : QMainWindow(parent)
 {
   setupUi(this);
+  page3DView->layout()->addWidget(NavigationSettings::preferenceControls(page3DView));
 
   std::list<std::string> names = ColorMap::instance().colorSchemeNames(true);
   QStringList renderColorSchemes;

@@ -3103,17 +3103,14 @@ void MainWindow::onEditorDockVisibilityChanged(bool isVisible)
 {
   auto e = (ScintillaEditor *)this->activeEditor;
   if (isVisible) {
-    e->qsci->setReadOnly(false);
+    e->qsci->setEnabled(true);
     e->setupAutoComplete(false);
     editorDock->raise();
     tabManager->setFocus();
   } else {
-    // Workaround manually disabling interactions with editor by setting it
-    // to read-only when not being shown.  This is an upstream bug from Qt
-    // (tracking ticket: https://bugreports.qt.io/browse/QTBUG-82939) and
-    // may eventually get resolved at which point this bit and the stuff in
-    // the else should be removed. Currently known to affect 5.14.1 and 5.15.0
-    e->qsci->setReadOnly(true);
+    // Suppress hidden-widget keyboard input (QTBUG-82939) without changing
+    // source write protection. Panel edits must still be able to update text.
+    e->qsci->setEnabled(false);
     e->setupAutoComplete(true);
   }
   updateExportActions();

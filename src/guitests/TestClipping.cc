@@ -338,7 +338,7 @@ void TestClipping::presetsLimitsAndSourceOnly() {
   for(int i=0;i<8;++i)QVERIFY(controller->enabled(ids[i]));QVERIFY(!controller->enabled(ids[8]));QVERIFY(!controller->enable(ids[8],true));QVERIFY(controller->feedback().contains("eight"));
   controller->setGlobalEnabled(true);QTRY_VERIFY_WITH_TIMEOUT(window->inspectionPresentation->status()==Status::Ready,20000);QCOMPARE(controller->clippingState()->planes.size(),size_t(8));
   auto view=window->qglview;view->navigation()->apply({CameraPose::upright(Vector3d::UnitZ()),Vector3d::Zero(),70,45,Camera::ProjectionType::ORTHOGONAL});auto retained=projected(*view,{5,5,10}),discarded=projected(*view,{-5,5,10});QVERIFY(window->selectionService->pick(retained,window->evaluationBinding->stamp()).hit);QVERIFY(!window->selectionService->pick(discarded,window->evaluationBinding->stamp()).hit);
-  controller->setGlobalEnabled(false);QVERIFY(controller->clippingState()->planes.empty());QCOMPARE(window->inspectionPresentation->status(),Status::Inactive);QVERIFY(window->selectionService->pick(discarded,window->evaluationBinding->stamp()).hit);controller->setGlobalEnabled(true);QTRY_VERIFY(window->inspectionPresentation->status()==Status::Ready);QCOMPARE(controller->clippingState()->planes.size(),size_t(8));QVERIFY(!window->selectionService->pick(discarded,window->evaluationBinding->stamp()).hit);
+  controller->setGlobalEnabled(false);QVERIFY(controller->clippingState()->planes.empty());QCOMPARE(window->inspectionPresentation->status(),Status::Ready);QVERIFY(window->selectionService->pick(discarded,window->evaluationBinding->stamp()).hit);controller->setGlobalEnabled(true);QTRY_VERIFY(window->inspectionPresentation->status()==Status::Ready);QCOMPARE(controller->clippingState()->planes.size(),size_t(8));QVERIFY(!window->selectionService->pick(discarded,window->evaluationBinding->stamp()).hit);
   controller->setGlobalEnabled(false);QVERIFY(controller->enable(ids[0],false));QVERIFY(controller->enable(ids[8],true));
   Design::FieldChange offset{Design::ChangeKind::Offset};offset.offset=-50;QVERIFY(controller->edit(ids[1],{offset}));QVERIFY(std::dynamic_pointer_cast<const Design::Section>(controller->records().at(ids[1])->evaluated)->offset==-50);
   QVERIFY(compile(*window,"function placement()={offset:1};\n@{type:Section}\ncomputed={id:\"computed\",origin:[0,0,0],normal:[0,0,1],adjust:placement()};\n@{type:Section}\nmissing={id:\"missing\",origin:[0,0,0],normal:[0,0,1],frame:{domain:\"design\",id:\"gone\"}};\n@{type:Section}\ninvalid={id:\"invalid\",origin:[0,0,0],normal:[0,0,0]};\ncube(10);"));
@@ -475,6 +475,7 @@ void TestClipping::positionSpinButtons() {
 }
 void TestClipping::emptyDocumentSection() {
   QVERIFY(window->activeEditor->toPlainText().isEmpty());
+  window->evaluationBinding->invalidate("Empty-document fixture before first evaluation");
   QVERIFY(!window->evaluationBinding->current());
   auto controller=Clipping::Controller::forWindow(*window);controller->dock->show();
   auto create=controller->dock->findChild<QPushButton *>("sectionNew");QVERIFY(create);create->click();

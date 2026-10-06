@@ -24,6 +24,7 @@ public:
   void draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo = nullptr) const override;
   void setColorScheme(const ColorScheme& cs) override;
   BoundingBox getBoundingBox() const override;
+  SurfaceContext prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader) override;
 
 private:
   void addGeometry(const std::shared_ptr<const class Geometry>& geom);
@@ -50,4 +51,5 @@ private:
 #endif
 
   std::vector<VertexStateContainer> vertex_state_containers_;
+  std::shared_ptr<class PolySetRenderer> surfaceRenderer;
 };

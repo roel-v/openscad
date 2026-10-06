@@ -28,6 +28,7 @@
 #include "glview/Renderer.h"
 #include "glview/TriangleStatistics.h"
 #include "glview/ShaderUtils.h"
+#include "glview/SurfacePickMath.h"
 #include "glview/VertexState.h"
 #include "geometry/linalg.h"
 #include "glview/system-gl.h"
@@ -39,6 +40,7 @@
 #include <cstddef>
 #include <utility>
 #include <vector>
+#include <stdexcept>
 
 #ifdef ENABLE_OPENCSG
 
@@ -122,9 +124,11 @@ void OpenCSGRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo *shader
   // Only use shader if select rendering or showedges
   bool enable_shader =
     shaderinfo && ((shaderinfo->type == ShaderUtils::ShaderType::EDGE_RENDERING && showedges) ||
-                   shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING);
+                   shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING ||
+                   shaderinfo->type == ShaderUtils::ShaderType::SURFACE_PICK);
 
   for (const auto& product : vertex_state_containers_) {
+    if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SURFACE_PICK && product->background) continue;
     if (product->primitives().size() > 1) {
 #if OPENCSG_VERSION >= 0x0180
       if (enable_shader) OpenCSG::setVertexShader(opencsg_vertex_shader_code_);
@@ -142,6 +146,13 @@ void OpenCSGRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo *shader
     }
 
     for (const auto& vertex_state : product->states()) {
+      if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SURFACE_PICK) {
+        if (const auto state = std::dynamic_pointer_cast<OpenCSGVertexState>(vertex_state)) {
+          const auto rgb = SurfacePickMath::encode(state->surfaceDrawId);
+          glUniform3f(shaderinfo->uniforms.at("frag_idcolor"), rgb[0]/255.0f, rgb[1]/255.0f, rgb[2]/255.0f);
+          glUniform1f(shaderinfo->uniforms.at("normal_sign"), state->surfaceNormalSign);
+        }
+      }
       // Specify ID color if we're using select rendering
       if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING) {
         if (const auto csg_vs = std::dynamic_pointer_cast<OpenCSGVertexState>(vertex_state)) {
@@ -188,6 +199,7 @@ void OpenCSGRenderer::createCSGVBOProducts(const CSGProducts& products, bool hig
   bool enable_barycentric = true;
   for (const auto& product : products.products) {
     std::unique_ptr<OpenCSGVBOProduct> vertex_state_container = std::make_unique<OpenCSGVBOProduct>();
+    vertex_state_container->background = background_mode;
 
     Color4f last_color;
     auto& vertex_states = vertex_state_container->states();
@@ -240,6 +252,7 @@ void OpenCSGRenderer::createCSGVBOProducts(const CSGProducts& products, bool hig
                                      enable_barycentric, override_color);
           if (const auto csg_vs = std::dynamic_pointer_cast<OpenCSGVertexState>(vertex_states.back())) {
             csg_vs->setCsgObjectIndex(csgobj.leaf->index);
+            configureSurface(*csg_vs, csgobj, false, background_mode);
             vertex_state_container->addPrimitive(
               createVBOPrimitive(csg_vs, OpenCSG::Intersection, csgobj.leaf->polyset->getConvexity()));
           }
@@ -258,6 +271,7 @@ void OpenCSGRenderer::createCSGVBOProducts(const CSGProducts& products, bool hig
                                      enable_barycentric, override_color);
           if (const auto csg_vs = std::dynamic_pointer_cast<OpenCSGVertexState>(vertex_states.back())) {
             csg_vs->setCsgObjectIndex(csgobj.leaf->index);
+            configureSurface(*csg_vs, csgobj, false, background_mode);
 
             vertex_state_container->addPrimitive(
               createVBOPrimitive(csg_vs, OpenCSG::Intersection, csgobj.leaf->polyset->getConvexity()));
@@ -327,6 +341,7 @@ void OpenCSGRenderer::createCSGVBOProducts(const CSGProducts& products, bool hig
                                    override_color);
         if (const auto csg_vs = std::dynamic_pointer_cast<OpenCSGVertexState>(vertex_states.back())) {
           csg_vs->setCsgObjectIndex(csgobj.leaf->index);
+          configureSurface(*csg_vs, csgobj, true, background_mode);
           vertex_state_container->addPrimitive(
             createVBOPrimitive(csg_vs, OpenCSG::Subtraction, csgobj.leaf->polyset->getConvexity()));
         } else {
@@ -369,4 +384,25 @@ BoundingBox OpenCSGRenderer::getBoundingBox() const
   }
 
   return bbox;
+}
+
+void OpenCSGRenderer::configureSurface(OpenCSGVertexState& state, const CSGChainObject& object,
+                                      bool subtraction, bool background)
+{
+  if (background) return;
+  if (surfaceObjects.size() >= SurfacePickMath::MaxDrawId) throw std::overflow_error("Surface draw ID capacity exceeded");
+  state.surfaceDrawId = static_cast<uint32_t>(surfaceObjects.size() + 1);
+  // VBOBuilder uses (p1-p0) x (p1-p2), the negative of the face cross
+  // product; mirrored draw winding is reversed separately.
+  state.surfaceNormalSign = (subtraction ? 1.0f : -1.0f) *
+    (object.leaf->matrix.linear().determinant() < 0 ? -1.0f : 1.0f);
+  surfaceObjects.push_back({state.surfaceDrawId, object.leaf->index, object.leaf->matrix, state.surfaceDrawId,
+    object.leaf->polyset->getBoundingBox().transformed(object.leaf->matrix)});
+}
+
+Renderer::SurfaceContext OpenCSGRenderer::prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader)
+{
+  if (triangles_.dimension == 2) return {false, "2D preview does not provide 3D surface hits"};
+  prepare(displayShader);
+  return {true, {}, Vector3d::Zero(), surfaceObjects};
 }

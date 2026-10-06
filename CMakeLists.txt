@@ -1071,6 +1071,10 @@ set(CORE_SOURCES
   src/core/CurveDiscretizer.cc
   src/core/DrawingCallback.cc
   src/core/EvaluationSession.cc
+  src/core/EvaluationInputs.cc
+  src/glview/SurfacePickMath.cc
+  src/glview/InspectionPresentation.cc
+  src/glview/SelectionRouter.cc
   src/core/Expression.cc
   src/core/FreetypeRenderer.cc
   src/core/FunctionType.cc
@@ -1314,6 +1318,8 @@ else()
     src/glview/fbo.cc
     src/glview/Renderer.cc
     src/glview/ShaderUtils.cc
+    src/glview/SurfacePick.cc
+    src/glview/InspectionMeshRenderer.cc
     src/glview/system-gl.cc
     src/glview/VBOBuilder.cc
     src/glview/VertexState.cc
@@ -1346,6 +1352,12 @@ set(INPUT_DRIVER_SOURCES
   ${INPUT_DRIVER_DBUS_SOURCES})
 
 set(GUI_SOURCES
+  src/gui/selection/EvaluationBinding.cc
+  src/gui/selection/SelectionService.cc
+  src/gui/InspectionPresentationController.cc
+  src/gui/selection/ViewportToolRouter.cc
+  src/gui/selection/ViewportOverlays.cc
+  src/gui/selection/InspectorDock.cc
   src/gui/annotations/AgentSyntax.cc
   src/gui/annotations/AgentModel.cc
   src/gui/annotations/AnnotationTransport.cc
@@ -1456,6 +1468,12 @@ set(GUI_HEADER_ONLY
 
 # To be added in Source for QtCreator to show them in project tree
 set(GUI_HEADERS
+  src/gui/selection/EvaluationBinding.h
+  src/gui/selection/SelectionService.h
+  src/gui/InspectionPresentationController.h
+  src/gui/selection/ViewportToolRouter.h
+  src/gui/selection/InspectorDock.h
+  src/gui/selection/SelectionTypes.h
   src/gui/annotations/AnnotationTransport.h
   src/gui/annotations/AnnotationBridge.h
   src/gui/annotations/AnnotationController.h
@@ -1634,6 +1652,8 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestSourceTransactions.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
+    src/guitests/TestInspectionDraft.h
+    src/guitests/TestSelection.h
     src/guitests/UXTest.h
   )
 
@@ -1646,6 +1666,8 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestSourceTransactions.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
+    src/guitests/TestInspectionDraft.cc
+    src/guitests/TestSelection.cc
     src/guitests/UXTest.cc
   )
 
@@ -1685,6 +1707,7 @@ file(GLOB_RECURSE TEST_SOURCES
 file(GLOB_RECURSE GUI_TEST_SOURCES
   "src/gui/*_test.cc"
 )
+list(APPEND TEST_SOURCES src/glview/SurfacePickMath_test.cc src/glview/InspectionPresentation_test.cc src/glview/SelectionRouter_test.cc)
 list(FILTER Sources EXCLUDE REGEX ".*_test[.]cc")
 list(REMOVE_ITEM Sources "src/main_wrapper.cc")
 

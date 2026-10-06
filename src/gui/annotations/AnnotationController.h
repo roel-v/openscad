@@ -39,6 +39,7 @@ public:
   void beginEvaluation(const QString& source);
   void finishEvaluation(bool success);
   void rendererChanged();
+  void registerPresentationRenderer(const std::shared_ptr<Renderer>& renderer, const QString& resultId);
   void startDrawing();
   void cancelDrawing();
   void refresh();
@@ -83,6 +84,7 @@ private:
   };
   std::map<Renderer *, Installed> installed;
   quint64 generation = 0, draftToken = 0, captureToken = 0;
+  quint64 viewportTool=0;
   mutable quint64 viewGeneration = 0;
   mutable QJsonObject observedView;
   Drawing drawing;

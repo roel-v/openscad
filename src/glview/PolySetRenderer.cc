@@ -50,6 +50,7 @@
 #include "glview/Renderer.h"
 #include "glview/TriangleStatistics.h"
 #include "glview/ShaderUtils.h"
+#include "glview/SurfacePickMath.h"
 #include "glview/VBOBuilder.h"
 #include "glview/VertexState.h"
 #include "utils/vector_math.h"
@@ -243,7 +244,7 @@ void PolySetRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)
 void PolySetRenderer::draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const
 {
   drawPolySets(showedges, shaderinfo);
-  drawPolygons();
+  if (!shaderinfo || shaderinfo->type != ShaderUtils::ShaderType::SURFACE_PICK) drawPolygons();
 }
 
 void PolySetRenderer::drawPolySets(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const
@@ -251,17 +252,24 @@ void PolySetRenderer::drawPolySets(bool showedges, const ShaderUtils::ShaderInfo
   // Only use shader if select rendering or showedges
   const bool enable_shader =
     shaderinfo && ((shaderinfo->type == ShaderUtils::ShaderType::EDGE_RENDERING && showedges) ||
-                   shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING);
+                   shaderinfo->type == ShaderUtils::ShaderType::SELECT_RENDERING ||
+                   shaderinfo->type == ShaderUtils::ShaderType::SURFACE_PICK);
   if (enable_shader) {
     GL_TRACE("glUseProgram(%d)", shaderinfo->resource.shader_program);
     GL_CHECKD(glUseProgram(shaderinfo->resource.shader_program));
     VBOUtils::shader_attribs_enable(*shaderinfo);
   }
 
+  uint32_t drawId = 0;
   for (const auto& container : polyset_vertex_state_containers_) {
     for (const auto& vertex_state : container.states()) {
       const auto shader_vs = std::dynamic_pointer_cast<VBOShaderVertexState>(vertex_state);
       if (!shader_vs || (shader_vs && showedges)) {
+        if (shaderinfo && shaderinfo->type == ShaderUtils::ShaderType::SURFACE_PICK && vertex_state->drawSize() > 0) {
+          const auto rgb = SurfacePickMath::encode(++drawId);
+          glUniform3f(shaderinfo->uniforms.at("frag_idcolor"), rgb[0]/255.0f, rgb[1]/255.0f, rgb[2]/255.0f);
+          glUniform1f(shaderinfo->uniforms.at("normal_sign"), -1); // VBOBuilder's negative face cross product.
+        }
         vertex_state->draw();
       }
     }
@@ -271,6 +279,22 @@ void PolySetRenderer::drawPolySets(bool showedges, const ShaderUtils::ShaderInfo
     VBOUtils::shader_attribs_disable(*shaderinfo);
     glUseProgram(0);
   }
+}
+
+Renderer::SurfaceContext PolySetRenderer::prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader)
+{
+  if (!polygons_.empty()) return {false, "2D final geometry does not provide 3D surface hits"};
+  prepare(displayShader);
+  SurfaceContext result{true, {}, Vector3d::Zero(), {}};
+  const auto bounds = getBoundingBox();
+  for (const auto& container : polyset_vertex_state_containers_)
+    for (const auto& state : container.states())
+      if (state->drawSize() > 0) {
+        if (result.objects.size() >= SurfacePickMath::MaxDrawId) return {false, "Surface draw ID capacity exceeded"};
+        const auto token = static_cast<uint32_t>(result.objects.size()+1);
+        result.objects.push_back({token, {}, {}, token, bounds});
+      }
+  return result;
 }
 
 void PolySetRenderer::drawPolygons() const

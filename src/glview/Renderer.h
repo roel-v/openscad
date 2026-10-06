@@ -45,6 +45,21 @@ public:
 
   virtual void prepare(const ShaderUtils::ShaderInfo *shaderinfo) = 0;
   virtual void draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo) const = 0;
+  struct SurfaceObject {
+    uint64_t drawId;
+    std::optional<size_t> nodeIndex;
+    std::optional<Transform3d> localToWorld;
+    uint32_t pickToken;
+    // Draw-space bounds; SurfaceContext::positionOrigin restores model coordinates.
+    std::optional<BoundingBox> bounds;
+  };
+  struct SurfaceContext {
+    bool supported = false;
+    std::string detail = "This renderer does not provide solid surface picking";
+    Vector3d positionOrigin = Vector3d::Zero();
+    std::vector<SurfaceObject> objects;
+  };
+  virtual SurfaceContext prepareSurfacePick(const ShaderUtils::ShaderInfo *) { return {}; }
   [[nodiscard]] virtual BoundingBox getBoundingBox() const = 0;
 
   enum class ColorMode {

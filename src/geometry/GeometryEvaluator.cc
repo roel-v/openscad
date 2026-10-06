@@ -1,4 +1,5 @@
 #include "geometry/GeometryEvaluator.h"
+#include "core/NativeExecutionGuard.h"
 
 #include <cassert>
 #include <cmath>
@@ -78,6 +79,7 @@ GeometryEvaluator::GeometryEvaluator(const Tree& tree) : tree(tree)
 std::shared_ptr<const Geometry> GeometryEvaluator::evaluateGeometry(const AbstractNode& node,
                                                                     bool allownef)
 {
+  NativeExecutionGuard execution;
   auto result = smartCacheGet(node, allownef);
   if (!result) {
     // If not found in any caches, we need to evaluate the geometry

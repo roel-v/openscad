@@ -44,6 +44,10 @@ Q_IMPORT_PLUGIN(QSvgPlugin)
 #endif
 
 class BuiltinContext;
+class RenderVariables;
+class ParameterSet;
+struct EvaluationOverrides;
+class EvaluationInputs;
 class GeometryWorker;
 class CSGNode;
 class CSGProducts;
@@ -73,6 +77,8 @@ class AIDock;
 
 class UXTest;
 namespace AgentAnnotations { class Controller; }
+class InspectionPresentationController;
+namespace Selection { class EvaluationBinding; class SelectionService; class ViewportToolRouter; class ViewportOverlays; class InspectorDock; struct EvaluationBacking; struct EvaluatedScene; }
 class MainWindow : public QMainWindow, public Ui::MainWindow, public InputEventHandler
 {
   Q_OBJECT
@@ -81,6 +87,16 @@ class MainWindow : public QMainWindow, public Ui::MainWindow, public InputEventH
 
 public:
   AgentAnnotations::Controller *annotationController = nullptr;
+  Selection::EvaluationBinding *evaluationBinding = nullptr;
+  Selection::SelectionService *selectionService = nullptr;
+  InspectionPresentationController *inspectionPresentation = nullptr;
+  Selection::ViewportToolRouter *viewportTools = nullptr;
+  Selection::ViewportOverlays *viewportOverlays = nullptr;
+  Selection::InspectorDock *inspectorDock = nullptr;
+  quint64 measurementTool=0;
+  std::shared_ptr<EvaluationInputs> evaluationInputs;
+  std::shared_ptr<Selection::EvaluationBacking> evaluationBacking;
+  std::shared_ptr<const Selection::EvaluatedScene> evaluatedScene;
   Preferences *prefs;
 
   QTimer *consoleUpdater;
@@ -217,6 +233,7 @@ public:
   std::shared_ptr<SourceFile> parseDocument(EditorInterface *editor);
 
   void parseTopLevelDocument();
+  bool evaluateCapturedVariables(const RenderVariables&,const ParameterSet&);
   void exceptionCleanup();
   void setLastFocus(QWidget *widget);
   void UnknownExceptionCleanup(std::string msg = "");
@@ -225,6 +242,7 @@ public:
 private:
   [[nodiscard]] QString getCurrentFileName() const;
 
+  std::shared_ptr<const EvaluationOverrides> evaluationOverrides;
   void setRenderVariables(ContextHandle<BuiltinContext>& context);
   void updateCompileResult();
   void compile(bool reload, bool forcedone = false);

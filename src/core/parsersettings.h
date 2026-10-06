@@ -19,3 +19,5 @@ fs::path find_valid_path(const fs::path& sourcepath, const fs::path& localpath,
 fs::path get_library_for_path(const fs::path& localpath);
 
 const std::vector<std::string>& get_library_path();
+// Caller owns the native execution gate; replaces the complete ordered search path.
+void set_library_path(std::vector<std::string> orderedPaths);

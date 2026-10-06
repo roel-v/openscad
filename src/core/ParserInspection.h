@@ -12,7 +12,8 @@ struct ParserInspection {
   std::function<void(const std::string&, const std::string&, const std::string&, const Location&)> dependency;
   std::function<bool()> alive;
   bool failed = false;
-  int tokens = 0, nesting = 0;
+  uint64_t tokens = 0, tokenLimit = 8192;
+  int nesting = 0;
 };
 extern ParserInspection *parserInspection;
 bool parseInspection(SourceFile *&file, const std::string& text, const std::string& filename,

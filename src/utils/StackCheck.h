@@ -14,7 +14,7 @@ class StackCheck
 public:
   static StackCheck& inst()
   {
-    static StackCheck instance;
+    static thread_local StackCheck instance;
     return instance;
   }
 

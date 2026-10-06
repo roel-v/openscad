@@ -8,6 +8,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include <utility>
 
 #include "platform/PlatformUtils.h"
 
@@ -23,6 +24,11 @@ static void add_librarydir(const std::string& libdir)
 const std::vector<std::string>& get_library_path()
 {
   return librarypath;
+}
+
+void set_library_path(std::vector<std::string> orderedPaths)
+{
+  librarypath = std::move(orderedPaths);
 }
 
 /*!

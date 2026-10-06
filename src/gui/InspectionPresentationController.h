@@ -25,6 +25,25 @@ public:
   using Start = std::function<Cancel(std::shared_ptr<const Selection::EvaluatedScene>, Selection::Stamp, Done)>;
   using Factory = std::function<std::shared_ptr<Renderer>(std::shared_ptr<Renderer>)>;
   enum class Kind { Provider, Effect, Request };
+  class DraftToken {
+  public:
+    DraftToken()=default;
+    ~DraftToken(){reset();}
+    DraftToken(const DraftToken&)=delete;
+    DraftToken& operator=(const DraftToken&)=delete;
+    DraftToken(DraftToken&&) noexcept;
+    DraftToken& operator=(DraftToken&&) noexcept;
+    explicit operator bool() const;
+    bool showBase();
+    bool showCandidate(uint64_t serial,std::shared_ptr<const InspectionMeshSet>,QString label);
+    bool setPending(QString label);
+    void reset();
+  private:
+    friend class InspectionPresentationController;
+    DraftToken(InspectionPresentationController *controller,uint64_t id):controller(controller),id(id){}
+    QPointer<InspectionPresentationController> controller;
+    uint64_t id=0;
+  };
   class Token {
   public:
     Token() = default;
@@ -51,6 +70,10 @@ public:
   Token registerMeshProvider(std::string id, int priority, QObject *lifetime, Start start);
   Token registerMeshEffect(std::string id, int order, QObject *lifetime, Factory factory);
   Token requestMeshes(std::string owner, QObject *lifetime);
+  DraftToken beginDraft(QString owner,QObject *lifetime,const Selection::Stamp& base,QString *detail=nullptr);
+  void cancelDraft();
+  bool draftActive() const {return draftId!=0;}
+  bool draftPending() const {return draftIsPending;}
   void cancelPreparation();
   Status status() const { return currentStatus; }
   QString reason() const { return statusReason; }
@@ -59,6 +82,7 @@ public:
 signals:
   void statusChanged();
   void meshesChanged();
+  void draftDisplayChanged(bool active,bool pending);
 private:
   struct Provider { QPointer<QObject> lifetime; Start start; };
   struct Effect { QPointer<QObject> lifetime; Factory factory; };
@@ -76,6 +100,12 @@ private:
   Status currentStatus = Status::Inactive;
   QString statusReason;
   bool replacing = false;
+  uint64_t nextDraftId=0,draftId=0,draftSerial=0;
+  bool draftIsPending=false,draftNeedsRefresh=false;
+  Selection::Stamp draftBase;
+  QMetaObject::Connection draftLifetime;
+  std::shared_ptr<Renderer> draftBaseRenderer;
+  std::shared_ptr<InspectionMeshRenderer> draftRenderer;
   QLabel *label;
   QPushButton *cancelButton;
   bool contains(Kind kind,uint64_t id) const;
@@ -88,4 +118,9 @@ private:
   void replace(std::shared_ptr<Renderer> renderer);
   void presentationChanged();
   void setStatus(Status status,QString reason={});
+  bool draftCurrent(uint64_t id) const;
+  bool showDraftBase(uint64_t id);
+  bool showDraftCandidate(uint64_t id,uint64_t serial,std::shared_ptr<const InspectionMeshSet>,QString);
+  bool pendingDraft(uint64_t id,QString);
+  void releaseDraft(uint64_t id);
 };

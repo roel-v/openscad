@@ -8,20 +8,29 @@
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QTimer>
+#include <algorithm>
 
 namespace Selection {
 ViewportToolRouter::ViewportToolRouter(MainWindow *window) : QObject(window->qglview),window(window)
 {
   window->qglview->installEventFilter(this);
+  qApp->installEventFilter(this);
+  connect(qApp,&QApplication::focusChanged,this,[this](QWidget *,QWidget *){
+    if(focusGroup.empty() || !active())return;
+    const auto token=active();QTimer::singleShot(0,this,[this,token]{
+      if(active()==token && !focusGroup.empty() && !containsFocus(QApplication::focusWidget()))cancel(token,CancelReason::FocusLost);
+    });
+  });
   connect(window->evaluationBinding,&EvaluationBinding::invalidated,this,[this] {
-    if (router.mode()!=SelectionRouter::Mode::External && active()) cancel(active(),CancelReason::ResultChanged);
+    if(active() && (router.mode()!=SelectionRouter::Mode::External ||
+       (!focusGroup.empty() && !this->window->evaluationBinding->validateModel(request.expected))))cancel(active(),CancelReason::ResultChanged);
   });
   connect(window->tabManager,&TabManager::currentEditorChanged,this,[this](auto) { cancel(active(),CancelReason::DocumentChanged); });
 }
 ViewportToolRouter::~ViewportToolRouter() { cancel(active(),CancelReason::OwnerDestroyed); }
 void ViewportToolRouter::retire()
 {
-  QObject::disconnect(lifetime); owner.clear(); pick={}; drag={};
+  QObject::disconnect(lifetime); owner.clear(); pick={}; drag={};focusGroup.clear();
   if (capturedDrag) { capturedDrag=false; window->qglview->releaseMouse(); }
   window->qglview->unsetCursor(); emit changed();
 }
@@ -60,6 +69,24 @@ ToolToken ViewportToolRouter::claimExternal(QString owner,QObject *lifetimeOwner
   if (owner.isEmpty()) return 0;
   return arm(SelectionRouter::Mode::External,lifetimeOwner,std::move(cancelled));
 }
+bool ViewportToolRouter::containsFocus(QWidget *widget) const
+{
+  return widget && std::any_of(focusGroup.begin(),focusGroup.end(),[widget](const auto& root){return root && (root==widget || root->isAncestorOf(widget));});
+}
+bool ViewportToolRouter::setFocusGroup(ToolToken token,const std::vector<QWidget *>& widgets)
+{
+  if(!token || active()!=token || router.mode()!=SelectionRouter::Mode::External || widgets.empty())return false;
+  focusGroup.clear();for(auto *widget:widgets)if(widget)focusGroup.emplace_back(widget);
+  if(focusGroup.empty())return false;
+  request.expected=window->evaluationBinding->stamp();return window->evaluationBinding->validateModel(request.expected);
+}
+bool ViewportToolRouter::beginSessionDrag(ToolToken token,ToolRequest next,QPointF press,DragCallbacks callbacks,Qt::MouseButton button)
+{
+  if(active()!=token || !token || router.mode()!=SelectionRouter::Mode::External || capturedDrag ||
+     !window->evaluationBinding->validateModel(next.expected))return false;
+  request=std::move(next);drag=std::move(callbacks);dragButton=button;
+  capturedDrag=true;window->qglview->grabMouse();window->qglview->setFocus();return true;
+}
 void ViewportToolRouter::cancel(ToolToken token,CancelReason reason) { router.cancel(token,reason); }
 void ViewportToolRouter::finish(ToolToken token)
 {
@@ -77,14 +104,17 @@ bool ViewportToolRouter::route(QEvent& event)
     }
     return false;
   }
-  if (router.mode()==SelectionRouter::Mode::External) return false;
-  if (!window->evaluationBinding->validate(request.expected)) { cancel(active(),CancelReason::ResultChanged); return false; }
+  const bool external=router.mode()==SelectionRouter::Mode::External;
+  if(external && !capturedDrag)return false;
+  if(!(external?window->evaluationBinding->validateModel(request.expected):window->evaluationBinding->validate(request.expected))) { cancel(active(),CancelReason::ResultChanged); return false; }
   if (event.type()!=QEvent::MouseButtonPress && event.type()!=QEvent::MouseButtonRelease && event.type()!=QEvent::MouseMove) return false;
   auto& mouse=static_cast<QMouseEvent&>(event); const auto point=mouse.position();
-  if (router.mode()==SelectionRouter::Mode::Drag) {
+  if (router.mode()==SelectionRouter::Mode::Drag || (external && capturedDrag)) {
     if (event.type()==QEvent::MouseMove) { if (drag.move) drag.move(point,mouse.modifiers()); return true; }
     if (event.type()==QEvent::MouseButtonRelease && mouse.button()==dragButton) {
-      auto release=drag.release; finish(active()); if (release) release(point,mouse.modifiers()); return true;
+      auto release=drag.release;
+      if(external){capturedDrag=false;window->qglview->releaseMouse();drag={};}else finish(active());
+      if (release) release(point,mouse.modifiers()); return true;
     }
     return mouse.button()==dragButton;
   }
@@ -106,15 +136,18 @@ bool ViewportToolRouter::route(QEvent& event)
   }
   return false;
 }
-bool ViewportToolRouter::eventFilter(QObject *,QEvent *event)
+bool ViewportToolRouter::eventFilter(QObject *object,QEvent *event)
 {
+  const bool viewport=object==window->qglview;
+  const bool grouped=!focusGroup.empty() && containsFocus(qobject_cast<QWidget *>(object));
+  if(!viewport && !grouped)return false;
   if (event->type()==QEvent::FocusOut && active() && router.mode()!=SelectionRouter::Mode::External) {
     QTimer::singleShot(0,this,[this] {
       auto focus=QApplication::focusWidget();
       if (active() && (!focus || (focus!=window->qglview && !window->qglview->isAncestorOf(focus)))) cancel(active(),CancelReason::FocusLost);
     });
   }
-  if (event->type()==QEvent::Hide) cancel(active(),CancelReason::FocusLost);
+  if (viewport && event->type()==QEvent::Hide) cancel(active(),CancelReason::FocusLost);
   if (event->type()==QEvent::KeyPress || event->type()==QEvent::ShortcutOverride) return route(*event);
   return false;
 }

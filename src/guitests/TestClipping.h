@@ -16,6 +16,11 @@ private slots:
   void deleteAndSessionPersistence();
   void presetsLimitsAndSourceOnly();
   void routedPicksAndGestures();
-  void sourceManipulatorRotationAndOwnership();
+  void sourceDirectionAndOwnership();
+  void directionControlsAndDocumentState();
+  void positionSpinButtons();
+  void emptyDocumentSection();
+  void openExampleAfterSection();
+  void worldOffsetPoseMapping();
   void cavityAndTransformedPickAlignment();
 };

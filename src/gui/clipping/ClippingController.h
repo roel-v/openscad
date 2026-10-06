@@ -6,11 +6,9 @@
 #include "core/design/DesignReferences.h"
 #include "glview/ClippingState.h"
 #include <QPointer>
-#include <QPointF>
 #include <set>
 class MainWindow;
 class EditorInterface;
-class QDockWidget;
 namespace Clipping {
 class Dock;
 class Controller : public QObject {
@@ -20,9 +18,12 @@ public:
   ~Controller() override;
   static Controller *forWindow(MainWindow&);
   Design::Records records() const;
+  Design::Records displayRecords() const;
+  bool sourceStateCurrent() const;
   std::optional<Transform3d> frame(const std::string& id, QString *error=nullptr) const;
   BoundingBox bounds() const;
-  std::optional<std::string> createPreset(const std::string& preset);
+  bool evaluationCurrent() const;
+  std::optional<std::string> createSection();
   bool enable(const std::string& id,bool enabled);
   bool enabled(const std::string& id) const { return enabledIds.count(id); }
   const std::set<std::string>& enabledSections() const { return enabledIds; }
@@ -32,23 +33,19 @@ public:
   void setHelperEnabled(const std::string& id,bool);
   void select(const std::string& id);
   const std::string& selectedId() const { return selected; }
+  QString documentId() const { return ownerDocumentId; }
   bool editable(const std::string& id,QString *reason=nullptr) const;
-  std::optional<std::pair<double,double>> offsetRange(const std::string& id) const;
   bool beginGesture(const std::string& id);
   bool preview(const std::vector<Design::FieldChange>&);
   bool finishGesture();
   void cancelGesture();
   bool edit(const std::string&,const std::vector<Design::FieldChange>&);
   bool flip(const std::string&);
-  bool reset(const std::string&,const std::string& preset);
-  bool setAngles(const std::string&,double azimuth,double elevation);
+  bool setCutAwayDirection(const std::string&,const Vector3d&);
   bool setOrigin(const std::string&,const Vector3d&);
   bool remove(std::string);
-  bool handlesEnabled() const { return handles; }
-  void setHandlesEnabled(bool value);
   bool promote(const std::string&);
   void pick(const std::string&,bool align);
-  bool beginDrag(const std::string&,QPointF press,bool rotate,int axis=0);
   bool applyHit(const std::string&,const Selection::Hit&,bool align);
   QString feedback() const { return message; }
   ClipCapabilities capabilities() const;
@@ -72,7 +69,7 @@ private:
   std::optional<ClipState> priorGesture;
   Selection::Stamp gestureStamp;
   uint64_t tool=0;
-  bool global=true,refreshing=false,closing=false,handles=false;
+  bool global=true,refreshing=false,closing=false;
   QString message,settingsKey;
   void bind();
   void refresh();
@@ -84,8 +81,6 @@ private:
   void drawHelper(const Selection::OverlayContext&);
   void prepareHelper();
   std::optional<Transform3d> helperPose;
-  double helperSize=1;
   double planeSize=1;
-  bool eventFilter(QObject*,QEvent*) override;
 };
 }

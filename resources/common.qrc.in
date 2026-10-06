@@ -1,5 +1,7 @@
 <RCC>
   <qresource>
+    <file>icons/tabler/stock/help-circle.svg</file>
+    <file>icons/tabler/stock/help-circle.svg</file>
     <file>html/PrintInitDialog.html</file>
     <file>html/OctoPrintInfo.html</file>
     <file>html/LocalApplicationInfo.html</file>

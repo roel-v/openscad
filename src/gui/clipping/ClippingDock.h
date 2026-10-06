@@ -1,12 +1,14 @@
 #pragma once
 #include <QDockWidget>
+#include "geometry/linalg.h"
+#include <string>
 class QTreeWidget;
 class QCheckBox;
 class QLineEdit;
 class QDoubleSpinBox;
-class QSlider;
 class QLabel;
 class QPushButton;
+class QComboBox;
 namespace Clipping {
 class Controller;
 class Dock : public QDockWidget {
@@ -18,13 +20,20 @@ private:
   Controller *controller;
   QTreeWidget *rows;
   QCheckBox *global,*helper;
-  QLineEdit *name;
-  QDoubleSpinBox *offset,*azimuth,*elevation;
+  QComboBox *directionPreset;
+  QWidget *directionFields;
+  QLineEdit *direction[3];
+  std::string customDirectionId;
+  QString directionDocumentId;
+  std::string directionSelectionId;
+  Vector3d displayedCutAway=Vector3d::Zero();
   QDoubleSpinBox *origin[3];
-  QSlider *slider;
+  QLabel *originLabel[3];
   QLabel *status;
   QPushButton *promote,*remove,*pickPoint,*pickAlign,*flip;
   bool updating=false;
-  void commitAngles();
+  bool committingDirection=false;
+  void commitDirection();
+  void updateCoordinateVisibility();
 };
 }

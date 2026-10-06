@@ -22,7 +22,10 @@ int runTests(MainWindow *window)
   const auto output = qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT");
   if (!output.isEmpty()) {
     const auto log = QDir(output).filePath(QString::fromLatin1(tc.metaObject()->className()) + ".txt");
-    return QTest::qExec(&tc, QStringList{"gui-tests", "-o", log + ",txt"});
+    QStringList arguments{"gui-tests", "-o", log + ",txt"};
+    const auto functions=qEnvironmentVariable("OPENSCAD_GUI_TEST_FUNCTIONS");
+    if(!functions.isEmpty())arguments.append(functions.split(',',Qt::SkipEmptyParts));
+    return QTest::qExec(&tc, arguments);
   }
   const auto log = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG");
   if (!log.isEmpty()) return QTest::qExec(&tc, QStringList{"annotation-tests", "-o", log + ",txt"});

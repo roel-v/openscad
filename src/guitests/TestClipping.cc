@@ -110,7 +110,7 @@ void TestClipping::rearSurfacesAndFrozenPreview() {
     ClipMeshJob jobs(window); auto presentation=window->inspectionPresentation;
     auto provider=presentation->registerMeshProvider("clipping-root-test",0,&jobs,[&jobs](auto scene,auto stamp,auto done){return jobs.start(scene,stamp,done);});
     Effect effect(*window); auto request=presentation->requestMeshes("clipping-test",&jobs);
-    QTRY_VERIFY_WITH_TIMEOUT(presentation->status()!=Status::Preparing,20000);
+    QTRY_VERIFY_WITH_TIMEOUT(presentation->status()==Status::Ready,20000);
     QVERIFY2(presentation->status()==Status::Ready,qPrintable(presentation->reason()));
     QVERIFY(presentation->meshes());
     QVERIFY(window->qglview->renderer->getBoundingBox().min().isApprox(reference->getBoundingBox().min()));

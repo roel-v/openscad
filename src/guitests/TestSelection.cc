@@ -251,7 +251,13 @@ void TestSelection::visibleSelectionFeedback()
         QVERIFY(selected.save(qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT")+(light?"/selection-light.png":"/selection-dark.png")));
     }
     window->selectionService->clear();view->repaint();
-    QCOMPARE(view->grabFramebuffer(),empty);
+    const auto cleared=view->grabFramebuffer();
+    if(cleared!=empty && !qEnvironmentVariableIsEmpty("OPENSCAD_GUI_TEST_OUTPUT")) {
+      const auto output=qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT");
+      empty.save(output+"/selection-before.png");
+      cleared.save(output+"/selection-cleared.png");
+    }
+    QCOMPARE(cleared,empty);
     view->setColorScheme(*oldScheme);
   }
   window->inspectorDock->beginSelection();

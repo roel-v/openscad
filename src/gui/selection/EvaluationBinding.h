@@ -19,6 +19,7 @@ class InspectionPresentationController;
 namespace SourceProvenance { class SyntaxTable; class Result; }
 namespace Design { struct Result; }
 namespace Semantic { struct Scene; }
+class InspectionPresentationController;
 
 namespace Selection {
 // Destruction releases contexts before their session, and ASTs after the session.

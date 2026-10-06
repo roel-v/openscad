@@ -1,3 +1,4 @@
+#include <algorithm>
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2014 Clifford Wolf <clifford@clifford.at> and

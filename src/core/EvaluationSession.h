@@ -32,6 +32,8 @@ public:
   std::function<void(NativeCapability)> capabilityGuard;
   void requireCapability(NativeCapability capability) const { if (capabilityGuard) capabilityGuard(capability); }
   std::shared_ptr<SourceProvenance::ProvenanceCollector> provenanceCollector;
+  std::function<void(NativeCapability)> capabilityGuard;
+  void requireCapability(NativeCapability capability) const { if (capabilityGuard) capabilityGuard(capability); }
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}
   std::shared_ptr<Design::Collector> designCollector;
   std::shared_ptr<Semantic::Collector> semanticCollector;

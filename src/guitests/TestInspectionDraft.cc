@@ -50,7 +50,7 @@ void TestInspectionDraft::init()
   window->tabManager->actionNew();window->activeEditor->setPlainText("cube(10,center=true);\n");
   QSignalSpy done(window,&MainWindow::compilationDone);window->designActionRender->trigger();
   QTRY_VERIFY_WITH_TIMEOUT(!done.empty() && !GuiLocker::isLocked(),20000);QVERIFY(window->evaluationBinding->current());
-  window->activeEditor->clearUndoHistory();window->qglview->setFocus();QTest::qWait(20);
+  dynamic_cast<ScintillaEditor *>(window->activeEditor)->qsci->SendScintilla(QsciScintillaBase::SCI_EMPTYUNDOBUFFER);window->qglview->setFocus();QTest::qWait(20);
 }
 void TestInspectionDraft::cleanup()
 {

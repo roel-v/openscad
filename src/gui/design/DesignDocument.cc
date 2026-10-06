@@ -3,6 +3,7 @@
 #include "core/design/DesignReferences.h"
 #include "core/SourceFile.h"
 #include "gui/Editor.h"
+#include "gui/ScintillaEditor.h"
 #include "gui/MainWindow.h"
 #include "gui/TabManager.h"
 #include "gui/SavedViews.h"
@@ -308,6 +309,16 @@ LifecycleResult DesignDocument::applySourceEdit(PreparedEdit prepared,const Reco
   prepared.request.participant=participant;
   sourceMutation=true;
   auto result=SourceEditing::apply(*prepared.editor,prepared.request);
+  if(guard && result.changed && prepared.insertedRange){
+    if(auto editor=dynamic_cast<ScintillaEditor *>(prepared.editor.data())){
+      // Promotion currently targets the active root. Do not switch documents for
+      // other lifecycle users that explicitly choose another destination.
+      if(window->activeEditor==editor)window->editorDock->show();
+      editor->qsci->SendScintilla(QsciScintillaBase::SCI_SETSEL,
+        static_cast<unsigned long>(prepared.insertedRange->first),static_cast<long>(prepared.insertedRange->second));
+      editor->qsci->ensureCursorVisible();
+    }
+  }
   if(guard){sourceMutation=false;emit changed();}
   return {result.changed,result.error==SourceEditing::EditError::None?std::string():result.detail.toStdString()};
 }

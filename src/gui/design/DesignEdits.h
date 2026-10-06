@@ -24,6 +24,7 @@ struct PreparedEdit {
   QPointer<EditorInterface> editor;
   SourceEditing::EditRequest request;
   std::string error;
+  std::optional<std::pair<qsizetype,qsizetype>> insertedRange;
   explicit operator bool() const { return !editor.isNull() && error.empty(); }
 };
 class DesignEdits {

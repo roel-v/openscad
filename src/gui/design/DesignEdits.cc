@@ -3,6 +3,7 @@
 #include "core/design/DesignReferences.h"
 #include "core/SourceFile.h"
 #include "gui/Editor.h"
+#include "gui/ScintillaEditor.h"
 #include "gui/MainWindow.h"
 #include "gui/TabManager.h"
 #include "gui/selection/EvaluationBinding.h"
@@ -103,14 +104,23 @@ PreparedEdit DesignEdits::insertCurrent(const std::vector<std::shared_ptr<const 
   auto failure=[](const std::string& error){return PreparedEdit{{},{},error};};
   if(!window || !window->tabManager->editorList.contains(&destination) || destination.isSourceReadOnly())return failure("Destination must be an open writable editor");
   auto bytes=destination.toPlainText().toUtf8();
+  auto editor=dynamic_cast<ScintillaEditor *>(&destination);
+  if(!editor)return failure("Source insertion requires an editor cursor");
+  const auto cursor=editor->qsci->SendScintilla(QsciScintillaBase::SCI_GETCURRENTPOS);
+  std::string placementError;
+  const auto point=fileScopeInsertion(bytes.toStdString(),size_t(cursor),placementError);
+  if(!point)return failure("Cannot find a safe insertion point: "+placementError);
+  const auto position=qsizetype(*point);
   QByteArray insertion;
-  if(!bytes.isEmpty() && !bytes.endsWith('\n'))insertion.append(bytes.contains("\r\n")?"\r\n":"\n");
+  if(position>0 && bytes[position-1]!='\n')insertion.append(bytes.contains("\r\n")?"\r\n":"\n");
+  const auto declarationStart=position+insertion.size();
   std::set<std::string> ids;
   for(const auto& record:records){
     if(!record || record->source || record->kind!="Section" && record->kind!="View")return failure("Insertion requires unsourced Section/View definitions");
     if(!ids.insert(record->id).second || !names.insert(declarationName(*record)).second)return failure("Destination id or variable collision");
     auto declaration=QByteArray::fromStdString(serialize(*record));if(bytes.contains("\r\n"))declaration.replace("\n","\r\n");insertion.append(declaration);
   }
-  return {&destination,{destination.documentId(),destination.sourceRevision,destination.sourceFingerprint,{{bytes.size(),bytes.size(),{},insertion}}},{}};
+  return {&destination,{destination.documentId(),destination.sourceRevision,destination.sourceFingerprint,{{position,position,{},insertion}}},{},
+    std::make_pair(declarationStart,position+insertion.size())};
 }
 }

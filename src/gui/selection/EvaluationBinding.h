@@ -16,6 +16,7 @@ class Context;
 class FileContext;
 class Renderer;
 namespace SourceProvenance { class SyntaxTable; class Result; }
+namespace Design { struct Result; }
 class InspectionPresentationController;
 
 namespace Selection {
@@ -30,6 +31,7 @@ struct EvaluationBacking {
   std::shared_ptr<const FileContext> file;
 };
 struct EvaluatedScene {
+  std::shared_ptr<const Design::Result> designObjects;
   std::shared_ptr<const EvaluationBacking> backing;
   std::string documentPath;
   std::shared_ptr<const EvaluationInputs> inputs;

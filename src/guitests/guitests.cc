@@ -7,6 +7,7 @@
 #include "TestTabManager.h"
 #include "TestSourceTransactions.h"
 #include "TestVimMode.h"
+#include "TestDesignObjects.h"
 #include "TestAnnotations.h"
 #include "TestNavigation.h"
 #include "TestSelection.h"
@@ -43,6 +44,7 @@ int runAllTest(MainWindow *window)
   }
   int totalTestFailures = 0;
   if (qEnvironmentVariableIsSet("OPENSCAD_PROVENANCE_TESTS_ONLY")) return runTests<TestProvenance>(window);
+  if (qEnvironmentVariableIsSet("OPENSCAD_DESIGN_OBJECT_TESTS_ONLY")) return runTests<TestDesignObjects>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_SELECTION_TESTS_ONLY")) return runTests<TestSelection>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_ANNOTATION_TESTS_ONLY")) return runTests<TestAnnotations>(window);
   std::cout << "******************************* RUN UX TESTS ********************************"
@@ -50,6 +52,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestTabManager>(window);
   totalTestFailures += runTests<TestSourceTransactions>(window);
   totalTestFailures += runTests<TestVimMode>(window);
+  totalTestFailures += runTests<TestDesignObjects>(window);
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
   totalTestFailures += runTests<TestAnnotations>(window);

@@ -101,7 +101,7 @@ std::shared_ptr<fs::path> sourcefile(void);
 void lexer_set_parser_sourcefile(const fs::path& path);
 int lexerlex_destroy(void);
 int lexerlex(void);
-static void handle_assignment(const std::string token, Expression *expr, const Location loc,
+static std::shared_ptr<Assignment> handle_assignment(const std::string token, Expression *expr, const Location loc,
                               const Location nameLocation, const Location expressionLocation);
 
 std::stack<std::shared_ptr<LocalScope>> scope_stack;
@@ -294,13 +294,15 @@ assignment
         | attribute_block TOK_ID '=' expr ';'
             {
                 // Note: attribute_block is $1, ID is $2, expr is $4
-                handle_assignment($2, $4, LOCD("assignment", @$), LOC(@2), LOC(@4));
+                auto occurrence = handle_assignment($2, $4, LOCD("assignment", @$), LOC(@2), LOC(@4));
                 if ($1) {
                   Assignment *as = nullptr;
                   for (auto &a : scope_stack.top()->assignments){
                     if (a->getName() == $2) as = a.get();
                   }
-                  if (as) as->addAnnotations(new AnnotationList({Annotation("NativeAttributes", std::shared_ptr<Expression>($1))}));
+                  auto attributes = std::shared_ptr<Expression>($1);
+                  occurrence->addAnnotations(new AnnotationList({Annotation("NativeAttributes", attributes)}));
+                  if (as && as != occurrence.get()) as->addAnnotations(new AnnotationList({Annotation("NativeAttributes", attributes)}));
                 }
                 free($2);
             }
@@ -1016,7 +1018,7 @@ static void warn_reassignment(const Location& loc, const std::shared_ptr<Assignm
 			path2);
 }
 
-void handle_assignment(const std::string token, Expression *expr, const Location loc,
+std::shared_ptr<Assignment> handle_assignment(const std::string token, Expression *expr, const Location loc,
                        const Location nameLocation, const Location expressionLocation)
 {
 	const auto parsedExpression = std::shared_ptr<Expression>(expr);
@@ -1024,7 +1026,8 @@ void handle_assignment(const std::string token, Expression *expr, const Location
 	occurrence->setSourceLocations(nameLocation, expressionLocation);
 	if (SourceProvenance::nativeSyntaxTable)
 		SourceProvenance::nativeSyntaxTable->record(*occurrence, SourceProvenance::SiteKind::Assignment, token, {occurrence});
-	if (parserInspection) scope_stack.top()->syntaxOrder.push_back(assignment(token, parsedExpression, loc));
+	scope_stack.top()->assignmentOccurrences.push_back(occurrence);
+	if (parserInspection) scope_stack.top()->syntaxOrder.push_back(occurrence);
 	bool found = false;
 	for (auto &assignment : scope_stack.top()->assignments) {
 		if (assignment->getName() == token) {
@@ -1058,6 +1061,7 @@ void handle_assignment(const std::string token, Expression *expr, const Location
 	if (!found) {
 		scope_stack.top()->addAssignment(occurrence);
 	}
+	return occurrence;
 }
 
 bool parse(SourceFile *&file, const std::string& text, const std::string &filename, const std::string &mainFile, int debug)

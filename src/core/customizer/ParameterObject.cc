@@ -477,6 +477,7 @@ std::unique_ptr<ParameterObject> ParameterObject::fromAssignment(const Assignmen
   const Annotation *nativeAnn = assignment->annotation("NativeAttributes");
   if (nativeAnn) {
     if (auto *obj = dynamic_cast<const ObjectExpression *>(nativeAnn->getExpr().get())) {
+      for (const auto& member : obj->getMembers()) if (member->getName() == "type") return nullptr;
       return fromObjectExpression(obj, assignment, docPath, context);
     }
   }

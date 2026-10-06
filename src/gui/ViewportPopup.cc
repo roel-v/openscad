@@ -214,12 +214,12 @@ void ViewportPopup::refreshViews()
   }
   if (store) for (const auto& entry:store->entries()) {
     QListWidgetItem *item=nullptr;
-    for (int row=0;row<views->count();++row) if (views->item(row)->data(Qt::UserRole).toString()==entry.id) {item=views->item(row);break;}
+    for (int row=0;row<views->count();++row) if (views->item(row)->data(Qt::UserRole).toString()==entry.id()) {item=views->item(row);break;}
     if (!item) {
-      item=new QListWidgetItem(entry.name,views);
-      item->setData(Qt::UserRole,entry.id);
+      item=new QListWidgetItem(entry.name(),views);
+      item->setData(Qt::UserRole,entry.id());
       item->setFlags(item->flags()|Qt::ItemIsEditable);
-    } else if (item->text()!=entry.name) item->setText(entry.name);
+    } else if (item->text()!=entry.name()) item->setText(entry.name());
   }
   removeView->setEnabled(store && views->currentItem());
   renameView->setEnabled(store && views->currentItem());
@@ -230,7 +230,7 @@ void ViewportPopup::recallView()
   const auto editor=views->findChild<QLineEdit *>();
   if (editor && editor->isVisible()) return;
   const auto entry=store->find(views->currentItem()->data(Qt::UserRole).toString());
-  if (entry) window->qglview->navigation()->navigate(entry->camera);
+  if (entry) window->qglview->navigation()->navigate(entry->pose());
 }
 
 void ViewportPopup::toggle()

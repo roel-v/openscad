@@ -33,12 +33,14 @@
 #include "gui/selection/ViewportToolRouter.h"
 #include "gui/selection/ViewportOverlays.h"
 #include "gui/selection/InspectorDock.h"
+#include "gui/design/SavedViewContribution.h"
 #include "gui/annotations/AnnotationBridge.h"
 #include "gui/selection/EvaluationBinding.h"
 #include "gui/selection/SelectionService.h"
 #include "core/EvaluationInputs.h"
 #include "core/provenance/ProvenanceCollector.h"
 #include "gui/selection/ProvenanceService.h"
+#include "core/design/DesignCollector.h"
 
 #include <sys/stat.h>
 
@@ -330,6 +332,7 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   inspectionPresentation = new InspectionPresentationController(this);
   inspectorDock = new Selection::InspectorDock(this);
   new SourceProvenance::ProvenanceService(this);
+  Design::SavedViewContribution::forWindow(*this);
   setupDocks();
   auto agentAccess = menuWindow->addAction(tr("Agent Access..."));
   connect(agentAccess, &QAction::triggered, this,
@@ -667,6 +670,7 @@ MainWindow::~MainWindow()
   scadApp->windowManager.remove(this);
   viewportTools->cancel(viewportTools->active(),Selection::CancelReason::OwnerDestroyed);
   delete SourceProvenance::ProvenanceService::forWindow(this);
+  for(auto *child:children())if(auto *service=dynamic_cast<Design::SavedViewContribution *>(child))delete service;
   delete inspectorDock;
   inspectorDock = nullptr;
   delete annotationController;
@@ -1155,6 +1159,7 @@ void MainWindow::instantiateRoot()
       evaluationInputs->freeze();
       auto scene = std::make_shared<Selection::EvaluatedScene>();
       scene->backing = evaluationBacking;
+      scene->designObjects = evaluationBacking->session->designCollector->finish();
       scene->inputs = evaluationInputs;
       scene->root = rootNode;
       scene->provenance = evaluationBacking->session->provenanceCollector->finish(*rootNode);

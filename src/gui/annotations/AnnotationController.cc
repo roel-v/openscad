@@ -522,13 +522,13 @@ QJsonObject Controller::savedViews() const
   QJsonArray entries;
   for (const auto& entry : store->entries()) {
     Camera native = view->cam;
-    entry.camera.apply(native);
+    entry.pose().apply(native);
     const auto rotation = native.getVpr(), translation = native.getVpt();
-    entries.append(QJsonObject{{"id", entry.id}, {"name", entry.name}, {"camera", QJsonObject{
+    entries.append(QJsonObject{{"id", entry.id()}, {"name", entry.name()}, {"camera", QJsonObject{
       {"rotation", QJsonArray{rotation.x(), rotation.y(), rotation.z()}},
       {"translation", QJsonArray{translation.x(), translation.y(), translation.z()}},
-      {"distance", entry.camera.distance}, {"fov", entry.camera.fov},
-      {"projection", entry.camera.projection == Camera::ProjectionType::ORTHOGONAL ? "orthographic" : "perspective"}}}});
+      {"distance", entry.pose().distance}, {"fov", entry.pose().fov},
+      {"projection", entry.pose().projection == Camera::ProjectionType::ORTHOGONAL ? "orthographic" : "perspective"}}}});
   }
   return {{"available", true}, {"document_id", editor->annotations->sessionId}, {"window_id", windowId},
     {"viewport_id", viewportId}, {"library_revision", editor->annotations->sessionId + ":" + QString::number(store->revision())},
@@ -556,7 +556,7 @@ QJsonObject Controller::savedViewOperation(const QString& action, const QString&
     else if (action == "remove") store->remove(id);
     else if (action == "recall") {
       if (!view->navigation()->permitted()) { *error = "Native navigation is locked."; return {}; }
-      const auto pose = entry->camera;
+      const auto pose = entry->pose();
       view->navigation()->cancel();
       view->navigation()->apply(pose);
     } else { *error = "Unknown saved-view action."; return {}; }

@@ -1074,6 +1074,12 @@ set(CORE_SOURCES
   src/core/EvaluationInputs.cc
   src/core/provenance/SourceProvenance.cc
   src/core/provenance/ProvenanceCollector.cc
+  src/core/design/DesignObjects.cc
+  src/core/design/DesignKinds.cc
+  src/core/design/DesignCollector.cc
+  src/core/design/DesignReferences.cc
+  src/core/design/DesignSourceMap.cc
+  src/core/design/DesignSourceFields.cc
   src/glview/SurfacePickMath.cc
   src/glview/InspectionPresentation.cc
   src/glview/SelectionRouter.cc
@@ -1386,6 +1392,10 @@ endif()
 
 set(GUI_SOURCES
   src/gui/selection/EvaluationBinding.cc
+  src/gui/source/EditorUndoRegistry.cc
+  src/gui/design/DesignEdits.cc
+  src/gui/design/DesignDocument.cc
+  src/gui/design/SavedViewContribution.cc
   src/gui/selection/SelectionService.cc
   src/gui/InspectionPresentationController.cc
   src/gui/selection/ViewportToolRouter.cc
@@ -1461,9 +1471,7 @@ set(GUI_SOURCES
   src/gui/ScadApi.cc
   src/gui/ScadLexer.cc
   src/gui/ScintillaEditor.cc
-  src/gui/source/EditorUndoRegistry.cc
   src/gui/source/SourceEditTransaction.cc
-  src/gui/source/EditorUndoRegistry.h
   src/gui/source/SourceEditTransaction.h
   src/gui/source/DiskSourceState.cc
   src/gui/source/DiskSourceState.h
@@ -1506,6 +1514,10 @@ set(GUI_HEADER_ONLY
 # To be added in Source for QtCreator to show them in project tree
 set(GUI_HEADERS
   src/gui/selection/EvaluationBinding.h
+  src/gui/source/EditorUndoRegistry.h
+  src/gui/design/DesignEdits.h
+  src/gui/design/DesignDocument.h
+  src/gui/design/SavedViewContribution.h
   src/gui/selection/SelectionService.h
   src/gui/InspectionPresentationController.h
   src/gui/selection/ViewportToolRouter.h
@@ -1688,6 +1700,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestTabManager.h
     src/guitests/TestSourceTransactions.h
     src/guitests/TestVimMode.h
+    src/guitests/TestDesignObjects.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
     src/guitests/TestInspectionDraft.h
@@ -1704,6 +1717,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestTabManager.cc
     src/guitests/TestSourceTransactions.cc
     src/guitests/TestVimMode.cc
+    src/guitests/TestDesignObjects.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
     src/guitests/TestInspectionDraft.cc

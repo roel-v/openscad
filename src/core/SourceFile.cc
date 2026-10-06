@@ -40,6 +40,8 @@
 #include "core/Context.h"
 #include "core/EvaluationInputs.h"
 #include "core/EvaluationSession.h"
+#include "core/EvaluationInputs.h"
+#include "core/design/DesignCollector.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFileCache.h"
 #include "core/StatCache.h"
@@ -187,6 +189,8 @@ std::shared_ptr<AbstractNode> SourceFile::instantiate(
   std::shared_ptr<const FileContext> *resulting_file_context) const
 {
   auto node = std::make_shared<RootNode>();
+  if (!context->session()->designCollector)
+    context->session()->designCollector = std::make_shared<Design::Collector>(nativeEvaluationInputs, EvaluationInputs::fileKey(getFullpath()));
   try {
     ContextHandle<FileContext> file_context{Context::create<FileContext>(context, this)};
     *resulting_file_context = *file_context;

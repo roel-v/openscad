@@ -120,7 +120,7 @@ void TestAnnotations::nativeSavedViews()
   auto rename = body(); rename["name"] = "  Agent view  ";
   rename.remove("expected_result_id"); rename.remove("expected_view_revision");
   QCOMPARE(agentRequest(info, route + "/" + id + "/rename", rename).value("http_status").toInt(), 202);
-  QTRY_COMPARE(store->find(id)->name, QString("Agent view"));
+  QTRY_COMPARE(store->find(id)->name(), QString("Agent view"));
   QCOMPARE(controller->camera(), original);
   auto stale = body(); store->rename(id, "Native edit");
   QTRY_COMPARE(agentRequest(info, route + "/" + id + "/remove", stale).value("http_status").toInt(), 409);
@@ -136,7 +136,7 @@ void TestAnnotations::nativeSavedViews()
   SavedViews reopened;
   QVERIFY(reopened.load(source.fileName()));
   QCOMPARE(reopened.entries().size(), 2);
-  QCOMPARE(reopened.find(id)->name, QString("Native edit"));
+  QCOMPARE(reopened.find(id)->name(), QString("Native edit"));
   const auto revision = controller->savedViews().value("library_revision");
   window->tabManager->refreshDocument();
   QCOMPARE(controller->savedViews().value("library_revision"), revision);
@@ -160,7 +160,12 @@ void TestAnnotations::nativeSavedViews()
   QVERIFY2(error.isEmpty(), qPrintable(error));
   const auto frozenId = frozen.value("added_id").toString();
   QVERIFY(store->find(frozenId));
-  QVERIFY(store->find(frozenId)->camera == displayed);
+  const auto frozenPose = store->find(frozenId)->pose();
+  QVERIFY(CameraPose::matrix(frozenPose.rotation).isApprox(CameraPose::matrix(displayed.rotation), 1e-12));
+  QVERIFY(frozenPose.translation.isApprox(displayed.translation, 1e-12));
+  QCOMPARE(frozenPose.distance, displayed.distance);
+  QCOMPARE(frozenPose.fov, displayed.fov);
+  QCOMPARE(frozenPose.projection, displayed.projection);
   QVERIFY(!navigation->animating());
   QTest::qWait(60);
   QVERIFY(navigation->current() == displayed);

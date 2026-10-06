@@ -127,6 +127,7 @@ ParserInspection *parserInspection = nullptr;
 };
 
 %union {
+  bool supplied;
   char *text;
   double number;
   class Expression *expr;
@@ -197,6 +198,10 @@ ParserInspection *parserInspection = nullptr;
 %type <ifelse> if_statement
 %type <ifelse> ifelse_statement
 %type <inst> single_module_instantiation
+%type <inst> module_call_header
+%type <umod> module_declaration_header
+%type <supplied> child_statement
+%type <expr> optional_native_attributes
 
 %type <expr> attribute_block
 %type <args> attribute_list
@@ -240,30 +245,11 @@ statement
               if ($1) scope_stack.top()->addModuleInst(std::shared_ptr<ModuleInstantiation>($1));
             }
         | assignment
-        | TOK_MODULE TOK_ID '(' parameters ')'
-            {
-              auto header = @1;
-              header.last_line = @5.last_line;
-              header.last_column = @5.last_column;
-              header.last_file = @5.last_file;
-              UserModule *newmodule = new UserModule($2, LOCD("module", header));
-              $<umod>$ = newmodule;
-              newmodule->parameters = *$4;
-              if (SourceProvenance::nativeSyntaxTable)
-                SourceProvenance::nativeSyntaxTable->record(*newmodule, SourceProvenance::SiteKind::ModuleDefinition, $2, *$4);
-              auto top = scope_stack.top();
-              scope_stack.push(newmodule->body);
-              top->addModule(std::shared_ptr<UserModule>(newmodule));
-              free($2);
-              delete $4;
-              $2 = nullptr;
-              $4 = nullptr;
-            }
-          statement
+        | module_declaration_header statement
             {
                 scope_stack.pop();
                 if (SourceProvenance::nativeSyntaxTable)
-                  SourceProvenance::nativeSyntaxTable->updateWhole(*$<umod>6, LOC(@$));
+                  SourceProvenance::nativeSyntaxTable->updateWhole(*$1, LOC(@$));
             }
         | TOK_FUNCTION TOK_ID '(' parameters ')' '=' expr ';'
             {
@@ -283,6 +269,32 @@ statement
 inner_input
         : /* empty */
         | inner_input statement
+        ;
+
+optional_native_attributes
+        : /* empty */ { $$ = nullptr; }
+        | attribute_block { $$ = $1; }
+        ;
+
+module_declaration_header
+        : optional_native_attributes TOK_MODULE TOK_ID '(' parameters ')'
+            {
+              auto header = $1 ? @1 : @2;
+              header.last_line = @6.last_line;
+              header.last_column = @6.last_column;
+              header.last_file = @6.last_file;
+              @$ = header;
+              $$ = new UserModule($3, LOCD("module", header));
+              $$->nativeAttributes = std::shared_ptr<const Expression>($1);
+              $$->parameters = *$5;
+              if (SourceProvenance::nativeSyntaxTable)
+                SourceProvenance::nativeSyntaxTable->record(*$$, SourceProvenance::SiteKind::ModuleDefinition, $3, *$5);
+              auto top = scope_stack.top();
+              scope_stack.push($$->body);
+              top->addModule(std::shared_ptr<UserModule>($$));
+              free($3);
+              delete $5;
+            }
         ;
 
 assignment
@@ -347,6 +359,7 @@ module_instantiation
             {
                 scope_stack.pop();
                 $$ = $<inst>2;
+                $$->childrenSupplied = $3;
                 if (SourceProvenance::nativeSyntaxTable) SourceProvenance::nativeSyntaxTable->updateWhole(*$$, LOC(@$));
             }
         | ifelse_statement
@@ -398,11 +411,12 @@ child_statements
         ;
 
 child_statement
-        : ';'
-        | '{' child_statements '}'
+        : ';' { $$ = false; }
+        | '{' child_statements '}' { $$ = true; }
         | module_instantiation
             {
                 if ($1) scope_stack.top()->addModuleInst(std::shared_ptr<ModuleInstantiation>($1));
+                $$ = true;
             }
         ;
 
@@ -421,11 +435,26 @@ module_id
         ;
 
 single_module_instantiation
+        : module_call_header
+            {
+                $$ = $1;
+                if (SourceProvenance::nativeSyntaxTable)
+                  SourceProvenance::nativeSyntaxTable->record(*$$, SourceProvenance::SiteKind::ModuleCall, $$->name(), $$->arguments);
+            }
+        | attribute_block module_call_header
+            {
+                $$ = $2;
+                $$->nativeAttributes = std::shared_ptr<const Expression>($1);
+                $$->setLocation(LOCD("modulecall", @$));
+                if (SourceProvenance::nativeSyntaxTable)
+                  SourceProvenance::nativeSyntaxTable->record(*$$, SourceProvenance::SiteKind::ModuleCall, $$->name(), $$->arguments);
+            }
+        ;
+
+module_call_header
         : module_id '(' arguments ')'
             {
                 $$ = new ModuleInstantiation($1, *$3, LOCD("modulecall", @$));
-                if (SourceProvenance::nativeSyntaxTable)
-                  SourceProvenance::nativeSyntaxTable->record(*$$, SourceProvenance::SiteKind::ModuleCall, $1, *$3);
                 free($1);
                 delete $3;
             }

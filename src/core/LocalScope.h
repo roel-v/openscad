@@ -54,6 +54,9 @@ public:
   {
     return modules;
   }
+  const std::vector<std::pair<std::string, std::shared_ptr<UserModule>>>& getModuleDeclarations() const {
+    return astModules;
+  }
 
 private:
   // Modules and functions are stored twice; once for lookup and once for AST serialization

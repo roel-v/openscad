@@ -125,6 +125,7 @@ std::shared_ptr<AbstractNode> UserModule::instantiate(
 void UserModule::print(std::ostream& stream, const std::string& indent) const
 {
   std::string tab;
+  if (nativeAttributes) stream << indent << *nativeAttributes << "\n";
   if (!this->name.empty()) {
     stream << indent << "module " << this->name << "(";
     for (size_t i = 0; i < this->parameters.size(); ++i) {

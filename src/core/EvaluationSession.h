@@ -18,6 +18,7 @@ class Value;
 class ContextFrame;
 namespace SourceProvenance { class ProvenanceCollector; }
 namespace Design { class Collector; struct Payload; }
+namespace Semantic { class Collector; }
 
 enum class NativeCapability { ExternalInput, FontInput, UnseededRandom, ExternalCallback };
 class EvaluationCapabilityError : public std::runtime_error {
@@ -33,6 +34,7 @@ public:
   void requireCapability(NativeCapability capability) const { if (capabilityGuard) capabilityGuard(capability); }
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}
   std::shared_ptr<Design::Collector> designCollector;
+  std::shared_ptr<Semantic::Collector> semanticCollector;
   // Evaluation-local, move-owned consumer data; no borrowed native Context is retained.
   std::map<std::string, std::shared_ptr<Design::Payload>> consumerStates;
 

@@ -1066,6 +1066,14 @@ set(CORE_SOURCES
   src/core/providers/ContentDigest.cc
   src/core/providers/ProviderRegistry.cc
   src/core/providers/ScadFragmentWriter.cc
+  src/core/semantic/SemanticKinds.cc
+  src/core/semantic/SemanticScene.cc
+  src/core/semantic/SemanticPlacement.cc
+  src/core/semantic/SemanticEvaluation.cc
+  src/core/semantic/SemanticTargets.cc
+  src/core/semantic/SemanticVisibility.cc
+  src/core/semantic/SemanticSourceEdits.cc
+  src/core/semantic/SemanticCollector.cc
   src/Feature.cc
   src/glview/ClippingState.cc
   src/FontCache.cc
@@ -1415,6 +1423,13 @@ set(GUI_SOURCES
   src/gui/clipping/SectionManipulator.cc
   src/gui/clipping/ClippingController.cc
   src/gui/clipping/ClippingDock.cc
+  src/gui/ExportOptions.cc
+  src/gui/semantic/SemanticExportJob.cc
+  src/gui/semantic/SemanticTargetService.cc
+  src/gui/semantic/ModelTreeModel.cc
+  src/gui/semantic/SemanticMeshJob.cc
+  src/gui/semantic/SemanticController.cc
+  src/gui/semantic/SemanticParameterPanel.cc
   src/gui/selection/EvaluationBinding.cc
   src/gui/source/EditorUndoRegistry.cc
   src/gui/design/DesignEdits.cc
@@ -1495,7 +1510,9 @@ set(GUI_SOURCES
   src/gui/ScadApi.cc
   src/gui/ScadLexer.cc
   src/gui/ScintillaEditor.cc
+  src/gui/source/EditorUndoRegistry.cc
   src/gui/source/SourceEditTransaction.cc
+  src/gui/source/EditorUndoRegistry.h
   src/gui/source/SourceEditTransaction.h
   src/gui/source/DiskSourceState.cc
   src/gui/source/DiskSourceState.h
@@ -1731,6 +1748,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestInspectionDraft.h
     src/guitests/TestSelection.h
     src/guitests/TestProvenance.h
+    src/guitests/TestSemanticHierarchy.h
     src/guitests/UXTest.h
   )
 
@@ -1749,6 +1767,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestInspectionDraft.cc
     src/guitests/TestSelection.cc
     src/guitests/TestProvenance.cc
+    src/guitests/TestSemanticHierarchy.cc
     src/guitests/UXTest.cc
   )
 

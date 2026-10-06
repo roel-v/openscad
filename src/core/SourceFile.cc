@@ -42,6 +42,7 @@
 #include "core/EvaluationSession.h"
 #include "core/EvaluationInputs.h"
 #include "core/design/DesignCollector.h"
+#include "core/semantic/SemanticCollector.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFileCache.h"
 #include "core/StatCache.h"
@@ -191,6 +192,23 @@ std::shared_ptr<AbstractNode> SourceFile::instantiate(
   auto node = std::make_shared<RootNode>();
   if (!context->session()->designCollector)
     context->session()->designCollector = std::make_shared<Design::Collector>(nativeEvaluationInputs, EvaluationInputs::fileKey(getFullpath()));
+  if (!context->session()->semanticCollector)
+    context->session()->semanticCollector = std::make_shared<Semantic::Collector>(*context->session());
+  auto semantic = context->session()->semanticCollector;
+  semantic->discover(*this);
+  auto validateSemantic = [&]() {
+    auto scene = semantic->finish();
+    if (!scene->valid()) {
+      for (const auto& diagnostic : scene->diagnostics)
+        LOG(message_group::Error, "Semantic %1$s: %2$s [%3$s]", diagnostic.code, diagnostic.message,
+            diagnostic.source ? diagnostic.source->fileKey : getFullpath());
+      *resulting_file_context = nullptr;
+      return false;
+    }
+    return true;
+  };
+  if (!validateSemantic()) return nullptr;
+  bool failedEvaluation = false;
   try {
     ContextHandle<FileContext> file_context{Context::create<FileContext>(context, this)};
     *resulting_file_context = *file_context;
@@ -200,7 +218,11 @@ std::shared_ptr<AbstractNode> SourceFile::instantiate(
   } catch (EvaluationException& e) {
     // LOG(message_group::NONE,,e.what()); //please output the message before throwing the exception
     *resulting_file_context = nullptr;
+    failedEvaluation = true;
   }
+  if (failedEvaluation && semantic->finish()->marked) return nullptr;
+  if (!validateSemantic()) return nullptr;
+  if (!semantic->finalize(node)) { validateSemantic(); return nullptr; }
   return node;
 }
 

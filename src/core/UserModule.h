@@ -45,6 +45,7 @@ public:
   static int stack_size() { return StaticModuleNameStack::size(); }
 
   std::string name;
+  std::shared_ptr<const Expression> nativeAttributes;
   AssignmentList parameters;
   const std::shared_ptr<LocalScope> body;
 };

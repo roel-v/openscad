@@ -26,6 +26,7 @@
 
 #include "openscad.h"
 #include "core/EvaluationInputs.h"
+#include "core/provenance/ProvenanceCollector.h"
 #include "core/SourceFileCache.h"
 
 #include "version.h"
@@ -392,7 +393,7 @@ Camera get_camera(const po::variables_map& vm)
 }
 
 int do_export(const CommandLine& cmd, const RenderVariables& render_variables, FileFormat export_format,
-              SourceFile *root_file)
+              SourceFile *root_file, const std::shared_ptr<const SourceProvenance::SyntaxTable>& syntax)
 {
   auto filename_str = fs::path(cmd.output_file).generic_string();
   // Avoid possibility of fs::absolute throwing when passed an empty path
@@ -403,6 +404,7 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
   fs::current_path(fparent);
 
   EvaluationSession session{fparent.string()};
+  session.provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(syntax);
   ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
   render_variables.applyToContext(builtin_context);
 
@@ -431,6 +433,7 @@ int do_export(const CommandLine& cmd, const RenderVariables& render_variables, F
 
   // restore CWD after module instantiation finished
   fs::current_path(cmd.original_path);
+  if (!absolute_root_node) return 1;
 
   // Do we have an explicit root node (! modifier)?
   std::shared_ptr<const AbstractNode> root_node;
@@ -588,7 +591,7 @@ int cmdline(const CommandLine& cmd)
   if (cmd.is_stdin) {
     text = std::string((std::istreambuf_iterator<char>(std::cin)), std::istreambuf_iterator<char>());
   } else {
-    std::ifstream ifs(std::filesystem::u8path(cmd.filename));
+    std::ifstream ifs(std::filesystem::u8path(cmd.filename), std::ios::binary);
     if (!ifs.is_open()) {
       LOG("Can't open input file '%1$s'!\n", cmd.filename);
       return 1;
@@ -617,9 +620,11 @@ int cmdline(const CommandLine& cmd)
   text += "\n\x03\n" + commandline_commands;
 
   SourceFile *root_file = nullptr;
-  EvaluationInputs designInputs(SourceInput{cmd.is_stdin ? "session:stdin" : EvaluationInputs::fileKey(std::filesystem::u8path(cmd.filename)), text, {}, {}, {}});
-  SourceFileCache designLibraries(&designInputs);
-  NativeEvaluationScope designInputScope(designInputs, designLibraries);
+  auto designInputs = std::make_shared<EvaluationInputs>(SourceInput{cmd.is_stdin ? "session:stdin" : EvaluationInputs::fileKey(std::filesystem::u8path(cmd.filename)), text, {}, {}, {}});
+  SourceFileCache designLibraries(designInputs.get());
+  NativeEvaluationScope designInputScope(*designInputs, designLibraries);
+  auto designSyntax = std::make_shared<SourceProvenance::SyntaxTable>(designInputs);
+  SourceProvenance::ParseScope designSpans(designSyntax.get());
   if (!parse(root_file, text, cmd.filename, cmd.filename, false)) {
     delete root_file;  // parse failed
     root_file = nullptr;
@@ -659,7 +664,7 @@ int cmdline(const CommandLine& cmd)
 
   if (cmd.animate.frames == 0) {
     render_variables.time = 0;
-    return do_export(cmd, render_variables, export_format, root_file);
+    return do_export(cmd, render_variables, export_format, root_file, designSyntax);
   } else {
     // export the requested number of animated frames
     const unsigned start_frame = ((cmd.animate.shard - 1) * cmd.animate.frames) / cmd.animate.num_shards;
@@ -682,7 +687,7 @@ int cmdline(const CommandLine& cmd)
       CommandLine frame_cmd = cmd;
       frame_cmd.output_file = frame_str;
 
-      int const r = do_export(frame_cmd, render_variables, export_format, root_file);
+      int const r = do_export(frame_cmd, render_variables, export_format, root_file, designSyntax);
       if (r != 0) {
         return r;
       }

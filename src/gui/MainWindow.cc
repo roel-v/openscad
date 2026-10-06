@@ -41,6 +41,7 @@
 #include "core/provenance/ProvenanceCollector.h"
 #include "gui/selection/ProvenanceService.h"
 #include "core/design/DesignCollector.h"
+#include "core/semantic/SemanticCollector.h"
 
 #include <sys/stat.h>
 
@@ -150,6 +151,8 @@
 #include "gui/ai/AIDock.h"
 #include "gui/Editor.h"
 #include "gui/Export3mfDialog.h"
+#include "gui/ExportOptions.h"
+#include "gui/semantic/SemanticController.h"
 #include "gui/ExportPdfDialog.h"
 #include "gui/ExportSvgDialog.h"
 #include "gui/ExternalToolInterface.h"
@@ -333,6 +336,7 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   inspectionPresentation = new InspectionPresentationController(this);
   inspectorDock = new Selection::InspectorDock(this);
   new SourceProvenance::ProvenanceService(this);
+  semanticController = new Semantic::Controller(this);
   Design::SavedViewContribution::forWindow(*this);
   Clipping::Controller::forWindow(*this);
   setupDocks();
@@ -671,6 +675,8 @@ MainWindow::~MainWindow()
   // destruction can trigger another window's freshness checks.
   scadApp->windowManager.remove(this);
   viewportTools->cancel(viewportTools->active(),Selection::CancelReason::OwnerDestroyed);
+  delete semanticController;
+  semanticController = nullptr;
   delete SourceProvenance::ProvenanceService::forWindow(this);
   for(auto *child:children())if(auto *service=dynamic_cast<Clipping::Controller *>(child))delete service;
   for(auto *child:children())if(auto *service=dynamic_cast<Design::SavedViewContribution *>(child))delete service;
@@ -1161,6 +1167,7 @@ void MainWindow::instantiateRoot()
       this->tree.setRoot(this->rootNode);
       evaluationInputs->freeze();
       auto scene = std::make_shared<Selection::EvaluatedScene>();
+      scene->semantic = evaluationBacking->session->semanticCollector->finish();
       scene->backing = evaluationBacking;
       scene->designObjects = evaluationBacking->session->designCollector->finish();
       scene->inputs = evaluationInputs;
@@ -2745,21 +2752,11 @@ void MainWindow::actionExportFileFormat(int fmt)
 
   switch (format) {
   case FileFormat::PDF: {
-    ExportPdfDialog exportPdfDialog;
-    if (exportPdfDialog.exec() == QDialog::Rejected) {
-      return;
-    }
-
-    exportInfo.optionsPdf = exportPdfDialog.getOptions();
+    if (!configureGeometryExportOptions(format, exportInfo)) return;
     actionExport(2, exportInfo);
   } break;
   case FileFormat::_3MF: {
-    Export3mfDialog export3mfDialog;
-    if (export3mfDialog.exec() == QDialog::Rejected) {
-      return;
-    }
-
-    exportInfo.options3mf = export3mfDialog.getOptions();
+    if (!configureGeometryExportOptions(format, exportInfo)) return;
     actionExport(3, exportInfo);
   } break;
   case FileFormat::CSG: {

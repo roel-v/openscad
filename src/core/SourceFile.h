@@ -28,6 +28,7 @@ public:
   std::time_t includesChanged() const;
   std::time_t handleDependencies(bool is_root = true);
   bool hasIncludes() const { return !this->includes.empty(); }
+  const std::unordered_map<std::string, std::string>& getIncludes() const { return includes; }
   bool usesLibraries() const { return !this->usedlibs.empty(); }
   bool isHandlingDependencies() const { return this->is_handling_dependencies; }
   void clearHandlingDependencies() { this->is_handling_dependencies = false; }

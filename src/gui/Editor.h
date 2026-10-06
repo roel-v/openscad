@@ -19,12 +19,13 @@ class EditorInterface : public QWidget
 {
   Q_OBJECT
 public:
-  bool hasViewChanges() const;
   EditorInterface(QWidget *parent);
   AgentAnnotations::Store *annotations;
   QString sourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash({}));
+  quint64 sourceRevision = 0;
   virtual void appendAnnotationUndo(int token) = 0;
   virtual void undoFromAnnotations(bool redo) = 0;
+  bool hasViewChanges() const;
   QSize sizeHint() const override
   {
     QSize size;

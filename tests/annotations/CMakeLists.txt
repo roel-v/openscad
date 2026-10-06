@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(OpenSCADAnnotationTests LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 find_package(Qt6 REQUIRED COMPONENTS Widgets Test Network)
 find_package(libzip CONFIG REQUIRED)
 enable_testing()
@@ -12,6 +13,7 @@ target_sources(annotation-store-tests PRIVATE ../../src/gui/annotations/Annotati
 target_link_libraries(annotation-store-tests PRIVATE Qt6::Widgets Qt6::Test libzip::zip)
 add_test(NAME annotation-store COMMAND annotation-store-tests)
 add_executable(annotation-transport-tests TransportTest.cc
+  ../../src/gui/annotations/agent_api.qrc
   ../../src/gui/annotations/AnnotationTransport.cc
   ../../src/gui/annotations/AnnotationTransport.h
   ../../src/gui/annotations/AnnotationStore.cc

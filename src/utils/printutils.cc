@@ -1,4 +1,5 @@
 #include "utils/printutils.h"
+#include "utils/ScopedOutput.h"
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/predicate.hpp>
@@ -39,6 +40,43 @@ bool no_throw;
 bool deferred;
 
 }  // namespace
+
+struct ScopedOutput::State {
+  OutputHandlerFunc *handler = outputhandler;
+  OutputHandlerFunc2 *handler2 = outputhandler2;
+  void *data = outputhandler_data;
+  bool oldQuiet = OpenSCAD::quiet, oldHard = OpenSCAD::hardwarnings;
+  bool oldNoThrow = no_throw, oldDeferred = deferred;
+  decltype(printedDeprecations) deprecations = std::move(printedDeprecations);
+  decltype(print_messages_stack) messages = std::move(print_messages_stack);
+  decltype(log_messages_stack) logs = std::move(log_messages_stack);
+  decltype(lastmessages) last = lastmessages;
+  decltype(lastlogmessages) lastlog = lastlogmessages;
+};
+ScopedOutput::ScopedOutput(void (*handler)(const Message&, void *), void *data)
+  : state(std::make_unique<State>())
+{
+  set_output_handler(handler, nullptr, data);
+  OpenSCAD::quiet = OpenSCAD::hardwarnings = no_throw = deferred = false;
+  printedDeprecations.clear();
+  print_messages_stack.clear();
+  log_messages_stack.clear();
+  lastmessages.clear();
+  lastlogmessages.clear();
+}
+ScopedOutput::~ScopedOutput()
+{
+  set_output_handler(state->handler, state->handler2, state->data);
+  OpenSCAD::quiet = state->oldQuiet;
+  OpenSCAD::hardwarnings = state->oldHard;
+  no_throw = state->oldNoThrow;
+  deferred = state->oldDeferred;
+  printedDeprecations = std::move(state->deprecations);
+  print_messages_stack = std::move(state->messages);
+  log_messages_stack = std::move(state->logs);
+  lastmessages = std::move(state->last);
+  lastlogmessages = std::move(state->lastlog);
+}
 
 void set_output_handler(OutputHandlerFunc *newhandler, OutputHandlerFunc2 *newhandler2, void *userdata)
 {

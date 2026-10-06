@@ -41,6 +41,7 @@
 #include "core/ModuleInstantiation.h"
 #include "core/Assignment.h"
 #include "core/Expression.h"
+#include "core/ParserInspection.h"
 #include "core/function.h"
 #include "io/fileutils.h"
 #include "utils/printutils.h"
@@ -83,6 +84,7 @@ static fs::path mainFilePath;
 static bool parsingMainFile;
 
 bool fileEnded=false;
+ParserInspection *parserInspection = nullptr;
 %}
 
 %initial-action
@@ -169,6 +171,9 @@ bool fileEnded=false;
 %debug
 %locations
 
+%destructor { free($$); } <text>
+%destructor { delete $$; } <expr> <vec> <inst> <ifelse> <arg> <args>
+
 %%
 
 input
@@ -199,6 +204,8 @@ statement
               top->addModule(std::shared_ptr<UserModule>(newmodule));
               free($2);
               delete $4;
+              $2 = nullptr;
+              $4 = nullptr;
             }
           statement
             {
@@ -249,8 +256,13 @@ module_instantiation
             }
         | '*' module_instantiation
             {
-                delete $2;
-                $$ = NULL;
+                if (parserInspection) {
+                  $$ = $2;
+                  if ($$) $$->tag_disabled = true;
+                } else {
+                  delete $2;
+                  $$ = NULL;
+                }
             }
         | single_module_instantiation
             {
@@ -285,10 +297,11 @@ ifelse_statement
         ;
 
 if_statement
-        : TOK_IF '(' expr ')'
+        : TOK_IF '(' expr ')' <ifelse>
             {
-                $<ifelse>$ = new IfElseModuleInstantiation(std::shared_ptr<Expression>($3), LOCD("if", @$));
-                scope_stack.push($<ifelse>$->scope);
+                $$ = new IfElseModuleInstantiation(std::shared_ptr<Expression>($3), LOCD("if", @$));
+                $3 = nullptr;
+                scope_stack.push($$->scope);
             }
           child_statement
             {
@@ -713,7 +726,18 @@ argument
 
 int parserlex(void)
 {
-  return lexerlex();
+  const int token = lexerlex();
+  if (parserInspection) {
+    if (token == '(' || token == '[' || token == '{') ++parserInspection->nesting;
+    if (token == ')' || token == ']' || token == '}') --parserInspection->nesting;
+    if (++parserInspection->tokens > 8192 || parserInspection->nesting > 256 ||
+        !parserInspection->alive()) parserInspection->failed = true;
+    if (parserInspection->failed) {
+      if (token == TOK_ID || token == TOK_STRING || token == TOK_USE) free(parserlval.text);
+      return TOK_ERROR;
+    }
+  }
+  return token;
 }
 
 void yyerror (char const *s)
@@ -756,6 +780,8 @@ static void warn_reassignment(const Location& loc, const std::shared_ptr<Assignm
 
 void handle_assignment(const std::string token, Expression *expr, const Location loc)
 {
+	const auto parsedExpression = std::shared_ptr<Expression>(expr);
+	if (parserInspection) scope_stack.top()->syntaxOrder.push_back(assignment(token, parsedExpression, loc));
 	bool found = false;
 	for (auto &assignment : scope_stack.top()->assignments) {
 		if (assignment->getName() == token) {
@@ -780,14 +806,14 @@ void handle_assignment(const std::string token, Expression *expr, const Location
 				//assignment from the mainFile overwritten by an include
 				warn_reassignment(loc, assignment, mainFilePath, uncPathPrev);
 			}
-			assignment->setExpr(std::shared_ptr<Expression>(expr));
+			assignment->setExpr(parsedExpression);
 			assignment->setLocationOfOverwrite(loc);
 			found = true;
 			break;
 		}
 	}
 	if (!found) {
-		scope_stack.top()->addAssignment(assignment(token, std::shared_ptr<Expression>(expr), loc));
+		scope_stack.top()->addAssignment(assignment(token, parsedExpression, loc));
 	}
 }
 
@@ -843,4 +869,50 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
   assert(scope_stack.size()==0);
 
   return true;
+}
+
+bool parseInspection(SourceFile *&file, const std::string& text, const std::string& filename,
+                     ParserInspection& inspection)
+{
+  // A native parser frame cannot be suspended. The caller must hold the GUI compile lock.
+  if (parserInspection || !scope_stack.empty()) return false;
+  extern std::function<void()> preserveLexerInspectionState();
+  const auto restoreLexer = preserveLexerInspectionState();
+  const auto oldRoot = rootfile;
+  const auto oldPath = mainFilePath;
+  const auto oldMain = parsingMainFile;
+  const auto oldEnded = fileEnded;
+  const auto oldInput = parser_input_buffer;
+  const auto oldLexerIn = lexerin;
+  const auto oldError = parser_error_pos;
+  const auto oldDebug = parserdebug;
+  const auto oldLocation = parserlloc;
+  auto restore = [&] {
+    lexerdestroy();
+    lexerlex_destroy();
+    scope_stack = {};
+    rootfile = oldRoot;
+    mainFilePath = oldPath;
+    parsingMainFile = oldMain;
+    fileEnded = oldEnded;
+    parser_input_buffer = oldInput;
+    lexerin = oldLexerIn;
+    parser_error_pos = oldError;
+    parserdebug = oldDebug;
+    parserlloc = oldLocation;
+    parserInspection = nullptr;
+    restoreLexer();
+  };
+  parserInspection = &inspection;
+  file = nullptr;
+  bool success = false;
+  try {
+    success = parse(file, text, filename, filename, 0) && !inspection.failed;
+  } catch (...) {
+    if (rootfile != oldRoot) file = rootfile;
+    restore();
+    throw;
+  }
+  restore();
+  return success;
 }

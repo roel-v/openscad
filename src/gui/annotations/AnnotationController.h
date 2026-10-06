@@ -4,6 +4,9 @@
 #include "glview/Camera.h"
 #include <QPointer>
 #include <QTimer>
+#include <QMutex>
+#include <QElapsedTimer>
+#include <QJsonArray>
 #include <functional>
 #include <memory>
 #include <map>
@@ -17,6 +20,7 @@ class QListWidget;
 class QLineEdit;
 class QDialog;
 class Renderer;
+struct Message;
 
 namespace AgentAnnotations {
 class Controller : public QObject
@@ -41,11 +45,21 @@ public:
   QJsonObject status() const;
   QJsonObject camera() const;
   bool setCamera(const QJsonObject& camera, QString *error);
+  bool cameraOperation(const QJsonObject& operation, QString *error);
+  QString viewRevision() const;
+  QJsonObject savedViews() const;
+  QJsonObject savedViewOperation(const QString& action, const QString& id, const QJsonObject& request, QString *error);
+  void cancelCapture() { finishFrame("Agent access stopped."); }
   void capture(const QString& expectedResult,
                std::function<void(QJsonObject, QByteArray, QString)> done);
   void setAccessWidget(QWidget *widget);
+  QJsonObject diagnosticContext() const;
+  void observeDiagnostic(const Message& message, const QJsonObject& context);
+  QJsonObject inspection(const QString& document) const;
+  void pruneInspection();
 signals:
   void changed();
+  void cameraStateChanged();
 
 private:
   enum State { Idle, DrawingState, Capturing, Comment } state = Idle;
@@ -58,6 +72,10 @@ private:
   QPointer<EditorInterface> displayedOwner, evaluationOwner, draftOwner;
   QPointer<QDialog> commentDialog;
   QJsonObject result, evaluation, lastAttempt, draftResult;
+  mutable QMutex contextMutex;
+  QJsonObject messageContext;
+  QHash<QString, QJsonArray> attemptHistory, resultHistory, diagnosticHistory;
+  QElapsedTimer evaluationTimer;
   struct Installed {
     std::weak_ptr<Renderer> renderer;
     QPointer<EditorInterface> owner;
@@ -65,6 +83,8 @@ private:
   };
   std::map<Renderer *, Installed> installed;
   quint64 generation = 0, draftToken = 0, captureToken = 0;
+  mutable quint64 viewGeneration = 0;
+  mutable QJsonObject observedView;
   Drawing drawing;
   QColor color = QColor("#ffcf33");
   Camera lockedCamera;

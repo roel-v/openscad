@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OpenSCAD agent API v1 records",
+  "description": "Wire contracts; capability discovery controls which records/operations are implemented.",
+  "$defs": {
+    "uuid": {"type": "string", "format": "uuid"},
+    "sourceSpan": {
+      "type": ["object", "null"],
+      "properties": {
+        "path": {"type": "string"},
+        "first_line": {"type": "integer", "minimum": 1},
+        "first_column": {"type": "integer", "minimum": 1},
+        "last_line": {"type": "integer", "minimum": 1},
+        "last_column": {"type": "integer", "minimum": 1},
+        "column_units": {"const": "utf8_bytes"},
+        "end_exclusive": {"const": true}
+      }
+    },
+    "sourceSnapshot": {
+      "type": "object",
+      "required": ["snapshot_id", "document_id", "origin", "path", "source_revision", "source_sha256", "normalization"],
+      "properties": {
+        "snapshot_id": {"$ref": "#/$defs/uuid"},
+        "document_id": {"$ref": "#/$defs/uuid"},
+        "origin": {"enum": ["disk", "editor"]},
+        "path": {"type": "string"},
+        "source_revision": {"type": "string"},
+        "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "disk_sha256": {"type": ["string", "null"]},
+        "normalization": {"const": "utf8_lf"},
+        "text": {"type": "string"},
+        "next_cursor": {"type": ["string", "null"]}
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["message", "severity", "scope", "location"],
+      "properties": {
+        "message": {"type": "string"},
+        "severity": {"enum": ["error", "warning", "info", "echo", "trace"]},
+        "scope": {"enum": ["parse", "evaluation", "global"]},
+        "attempt_id": {"type": ["string", "null"]},
+        "parse_id": {"type": ["string", "null"]},
+        "location": {"$ref": "#/$defs/sourceSpan"}
+      }
+    },
+    "tree": {
+      "type": "object",
+      "required": ["tree_id", "kind", "document_id", "root_ids", "complete"],
+      "properties": {
+        "tree_id": {"$ref": "#/$defs/uuid"},
+        "kind": {"enum": ["syntax", "evaluated"]},
+        "document_id": {"$ref": "#/$defs/uuid"},
+        "snapshot_id": {"type": ["string", "null"]},
+        "attempt_id": {"type": ["string", "null"]},
+        "result_id": {"type": ["string", "null"]},
+        "root_ids": {"type": "array", "items": {"type": "string"}},
+        "complete": {"type": "boolean"},
+        "omission_reason": {"type": ["string", "null"]}
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["tree_id", "node_id", "kind", "name", "location", "attributes", "children", "complete"],
+      "properties": {
+        "tree_id": {"$ref": "#/$defs/uuid"},
+        "node_id": {"type": "string"},
+        "kind": {"type": "string"},
+        "name": {"type": "string"},
+        "location": {"$ref": "#/$defs/sourceSpan"},
+        "attributes": {"type": "object"},
+        "children": {"type": "array", "items": {
+          "type": "object", "required": ["role", "node_id"],
+          "properties": {"role": {"type": "string"}, "node_id": {"type": "string"}}
+        }},
+        "complete": {"type": "boolean"},
+        "next_cursor": {"type": ["string", "null"]}
+      }
+    },
+    "camera": {
+      "type": "object",
+      "required": ["translation", "rotation", "distance", "fov", "projection"],
+      "properties": {
+        "translation": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+        "rotation": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "number"}},
+        "distance": {"type": "number", "exclusiveMinimum": 0, "maximum": 1000000000000},
+        "fov": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 180},
+        "projection": {"enum": ["orthographic", "perspective"]}
+      }
+    },
+    "savedView": {
+      "type": "object",
+      "required": ["id", "name", "camera"],
+      "properties": {
+        "id": {"$ref": "#/$defs/uuid"},
+        "name": {"type": "string"},
+        "camera": {"$ref": "#/$defs/camera"}
+      }
+    },
+    "savedViewsPage": {
+      "type": "object",
+      "required": ["available", "document_id", "views", "next_cursor"],
+      "properties": {
+        "available": {"type": "boolean"},
+        "document_id": {"$ref": "#/$defs/uuid"},
+        "window_id": {"$ref": "#/$defs/uuid"},
+        "viewport_id": {"$ref": "#/$defs/uuid"},
+        "library_revision": {"type": "string"},
+        "dirty": {"type": "boolean"},
+        "problem": {"type": "string"},
+        "reason": {"type": "string"},
+        "views": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/savedView"}},
+        "next_cursor": {"type": ["string", "null"]}
+      },
+      "if": {"properties": {"available": {"const": true}}},
+      "then": {"required": ["window_id", "viewport_id", "library_revision", "dirty", "problem"]}
+    },
+    "capture": {
+      "type": "object",
+      "required": ["document_id", "camera", "width", "height", "dpr", "png_sha256", "image_route", "png_bytes", "view_revision", "capture_policy"],
+      "properties": {
+        "document_id": {"$ref": "#/$defs/uuid"},
+        "camera": {"$ref": "#/$defs/camera"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "dpr": {"type": "number", "exclusiveMinimum": 0},
+        "png_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "image_route": {"type": "string", "pattern": "^/v1/"},
+        "png_bytes": {"type": "integer", "minimum": 0, "maximum": 33554432},
+        "view_revision": {"type": "string"},
+        "displayed_result_id": {"type": ["string", "null"]},
+        "capture_policy": {"type": "string"}
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "required": ["request_id", "server_id", "state", "execution_started", "status_route"],
+      "properties": {
+        "request_id": {"$ref": "#/$defs/uuid"},
+        "server_id": {"$ref": "#/$defs/uuid"},
+        "status_route": {"type": "string", "pattern": "^/v1/requests/"},
+        "poll_after_ms": {"type": "integer", "minimum": 1},
+        "state": {"enum": ["queued", "running", "succeeded", "failed", "cancelled", "expired"]},
+        "execution_started": {"type": "boolean"},
+        "terminal_state": {"type": "string"},
+        "result": {"type": "object"},
+        "error": {"type": "string"}
+      }
+    }
+  }
+}

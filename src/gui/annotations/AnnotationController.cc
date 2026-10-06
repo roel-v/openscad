@@ -1,11 +1,14 @@
 #include "AnnotationController.h"
 #include "AnnotationBridge.h"
+#include "AgentModel.h"
 #include "gui/Animate.h"
 #include "gui/Dock.h"
 #include "gui/Editor.h"
 #include "gui/MainWindow.h"
 #include "gui/QGLView.h"
 #include "gui/Preferences.h"
+#include "gui/CameraNavigation.h"
+#include "gui/SavedViews.h"
 #include "glview/RenderSettings.h"
 #include "core/SourceFileCache.h"
 #include <QApplication>
@@ -30,6 +33,8 @@
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QUuid>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 #include <cmath>
 
 namespace AgentAnnotations {
@@ -230,6 +235,7 @@ Controller::Controller(MainWindow *mainWindow)
   originalUndoText = window->editActionUndo->text();
   connect(qApp, &QApplication::focusChanged, this, [this] { updateActions(); });
   connect(view, &QGLView::cameraChanged, this, [this] {
+    viewRevision();
     if (state == DrawingState) {
       if (drawing.marked()) view->cam = lockedCamera;
       else {
@@ -237,9 +243,11 @@ Controller::Controller(MainWindow *mainWindow)
         lockedCamera = view->cam;
       }
     }
-    emit changed();
+    emit cameraStateChanged();
   });
+  connect(view->navigation(), &CameraNavigation::displayChanged, this, [this] { viewRevision(); emit cameraStateChanged(); });
   connect(view, &QGLView::frameAboutToRender, this, [this] {
+    viewRevision();
     if (drafting() && display() != draftDisplay) {
       cancelDrawing();
       return;
@@ -295,6 +303,7 @@ void Controller::bindEditors()
   for (auto editor : window->tabManager->editorList) {
     if (editor->property("annotationControllerBound").toBool()) continue;
     editor->setProperty("annotationControllerBound", true);
+    connect(SavedViews::forEditor(editor), &SavedViews::changed, this, &Controller::changed);
     connect(editor->annotations, &Store::sessionChanged, this, [this, editor] {
       if (draftOwner == editor) cancelDrawing();
       if (owner() == editor) {
@@ -437,36 +446,152 @@ bool Controller::setCamera(const QJsonObject& value, QString *error)
   if (!std::isfinite(distance) || distance <= 0 || distance > 1e12 || !std::isfinite(fov) || fov <= 0 ||
       fov >= 180 || (projection != "orthographic" && projection != "perspective"))
     return fail("Invalid camera distance, FOV or projection.");
-  view->cam.setVpt(translation[0].toDouble(), translation[1].toDouble(), translation[2].toDouble());
-  view->cam.setVpr(rotation[0].toDouble(), rotation[1].toDouble(), rotation[2].toDouble());
-  view->cam.setVpd(distance);
-  view->cam.setVpf(fov);
-  view->cam.setProjection(projection == "orthographic" ? Camera::ProjectionType::ORTHOGONAL
+  auto native = view->cam;
+  native.setVpt(translation[0].toDouble(), translation[1].toDouble(), translation[2].toDouble());
+  native.setVpr(rotation[0].toDouble(), rotation[1].toDouble(), rotation[2].toDouble());
+  native.setVpd(distance);
+  native.setVpf(fov);
+  native.setProjection(projection == "orthographic" ? Camera::ProjectionType::ORTHOGONAL
                                                        : Camera::ProjectionType::PERSPECTIVE);
-  view->update();
+  if (!view->navigation()->permitted()) return fail("Native navigation is locked.");
+  view->navigation()->cancel();
+  view->navigation()->apply(CameraPose::from(native));
   emit changed();
   return true;
+}
+void trimHistory(QJsonArray& values, int count)
+{
+  while (values.size() > count || (!values.isEmpty() &&
+         QJsonDocument(values).toJson(QJsonDocument::Compact).size() > 512 * 1024)) values.removeFirst();
+}
+QJsonValue customizerContext(EditorInterface *editor)
+{
+  const auto values = editor ? editor->parameterWidget->annotationValues() : QJsonObject{};
+  if (QJsonDocument(values).toJson(QJsonDocument::Compact).size() > 65536) return QJsonValue::Null;
+  return values;
+}
+QString Controller::viewRevision() const
+{
+  auto state = camera();
+  state["width"] = view->width();
+  state["height"] = view->height();
+  state["dpr"] = view->devicePixelRatioF();
+  if (state != observedView) { observedView = state; ++viewGeneration; }
+  return QString::number(viewGeneration);
+}
+bool Controller::cameraOperation(const QJsonObject& operation, QString *error)
+{
+  if (busy() || QApplication::activeModalWidget()) { *error = "Viewport is busy."; return false; }
+  if (!view->navigation()->permitted()) { *error = "Native navigation is locked."; return false; }
+  const auto kind = operation.value("operation").toString("set");
+  if (kind == "set") return setCamera(operation.value("camera").toObject(), error);
+  if (kind == "projection") {
+    auto value = camera();
+    value["projection"] = operation.value("projection");
+    return setCamera(value, error);
+  }
+  auto native = view->cam;
+  if (kind == "fit") {
+    if (view->getRenderer()) { native.autocenter = true; native.viewAll(view->getRenderer()->getBoundingBox()); }
+  }
+  else if (kind == "standard") {
+    const auto name = operation.value("view").toString();
+    if (name == "top") native.object_rot << 90, 0, 0;
+    else if (name == "bottom") native.object_rot << 270, 0, 0;
+    else if (name == "left") native.object_rot << 0, 0, 90;
+    else if (name == "right") native.object_rot << 0, 0, 270;
+    else if (name == "front") native.object_rot << 0, 0, 0;
+    else if (name == "back") native.object_rot << 0, 0, 180;
+    else if (name == "diagonal") native.object_rot << 35, 0, -25;
+    else { *error = "Unknown standard view."; return false; }
+  } else { *error = "Unknown camera operation."; return false; }
+  view->navigation()->cancel();
+  view->navigation()->apply(CameraPose::from(native));
+  emit changed();
+  return true;
+}
+QJsonObject Controller::savedViews() const
+{
+  auto editor = owner();
+  auto store = editor ? editor->findChild<SavedViews *>(QString(), Qt::FindDirectChildrenOnly) : nullptr;
+  if (!store) return {{"available", false}, {"reason", "No displayed saved-view library."}};
+  QJsonArray entries;
+  for (const auto& entry : store->entries()) {
+    Camera native = view->cam;
+    entry.camera.apply(native);
+    const auto rotation = native.getVpr(), translation = native.getVpt();
+    entries.append(QJsonObject{{"id", entry.id}, {"name", entry.name}, {"camera", QJsonObject{
+      {"rotation", QJsonArray{rotation.x(), rotation.y(), rotation.z()}},
+      {"translation", QJsonArray{translation.x(), translation.y(), translation.z()}},
+      {"distance", entry.camera.distance}, {"fov", entry.camera.fov},
+      {"projection", entry.camera.projection == Camera::ProjectionType::ORTHOGONAL ? "orthographic" : "perspective"}}}});
+  }
+  return {{"available", true}, {"document_id", editor->annotations->sessionId}, {"window_id", windowId},
+    {"viewport_id", viewportId}, {"library_revision", editor->annotations->sessionId + ":" + QString::number(store->revision())},
+    {"dirty", store->dirty()}, {"problem", store->problem()}, {"views", entries}};
+}
+QJsonObject Controller::savedViewOperation(const QString& action, const QString& id,
+                                          const QJsonObject& request, QString *error)
+{
+  const auto state = savedViews();
+  if (!owner() || !state.value("available").toBool() || state.value("library_revision") != request.value("expected_library_revision")) {
+    *error = "Saved-view library changed or is unavailable."; return {};
+  }
+  auto store = SavedViews::forEditor(owner());
+  if (!store->problem().isEmpty()) { *error = store->problem(); return {}; }
+  QString added;
+  if (action == "add") {
+    if (!view->navigation()->permitted()) { *error = "Native navigation is locked."; return {}; }
+    view->navigation()->cancel(); // Freeze the displayed transition camera, never its destination.
+    added = store->add(view->navigation()->current());
+    if (added.isEmpty()) { *error = "Native saved-view limit or invalid camera."; return {}; }
+  } else {
+    const auto entry = store->find(id);
+    if (!entry) { *error = "Saved view no longer exists."; return {}; }
+    if (action == "rename") store->rename(id, request.value("name").toString());
+    else if (action == "remove") store->remove(id);
+    else if (action == "recall") {
+      if (!view->navigation()->permitted()) { *error = "Native navigation is locked."; return {}; }
+      const auto pose = entry->camera;
+      view->navigation()->cancel();
+      view->navigation()->apply(pose);
+    } else { *error = "Unknown saved-view action."; return {}; }
+  }
+  auto response = savedViews();
+  response.remove("views");
+  response["views_route"] = "/v1/documents/" + owner()->annotations->sessionId + "/saved-views";
+  response["viewport"] = status();
+  if (!added.isEmpty()) response["added_id"] = added;
+  emit changed();
+  return response;
 }
 void Controller::beginEvaluation(const QString& source)
 {
   if (!evaluation.isEmpty()) {
-    evaluation["customizer"] =
-      evaluationOwner ? evaluationOwner->parameterWidget->annotationValues() : QJsonObject{};
+    evaluation["customizer"] = customizerContext(evaluationOwner);
     return;
   }
   if (drafting()) cancelDrawing();
   if (capturePending) finishFrame("Evaluation replaced the requested frame.");
   evaluationOwner = window->activeEditor;
+  evaluationTimer.start();
   evaluation = {
-    {"id", QString::number(++generation)},
+    {"attempt_id", windowId + ":" + QString::number(++generation)},
     {"document_id", evaluationOwner->annotations->sessionId},
     {"source_sha256", QString::fromLatin1(Store::hash(source.toUtf8()))},
     {"path", evaluationOwner->filepath},
     {"dependency_provenance", "unknown"},
     {"time", window->animateWidget->getAnimTval()},
     {"backend", QString::fromStdString(renderBackend3DToString(RenderSettings::inst()->backend3D))},
-    {"customizer", evaluationOwner->parameterWidget->annotationValues()},
+    {"customizer", customizerContext(evaluationOwner)},
     {"outcome", "evaluating"}};
+  evaluation["origin"] = "editor";
+  evaluation["source_revision"] = QString::number(evaluationOwner->sourceRevision);
+  {
+    QMutexLocker lock(&contextMutex);
+    messageContext = {{"attempt_id", evaluation.value("attempt_id")},
+      {"document_id", evaluation.value("document_id")}, {"scope", "evaluation"}};
+  }
   emit changed();
 }
 void Controller::finishEvaluation(bool success)
@@ -476,7 +601,39 @@ void Controller::finishEvaluation(bool success)
     return;
   }
   lastAttempt = evaluation;
+  lastAttempt["duration_ms"] = double(evaluationTimer.elapsed());
   lastAttempt["outcome"] = success ? (view->getRenderer() ? "installed" : "empty") : "failed";
+  if (success) {
+    lastAttempt["result_id"] = lastAttempt.value("attempt_id");
+    // Detach while both root SourceFile and cached library ModuleInstantiations are alive.
+    // Never recover mappings later from an old renderer's raw modinst pointers.
+    try {
+      auto tree = inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), lastAttempt);
+      if (Bridge::instance()->retainTree(tree)) {
+        lastAttempt["tree_id"] = tree.metadata.value("tree_id");
+        lastAttempt["tree_complete"] = tree.metadata.value("complete");
+        lastAttempt["instantiated_node_count"] = tree.metadata.value("node_count");
+        lastAttempt["dependencies"] = tree.metadata.value("dependencies");
+      } else lastAttempt["tree_unavailable_reason"] = "Inspection retention budget exceeded.";
+    } catch (const std::exception&) {
+      lastAttempt["tree_unavailable_reason"] = "Inspection could not serialize this result.";
+    }
+  }
+  const auto document = lastAttempt.value("document_id").toString();
+  auto& attempts = attemptHistory[document];
+  attempts.append(lastAttempt);
+  trimHistory(attempts, 64);
+  if (success) {
+    auto published = lastAttempt;
+    published["result_id"] = lastAttempt.value("attempt_id");
+    auto& results = resultHistory[document];
+    results.append(published);
+    trimHistory(results, 32);
+  }
+  {
+    QMutexLocker lock(&contextMutex);
+    messageContext = {};
+  }
   if (success || !view->getRenderer() || installed.find(view->getRenderer()) == installed.end()) {
     displayedOwner = evaluationOwner;
     result = lastAttempt;
@@ -494,6 +651,48 @@ void Controller::finishEvaluation(bool success)
   refresh();
   emit changed();
 }
+QJsonObject Controller::diagnosticContext() const
+{
+  QMutexLocker lock(&contextMutex);
+  return messageContext;
+}
+void Controller::observeDiagnostic(const Message& message, const QJsonObject& context)
+{
+  auto record = context;
+  record["scope"] = context.isEmpty() ? "global" : "evaluation";
+  record["message"] = QString::fromStdString(message.msg).left(8192);
+  const auto group = message.group;
+  record["severity"] = group == message_group::Error || group == message_group::Parser_Error || group == message_group::Export_Error || group == message_group::UI_Error ? "error" :
+    group == message_group::Warning || group == message_group::UI_Warning || group == message_group::Font_Warning || group == message_group::Export_Warning || group == message_group::Deprecated ? "warning" :
+    group == message_group::Echo ? "echo" : group == message_group::Trace ? "trace" : "info";
+  // Native columns are not yet verified for every lexer path. Never label them UTF-8 spans.
+  record["location"] = QJsonValue::Null;
+  record["native_location"] = QJsonObject{{"path", QString::fromStdString(message.loc.fileName())},
+    {"line", message.loc.firstLine()}, {"column", message.loc.firstColumn()}};
+  record["truncated"] = message.msg.size() > 8192;
+  auto& history = diagnosticHistory[context.value("document_id").toString()];
+  history.append(record);
+  trimHistory(history, 128);
+  emit changed();
+}
+QJsonObject Controller::inspection(const QString& document) const
+{
+  QJsonArray attempts = attemptHistory.value(document);
+  if (evaluation.value("document_id") == document) attempts.append(evaluation);
+  QJsonObject value{{"attempts", attempts}, {"results", resultHistory.value(document)},
+    {"diagnostics", diagnosticHistory.value(document)}, {"history_complete", false},
+    {"history_policy", "observed_only_bounded"}};
+  return value;
+}
+void Controller::pruneInspection()
+{
+  QSet<QString> live{QString()}; // Empty key is the bounded global-message history.
+  for (auto editor : editors()) live.insert(editor->annotations->sessionId);
+  for (auto history : {&attemptHistory, &resultHistory, &diagnosticHistory})
+    for (auto it = history->begin(); it != history->end();)
+      if (!live.contains(it.key())) it = history->erase(it);
+      else ++it;
+}
 void Controller::rendererChanged()
 {
   if (drafting()) cancelDrawing();
@@ -509,16 +708,25 @@ void Controller::rendererChanged()
 }
 QJsonObject Controller::status() const
 {
+  QJsonArray reasons;
+  if (drafting()) reasons.append("annotation_draft");
+  if (capturePending) reasons.append("capture");
+  if (!evaluation.isEmpty() || GuiLocker::isLocked()) reasons.append("native_evaluation");
+  if (QApplication::activeModalWidget()) reasons.append("modal_interaction");
   QJsonObject value{
     {"window_id", windowId},
     {"viewport_id", viewportId},
     {"document_id", owner() ? owner()->annotations->sessionId : ""},
     {"active_document_id", window->activeEditor ? window->activeEditor->annotations->sessionId : ""},
-    {"busy", busy()},
+    {"displayed_result_id", result.value("outcome") == "installed" || result.value("outcome") == "empty" ? result.value("result_id") : QJsonValue(QJsonValue::Null)},
+    {"busy", busy() || QApplication::activeModalWidget()},
+    {"busy_reasons", reasons},
     {"draft", drafting()},
     {"evaluation", evaluation.isEmpty() ? lastAttempt : evaluation},
     {"result", result},
     {"camera", camera()},
+    {"view_revision", viewRevision()},
+    {"capture_available", view->isVisible() && !window->isMinimized()},
     {"automatic_reload", window->designActionAutoReload->isChecked()},
     {"current_source_sha256", sourceHash(owner())},
     {"stale_source", owner() && result.value("source_sha256").toString() != sourceHash(owner())}};
@@ -689,27 +897,31 @@ void Controller::capture(const QString& expectedResult,
 void Controller::requestFrame(bool annotation, const QString& expectedResult,
                               std::function<void(QJsonObject, QByteArray, QString)> done)
 {
-  if (!owner() || capturePending ||
-      (!expectedResult.isEmpty() && result.value("id").toString() != expectedResult)) {
+  if (!owner() || capturePending || !view->isVisible() || window->isMinimized() ||
+      QApplication::activeModalWidget() ||
+      (!expectedResult.isEmpty() && result.value("result_id").toString() != expectedResult)) {
     done({}, {}, "Missing owner or stale result.");
     return;
   }
   capturePending = true;
+  view->navigation()->cancel();
   captureDone = std::move(done);
   const auto token = ++captureToken;
   QPointer<EditorInterface> target = owner();
   const auto session = target->annotations->sessionId;
   const auto boundResult = result, boundCamera = camera();
+  const auto boundView = viewRevision();
   const auto size = view->size();
   const auto dpr = view->devicePixelRatioF();
   frameConnection = connect(
     view, &QGLView::frameRendered, this,
-    [this, annotation, token, target, session, boundResult, boundCamera, size, dpr] {
+    [this, annotation, token, target, session, boundResult, boundCamera, boundView, size, dpr] {
       if (!capturePending || token != captureToken) return;
       disconnect(frameConnection);
       if (!target || target != owner() || target->annotations->sessionId != session ||
           result != boundResult || camera() != boundCamera || view->size() != size ||
-          view->devicePixelRatioF() != dpr || (!annotation && GuiLocker::isLocked())) {
+          view->devicePixelRatioF() != dpr || viewRevision() != boundView ||
+          (!annotation && (GuiLocker::isLocked() || QApplication::activeModalWidget()))) {
         finishFrame("Capture target changed.");
         return;
       }
@@ -722,13 +934,6 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
       if (annotation) {
         QPainter painter(&image);
         drawing.paint(painter, image.size(), dpr);
-      }
-      QByteArray png;
-      QBuffer buffer(&png);
-      buffer.open(QIODevice::WriteOnly);
-      if (!image.save(&buffer, "PNG") || png.size() > Store::MaxPng) {
-        finishFrame("Cannot encode viewport PNG within limits.");
-        return;
       }
       QJsonArray modelview, projection;
       for (int i = 0; i < 16; ++i) {
@@ -743,9 +948,11 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
         {"height", image.height()},
         {"dpr", dpr},
         {"camera", boundCamera},
+        {"view_revision", boundView},
+        {"displayed_result_id", boundResult.value("result_id")},
+        {"capture_policy", "model_only_without_guides_statistics_or_controls"},
         {"modelview", modelview},
         {"projection_matrix", projection},
-        {"png_sha256", QString::fromLatin1(Store::hash(png))},
         {"result", boundResult},
         {"document_id", target->annotations->sessionId},
         {"path", target->filepath},
@@ -753,12 +960,28 @@ void Controller::requestFrame(bool annotation, const QString& expectedResult,
         {"stale_source", sourceHash(target) != boundResult.value("source_sha256").toString()},
         {"strokes", annotation ? drawing.json() : QJsonArray{}},
         {"display", display()}};
-      captureTimeout.stop();
-      capturePending = false;
-      auto done = std::move(captureDone);
-      captureDone = {};
-      done(metadata, png, {});
-      emit changed();
+      auto watcher = new QFutureWatcher<QPair<QByteArray, QByteArray>>(this);
+      connect(watcher, &QFutureWatcher<QPair<QByteArray, QByteArray>>::finished, this,
+        [this, watcher, metadata, token]() mutable {
+          const auto encoded = watcher->result();
+          watcher->deleteLater();
+          if (!capturePending || token != captureToken) return;
+          if (encoded.first.isEmpty()) { finishFrame("Cannot encode viewport PNG within limits."); return; }
+          metadata["png_sha256"] = QString::fromLatin1(encoded.second);
+          captureTimeout.stop();
+          capturePending = false;
+          auto done = std::move(captureDone);
+          captureDone = {};
+          done(metadata, encoded.first, {});
+          emit changed();
+        });
+      watcher->setFuture(QtConcurrent::run([image = std::move(image)] {
+        QByteArray png;
+        QBuffer buffer(&png);
+        buffer.open(QIODevice::WriteOnly);
+        if (!image.save(&buffer, "PNG") || png.size() > Store::MaxPng) png.clear();
+        return qMakePair(png, Store::hash(png));
+      }));
     },
     Qt::QueuedConnection);
   captureTimeout.start();
@@ -791,7 +1014,7 @@ void Controller::acceptDrawing()
   state = Capturing;
   updateLock();
   const auto token = draftToken;
-  requestFrame(true, result.value("id").toString(),
+  requestFrame(true, result.value("result_id").toString(),
                [this, token](QJsonObject metadata, QByteArray png, QString error) {
                  if (token != draftToken || !draftOwner) return;
                  if (!error.isEmpty()) {

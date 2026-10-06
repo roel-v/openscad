@@ -36,6 +36,7 @@
 #include "core/UnicodeIdentifier.h"
 #include "utils/printutils.h"
 #include "core/parsersettings.h"
+#include "core/ParserInspection.h"
 #include "core/Assignment.h"
 #include "parser.hxx"
 #include "core/SourceFile.h"
@@ -187,9 +188,11 @@ use[ \t\r\n]*"<"        { BEGIN(cond_use); LOCATION_COUNT_LINES(parserlloc, yyte
                             LOG(message_group::Warning,LOCATION(parserlloc),"","Can't open library '%1$s'.",filename);
                                 parserlval.text = strdup(filename.c_str());
                             } else {
-                                handle_dep(fullpath.generic_string());
+                                if (!parserInspection) handle_dep(fullpath.generic_string());
                                 parserlval.text = strdup(fullpath.string().c_str());
                             }
+                            if (parserInspection) parserInspection->dependency("use", filename,
+                              fullpath.generic_string(), LOCATION(parserlloc));
                             return TOK_USE;
                         }
 <<EOF>>                 { parsererror("Unterminated use statement"); return TOK_ERROR; }
@@ -248,7 +251,8 @@ use[ \t\r\n]*"<"        { BEGIN(cond_use); LOCATION_COUNT_LINES(parserlloc, yyte
         yylineno = parserlloc.first_line;
         loc_stack.pop_back();
     }
-    if (yyin && yyin != stdin) {
+    if (parserInspection && !openfilenames.empty()) openfilenames.pop_back();
+    if (!parserInspection && yyin && yyin != stdin) {
         assert(!openfiles.empty());
         fclose(openfiles.back());
         openfiles.pop_back();
@@ -436,6 +440,8 @@ void includefile(const Location& loc)
 {
   fs::path localpath = fs::path(filepath) / filename;
   fs::path fullpath = find_valid_path(sourcefile()->parent_path(), localpath, &openfilenames);
+  if (parserInspection) parserInspection->dependency("include", localpath.generic_string(),
+    fullpath.generic_string(), loc);
   if (!fullpath.empty()) {
     rootfile->registerInclude(localpath.generic_string(), fullpath.generic_string(), lexer_is_main_file() ? loc : Location::NONE);
   }
@@ -446,6 +452,26 @@ void includefile(const Location& loc)
   };
 
   std::string fullname = fullpath.generic_string();
+
+  if (parserInspection) {
+    if (filename_stack.size() >= 64 || !parserInspection->alive()) {
+      parserInspection->failed = true;
+      return;
+    }
+    const auto contents = parserInspection->read(fullname);
+    if (parserInspection->failed) return;
+    auto previous = YY_CURRENT_BUFFER;
+    auto buffer = yy_scan_bytes(contents.data(), static_cast<int>(contents.size()));
+    yy_switch_to_buffer(previous);
+    yypush_buffer_state(buffer);
+    filename_stack.push_back(std::make_shared<fs::path>(fullpath));
+    openfilenames.push_back(fullname);
+    loc_stack.push_back(parserlloc);
+    LOCATION_INIT(parserlloc);
+    filepath.clear();
+    filename.clear();
+    return;
+  }
 
   filepath.clear();
   filename_stack.push_back(std::make_shared<fs::path>(fullpath));
@@ -479,4 +505,18 @@ void lexerdestroy()
     openfilenames.clear();
     filename_stack.clear();
     loc_stack.clear();
+}
+
+std::function<void()> preserveLexerInspectionState()
+{
+  const auto oldSource = parser_sourcefile;
+  const auto oldFilename = filename;
+  const auto oldFilepath = filepath;
+  const auto oldString = stringcontents;
+  return [oldSource, oldFilename, oldFilepath, oldString] {
+    parser_sourcefile = oldSource;
+    filename = oldFilename;
+    filepath = oldFilepath;
+    stringcontents = oldString;
+  };
 }

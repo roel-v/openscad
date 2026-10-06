@@ -4,23 +4,29 @@
 #include <QHash>
 #include <QTcpServer>
 #include <QTimer>
+#include <QDeadlineTimer>
+#include <functional>
 class QTcpSocket;
+class QUrlQuery;
 
 namespace AgentAnnotations {
 struct Snapshot {
   QJsonObject status;
   QHash<QString, QVector<Record>> records;
+  QHash<QString, QJsonObject> reads;
+  QHash<QString, QDeadlineTimer> readExpiry;
 };
 // Owns only detached evidence and transport state; never touches widgets or OpenGL.
 class Transport : public QObject
 {
   Q_OBJECT
 public:
-  explicit Transport(QObject *parent = nullptr);
+  explicit Transport(QObject *parent = nullptr, std::function<qint64()> clock = {});
   ~Transport() override { stop(); }
   void start();
   void stop();
   void publish(Snapshot snapshot);
+  void publishCameras(const QJsonArray& cameras);
   void complete(const QString& serverId, const QString& requestId, QJsonObject result, QByteArray png,
                 QString error);
   QJsonObject connection() const { return info; }
@@ -29,6 +35,7 @@ public:
     return listener && info.value("server_id") == server && jobs.contains(id) &&
            jobs[id].value.value("state") == "queued";
   }
+  bool beginJob(const QString& server, const QString& id);
 signals:
   void listening(QJsonObject info, QString error);
   void operation(QString serverId, QString requestId, QString path, QJsonObject body);
@@ -39,11 +46,16 @@ private:
   QJsonObject info;
   Snapshot snapshot;
   qint64 heartbeat = 0;
+  quint64 stateGeneration = 0;
+  std::function<qint64()> clock;
+  qint64 now() const;
   struct Job {
     QByteArray input;
     QJsonObject value;
     qint64 created;
     qint64 bytes = 0;
+    qint64 deadline = 0;
+    QByteArray png;
   };
   QHash<QString, Job> jobs;
   int connections = 0;
@@ -52,6 +64,10 @@ private:
   void accept();
   void route(QTcpSocket *socket, const QByteArray& header, const QByteArray& body);
   void respond(QTcpSocket *socket, int code, QJsonObject value);
+  void respondBytes(QTcpSocket *socket, const QByteArray& data, const QByteArray& type);
   void expire();
+  void routeApi(QTcpSocket *socket, const QByteArray& method, const QString& path,
+               const QByteArray& bytes, const QUrlQuery& query);
+  void enqueue(QTcpSocket *socket, const QString& path, const QJsonObject& body);
 };
 }  // namespace AgentAnnotations

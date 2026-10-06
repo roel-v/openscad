@@ -219,6 +219,7 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
   initMargin();
 
   connect(qsci, &QsciScintilla::textChanged, this, [this] {
+    ++sourceRevision;
     sourceFingerprint = QString::fromLatin1(AgentAnnotations::Store::hash(qsci->text().toUtf8()));
     emit contentsChanged();
     emit modificationChanged(this);

@@ -42,6 +42,7 @@ public:
   bool tag_root{false};
   bool tag_highlight{false};
   bool tag_background{false};
+  bool tag_disabled{false}; // Retained only by parse-only inspection; never evaluated.
 
 protected:
   std::string modname;

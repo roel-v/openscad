@@ -33,7 +33,9 @@ bool atomicWrite(const QString& path,const QByteArray& data,QString& error) {
 }
 }
 
-SavedViews::SavedViews(QObject *parent) : QObject(parent) {}
+SavedViews::SavedViews(QObject *parent) : QObject(parent) {
+  connect(this, &SavedViews::changed, this, [this] { ++generation; });
+}
 SavedViews *SavedViews::forEditor(EditorInterface *editor) {
   auto store=editor->findChild<SavedViews *>(QString(),Qt::FindDirectChildrenOnly);
   if (!store) {
@@ -76,6 +78,7 @@ QByteArray SavedViews::serialize() const {
   return QJsonDocument(QJsonObject{{"version",1},{"document",identity},{"views",views}}).toJson();
 }
 bool SavedViews::load(const QString& source) {
+  ++generation;
   identity=canonical(source); records.clear(); modified=false; loadError.clear(); fingerprint.clear(); existed=false;
   if (source.isEmpty()) return true;
   QFile file(companion(identity)); existed=file.exists();

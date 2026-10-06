@@ -1346,7 +1346,10 @@ set(INPUT_DRIVER_SOURCES
   ${INPUT_DRIVER_DBUS_SOURCES})
 
 set(GUI_SOURCES
+  src/gui/annotations/AgentSyntax.cc
+  src/gui/annotations/AgentModel.cc
   src/gui/annotations/AnnotationTransport.cc
+  src/gui/annotations/agent_api.qrc
   src/gui/annotations/AnnotationBridge.cc
   src/gui/annotations/AnnotationController.cc
   src/gui/annotations/AnnotationDrawing.cc

@@ -29,6 +29,7 @@
 
 #include "gui/MainWindow.h"
 #include "gui/annotations/AnnotationController.h"
+#include "gui/annotations/AnnotationBridge.h"
 
 #include <sys/stat.h>
 
@@ -311,6 +312,9 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   setupAIDock();
   annotationController = new AgentAnnotations::Controller(this);
   setupDocks();
+  auto agentAccess = menuWindow->addAction(tr("Agent Access..."));
+  connect(agentAccess, &QAction::triggered, this,
+          [this] { AgentAnnotations::Bridge::instance()->showAccess(this); });
 
   setup3DView();
   setupViewportControl();
@@ -1319,12 +1323,12 @@ void MainWindow::writeBackup(QFile *file)
 #endif
   writer << activeEditor->toPlainText();
   this->activeEditor->parameterWidget->saveBackupFile(file->fileName());
-  QString viewError;
-  if (!SavedViews::forEditor(activeEditor)->backup(file->fileName(),viewError))
-    LOG(message_group::UI_Warning, "%1$s", viewError.toStdString());
   QString annotationError;
   if (!activeEditor->annotations->save(file->fileName() + ".annotations", false, &annotationError, true))
     LOG(message_group::UI_Warning, "Annotation backup failed: %1$s", annotationError.toStdString());
+  QString viewError;
+  if (!SavedViews::forEditor(activeEditor)->backup(file->fileName(),viewError))
+    LOG(message_group::UI_Warning, "%1$s", viewError.toStdString());
 
   LOG("Saved backup file: %1$s", file->fileName().toUtf8().constData());
 }
@@ -1829,6 +1833,8 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
     // add parameters as annotation in AST
     CommentParser::collectParameters(fulltext, sourceFile);
     editor->parameterWidget->setParameters(sourceFile, fulltext);
+    editor->parameterWidget->setProperty("agentSourceRevision", QString::number(editor->sourceRevision));
+    editor->parameterWidget->setProperty("agentSourceFingerprint", editor->sourceFingerprint);
     editor->parameterWidget->applyParameters(sourceFile);
     editor->parameterWidget->setEnabled(true);
     editor->setIndicator(sourceFile->indicatorData);
@@ -3400,7 +3406,11 @@ void MainWindow::consoleOutput(const Message& msgObj, void *userdata)
   // Invoke the method in the main thread in case the output
   // originates in a worker thread.
   auto thisp = static_cast<MainWindow *>(userdata);
-  QMetaObject::invokeMethod(thisp, "consoleOutput", Q_ARG(Message, msgObj));
+  const auto context = thisp->annotationController ? thisp->annotationController->diagnosticContext() : QJsonObject{};
+  QMetaObject::invokeMethod(thisp, [thisp, msgObj, context] {
+    if (thisp->annotationController) thisp->annotationController->observeDiagnostic(msgObj, context);
+    thisp->consoleOutput(msgObj);
+  });
 }
 
 void MainWindow::consoleOutput(const Message& msgObj)

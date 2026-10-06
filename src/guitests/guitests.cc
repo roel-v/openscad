@@ -4,8 +4,8 @@
 #include "TestMainWindow.h"
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
-#include "TestNavigation.h"
 #include "TestAnnotations.h"
+#include "TestNavigation.h"
 
 template <typename TestClass>
 int runTests(MainWindow *window)
@@ -35,8 +35,8 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestTabManager>(window);
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
-  totalTestFailures += runTests<TestNavigation>(window);
   totalTestFailures += runTests<TestAnnotations>(window);
+  totalTestFailures += runTests<TestNavigation>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;
   std::cout << "Failures: " << totalTestFailures << std::endl;

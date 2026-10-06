@@ -183,10 +183,8 @@ void Controller::cancelGesture() {
 bool Controller::edit(const std::string& id,const std::vector<Design::FieldChange>& changes){return beginGesture(id) && preview(changes) && finishGesture();}
 std::vector<Design::FieldChange> Controller::poseChanges(const std::string& id,const Vector3d& point,const Vector3d& normal,const Vector3d& up) const {
   auto all=records();auto found=all.find(id);if(found==all.end())return {};auto section=std::dynamic_pointer_cast<const Design::Section>(found->second->evaluated);if(!section)return {};
-  auto resolveContext=context(all);auto parent=Design::resolve(section->frame,resolveContext);if(parent.state!=Design::ResolutionState::Resolved || !parent.frame)return {};
-  Vector3d localPoint=parent.frame->inverse()*point,localNormal=parent.frame->linear().transpose()*normal,localUp=parent.frame->linear().transpose()*up;
-  Design::FieldChange rotation{Design::ChangeKind::Rotation};rotation.rotation=orientation(section->normal,section->up,localNormal,localUp);
-  Design::FieldChange translation{Design::ChangeKind::Translation};translation.translation=localPoint-section->origin-section->offset*(rotation.rotation*section->normal);return {rotation,translation};
+  Design::FieldChange rotation{Design::ChangeKind::Rotation};rotation.rotation=orientation(section->normal,section->up,normal,up);
+  Design::FieldChange translation{Design::ChangeKind::Translation};translation.translation=point-section->origin-section->offset*(rotation.rotation*section->normal);return {rotation,translation};
 }
 bool Controller::flip(const std::string& id){auto pose=frame(id);if(!pose)return false;return edit(id,poseChanges(id,pose->translation(),-pose->linear().col(2),pose->linear().col(1)));}
 bool Controller::reset(const std::string& id,const std::string& preset){auto pose=frame(id);if(!pose)return false;auto normal=presetNormal(preset);return edit(id,poseChanges(id,pose->translation(),normal,transportedUp(normal,pose->linear().col(1))));}

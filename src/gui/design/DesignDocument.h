@@ -81,6 +81,8 @@ private:
   void unregisterAdapter(const std::string& kind);
   std::shared_ptr<const Record> updated(const Record&, const std::vector<FieldChange>&, std::string&) const;
   bool valid(const Selection::Stamp&) const;
+  bool independentSection(const std::shared_ptr<const Record>&) const;
+  bool validDraft(const Draft&) const;
   void synchronize();
   void clearTemporaryDrafts();
   LifecycleResult changeTransient(const std::string& id, std::shared_ptr<const Record> replacement);

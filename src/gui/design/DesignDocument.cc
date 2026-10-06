@@ -39,6 +39,15 @@ DesignDocument *DesignDocument::forEditor(EditorInterface& editor, MainWindow& w
 bool DesignDocument::valid(const Selection::Stamp& stamp) const {
   return owner && window && stamp.documentId==owner->documentId() && window->evaluationBinding->validate(stamp);
 }
+bool DesignDocument::independentSection(const std::shared_ptr<const Record>& record) const {
+  if(!owner || !window || window->activeEditor!=owner || !record || record->source ||
+     record->kind!="Section" || !record->dependencies.empty())return false;
+  const auto found=transient.find(record->id);
+  return found!=transient.end() && found->second==record;
+}
+bool DesignDocument::validDraft(const Draft& draft) const {
+  return (!draft.consumer && independentSection(draft.before)) || valid(draft.stamp);
+}
 DesignDocument::Token DesignDocument::registerLifecycleAdapter(std::string name, QObject *lifetime, LifecycleCallbacks callbacks) {
   auto handler=kind(name);
   if (!lifetime || !handler || handler->destination!=RecordDestination::Consumer || adapters.count(name) || !callbacks.resolveConsumerRecord || !callbacks.prepareInsert || !callbacks.prepareEdit || !callbacks.locatePromotedRecord) return {};
@@ -83,8 +92,13 @@ Records DesignDocument::records(const Selection::Stamp& stamp) const {
   return result;
 }
 std::optional<std::string> DesignDocument::beginEdit(const std::string& id, const Selection::Stamp& stamp) {
-  if (!valid(stamp)) return {};
-  auto all=records(stamp);auto found=all.find(id);if(found==all.end()) return {};
+  auto all=records(stamp);
+  if(!valid(stamp)){
+    const auto local=transient.find(id);
+    if(local==transient.end() || !independentSection(local->second))return {};
+    all.emplace(*local);
+  }
+  auto found=all.find(id);if(found==all.end()) return {};
   for (const auto& [token,draft]:editing) if (!draft.consumer && draft.key==id) return {};
   auto token=uuid();editing.emplace(token,Draft{token,id,found->second->kind,found->second,found->second,{},stamp,false});return token;
 }
@@ -127,11 +141,18 @@ std::shared_ptr<const Record> DesignDocument::updated(const Record& record,const
   std::vector<Diagnostic> diagnostics; auto handler=kind(record.kind);
   auto result=makeRecord(*handler,Value(std::move(object)),{record.source.value_or(DeclarationKey{"","",record.label}),DeclarationScope::File},diagnostics);
   if (!result)error=diagnostics.empty()?"Invalid draft":diagnostics.front().message;
+  else if(!record.source){
+    // A synthetic decode location must not turn a session-only preview into source-backed data.
+    auto preview=std::make_shared<Record>();preview->id=result->id;preview->kind=result->kind;preview->label=result->label;
+    preview->definition=ownedValue(result->definition);preview->evaluated=result->evaluated;
+    for(const auto& dependency:result->dependencies)preview->dependencies.push_back({dependency.domain,dependency.id,ownedValue(dependency.data)});
+    return preview;
+  }
   return result;
 }
 LifecycleResult DesignDocument::updateDraft(const std::string& token,const std::vector<FieldChange>& changes) {
   auto found=editing.find(token);if(found==editing.end())return {false,"Draft no longer exists"};
-  if(!valid(found->second.stamp)){editing.erase(found);return {false,"Draft evaluation became stale"};}
+  if(!validDraft(found->second)){editing.erase(found);return {false,"Draft evaluation became stale"};}
   std::string error;auto merged=found->second.changes;
   for(const auto& change:changes){
     // Built-in fields are absolute values. Retain only their latest gesture value;
@@ -171,7 +192,7 @@ LifecycleResult DesignDocument::changeTransient(const std::string& id,std::share
 LifecycleResult DesignDocument::commitDraft(const std::string& token){
   QPointer<DesignDocument> self(this);
   auto found=editing.find(token);if(found==editing.end())return {false,"Draft no longer exists"};
-  auto draft=found->second;if(!valid(draft.stamp))return {false,"Draft evaluation became stale"};
+  auto draft=found->second;if(!validDraft(draft))return {false,"Draft evaluation became stale"};
   if(!draft.consumer && !draft.before->source){
     auto value=std::make_shared<Record>();value->id=draft.preview->id;value->kind=draft.preview->kind;value->label=draft.preview->label;
     value->definition=ownedValue(draft.preview->definition);value->evaluated=draft.preview->evaluated;
@@ -241,6 +262,8 @@ LifecycleResult DesignDocument::promotePersonal(const std::string& id,EditorInte
   prepared.request.participant=participant;auto result=SourceEditing::apply(*prepared.editor,prepared.request);return {result.changed,result.error==SourceEditing::EditError::None?std::string():result.detail.toStdString()};
 }
 LifecycleResult DesignDocument::remove(const std::string& id,const Selection::Stamp& stamp){
+  const auto local=transient.find(id);
+  if(local!=transient.end() && independentSection(local->second))return changeTransient(id,{});
   if(!valid(stamp))return {false,"Evaluation is stale"};
   if(transient.count(id))return changeTransient(id,{});
   auto all=records(stamp);auto found=all.find(id);if(found==all.end())return {false,"Design id is missing"};

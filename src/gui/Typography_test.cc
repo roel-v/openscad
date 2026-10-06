@@ -263,6 +263,47 @@ TEST_CASE("Native auxiliary controls retain data and state without stylesheets",
   CHECK_FALSE(warning->data(Qt::ForegroundRole).isValid());
 }
 
+TEST_CASE("Customizer group visibility preserves disclosure state", "[ui-customizer]")
+{
+  typographyApp();
+  QWidget parent;
+  GroupWidget group("Geometry", &parent);
+  auto *first = new QWidget;
+  auto *second = new QWidget;
+  group.addWidget(first);
+  group.addWidget(second);
+  first->setHidden(true);
+  second->setHidden(true);
+  group.updateVisibility();
+  CHECK(group.isHidden());
+  first->setHidden(false);
+  group.updateVisibility();
+  CHECK_FALSE(group.isHidden());
+  CHECK_FALSE(group.isExpanded());
+  parent.show();
+  group.setExpanded(true);
+  first->setHidden(true);
+  group.updateVisibility();
+  CHECK(group.isHidden());
+  second->setHidden(false);
+  group.updateVisibility();
+  CHECK_FALSE(group.isHidden());
+  CHECK(group.isExpanded());
+  group.setExpanded(false);
+  group.updateVisibility();
+  CHECK_FALSE(group.isHidden());
+  second->setEnabled(false);
+  group.updateVisibility();
+  CHECK_FALSE(group.isHidden());
+  first->setHidden(false);
+  second->setHidden(true);
+  group.updateVisibility();
+  CHECK_FALSE(group.isHidden());
+  first->setHidden(true);
+  group.updateVisibility();
+  CHECK(group.isHidden());
+}
+
 TEST_CASE("Customizer disclosure preserves native activation and accessible expansion", "[ui-customizer]")
 {
   typographyApp();

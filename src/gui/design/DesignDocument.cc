@@ -1,12 +1,15 @@
 #include "gui/design/DesignDocument.h"
 #include "core/design/DesignKinds.h"
 #include "core/design/DesignReferences.h"
+#include "core/SourceFile.h"
 #include "gui/Editor.h"
 #include "gui/MainWindow.h"
 #include "gui/TabManager.h"
 #include "gui/SavedViews.h"
 #include "gui/selection/EvaluationBinding.h"
+#include "gui/parameter/ParameterWidget.h"
 #include <QUuid>
+#include <QTimer>
 #include <algorithm>
 
 namespace Design {
@@ -28,6 +31,13 @@ DesignDocument::DesignDocument(EditorInterface *owner, MainWindow *window) : QOb
   connect(window->evaluationBinding, &Selection::EvaluationBinding::invalidated, this, [this] { clearTemporaryDrafts(); emit changed(); });
   connect(window->evaluationBinding, &Selection::EvaluationBinding::installed, this, &DesignDocument::synchronize);
   connect(owner, &EditorInterface::contentsChanged, this, [this] { clearTemporaryDrafts(); emit changed(); });
+  connect(owner, &EditorInterface::externalEditStarting, this, [this] {
+    sourceMutation=true;
+    QTimer::singleShot(0,this,[this]{sourceMutation=false;emit changed();});
+  });
+  connect(owner->parameterWidget,&ParameterWidget::parametersChanged,this,[this]{++environmentRevision;emit changed();});
+  connect(&sourceInputWatcher,&QFileSystemWatcher::fileChanged,this,[this]{++environmentRevision;emit changed();});
+  synchronize();
 }
 void DesignDocument::clearTemporaryDrafts(){
   for(auto it=editing.begin();it!=editing.end();)if(!restoredConsumers.count(it->first))it=editing.erase(it);else ++it;
@@ -46,7 +56,8 @@ bool DesignDocument::independentSection(const std::shared_ptr<const Record>& rec
   return found!=transient.end() && found->second==record;
 }
 bool DesignDocument::validDraft(const Draft& draft) const {
-  return (!draft.consumer && independentSection(draft.before)) || valid(draft.stamp);
+  return (!draft.consumer && (independentSection(draft.before) ||
+    (sourceStateCurrent() && draft.before->source))) || valid(draft.stamp);
 }
 DesignDocument::Token DesignDocument::registerLifecycleAdapter(std::string name, QObject *lifetime, LifecycleCallbacks callbacks) {
   auto handler=kind(name);
@@ -86,14 +97,39 @@ std::optional<std::string> DesignDocument::createTransient(const std::string& na
   transient.emplace(record->id,std::move(mutableRecord));emit changed();return record->id;
 }
 Records DesignDocument::records(const Selection::Stamp& stamp) const {
-  if (!valid(stamp)) return {};
-  auto scene=window->evaluationBinding->scene(stamp); Records result=scene && scene->designObjects ? scene->designObjects->records : Records{};
+  auto scene=valid(stamp)?window->evaluationBinding->scene(stamp):nullptr;
+  Records result=sourceStateCurrent()?sourceState.records:scene && scene->designObjects?scene->designObjects->records:Records{};
   for (const auto& [id,record]:transient) { if (result.count(id)) result.erase(id); else result.emplace(id,record); }
   return result;
 }
+bool DesignDocument::sourceStateCurrent() const {
+  if(!owner || !window || window->activeEditor!=owner || sourceState.documentId!=owner->documentId() || sourceState.inputs.empty() || sourceState.environmentRevision!=environmentRevision)return false;
+  for(const auto& [key,input]:sourceState.inputs){
+    bool matched=false;
+    for(auto editor:window->tabManager->editorList)if(input.editorId && editor->documentId().toStdString()==*input.editorId){
+      if(editor->sourceFingerprint.toStdString()!=input.fingerprint)return false;
+      if(!editor->filepath.isEmpty() && EvaluationInputs::fileKey(editor->filepath.toStdString())!=key)return false;
+      matched=true;break;
+    }
+    if(input.editorId && !matched)return false;
+  }
+  return true;
+}
+Records DesignDocument::sourceDisplayRecords() const {
+  return owner && owner->documentId()==sourceState.documentId?sourceState.records:Records{};
+}
+PreparedEdit DesignDocument::prepareSourceEdit(const Record& record,const std::vector<FieldChange>& changes) const {
+  if(!sourceStateCurrent() || !record.source)return {{},{},"Source changed outside the cross section controls. Preview to refresh it."};
+  for(const auto& [key,input]:sourceState.inputs)if(!input.editorId)try{
+    if(EvaluationInputs::fingerprint(EvaluationInputs::diskBytes(key))!=input.fingerprint)return {{},{},"An included file changed. Preview to refresh it."};
+  }catch(...){return {{},{},"An included file is unavailable. Preview after restoring it."};}
+  auto input=sourceState.inputs.find(record.source->fileKey);
+  if(input==sourceState.inputs.end())return {{},{},"Source document is not captured"};
+  return edits.prepareCurrent(record,changes,input->second);
+}
 std::optional<std::string> DesignDocument::beginEdit(const std::string& id, const Selection::Stamp& stamp) {
   auto all=records(stamp);
-  if(!valid(stamp)){
+  if(!valid(stamp) && !sourceStateCurrent()){
     const auto local=transient.find(id);
     if(local==transient.end() || !independentSection(local->second))return {};
     all.emplace(*local);
@@ -201,26 +237,79 @@ LifecycleResult DesignDocument::commitDraft(const std::string& token){
   }
   PreparedEdit prepared;
   if(draft.consumer){auto adapter=adapters.find(draft.kind);if(adapter==adapters.end() || !adapter->second.owner)return {false,"Lifecycle owner closed"};auto callback=adapter->second.callbacks.prepareEdit;prepared=callback(draft.key,draft.changes,draft.stamp);}
-  else prepared=edits.prepare(*draft.before,draft.changes,draft.stamp);
+  else prepared=prepareSourceEdit(*draft.before,draft.changes);
   if(!prepared)return {false,prepared.error};
   if(!self)return {false,"Document closed during lifecycle callback"};
-  if(!valid(draft.stamp))return {false,"Lifecycle callback changed the evaluation"};
+  if(!validDraft(draft))return {false,"Lifecycle callback changed the evaluation"};
   if(draft.consumer){auto adapter=adapters.find(draft.kind);if(adapter==adapters.end() || !adapter->second.owner)return {false,"Lifecycle owner closed"};}
+  if(!draft.consumer){
+    auto result=applySourceEdit(std::move(prepared),{{draft.key,draft.preview}},{});
+    if(self && result)editing.erase(token);
+    return result;
+  }
   auto result=SourceEditing::apply(*prepared.editor,prepared.request);if(result.error!=SourceEditing::EditError::None)return {false,result.detail.toStdString()};
   if(self){editing.erase(token);emit changed();}return {result.changed,{}};
 }
 LifecycleResult DesignDocument::promote(const std::vector<std::string>& ids,EditorInterface& destination,const Selection::Stamp& stamp){
-  if(!valid(stamp))return {false,"Evaluation is stale"};
-  auto all=records(stamp);auto scene=window->evaluationBinding->scene(stamp);std::set<std::string> included;
-  for(const auto& [file,input]:scene->inputs->consumed())included.insert(file);
+  if(!sourceStateCurrent())return {false,"Preview to refresh source changed outside the cross section controls."};
+  auto all=records(stamp);std::set<std::string> included;
+  bool destinationCaptured=false;
+  for(const auto& [file,input]:sourceState.inputs){included.insert(file);if(input.editorId==destination.documentId().toStdString())destinationCaptured=true;}
+  if(!destinationCaptured)return {false,"Destination is outside the captured source documents"};
   auto closure=persistenceClosure(ids,all,included);if(!closure.valid())return {false,closure.diagnostics.front().message};
-  auto prepared=edits.insert(closure.insert,destination,stamp);if(!prepared)return {false,prepared.error};
+  auto prepared=edits.insertCurrent(closure.insert,destination,sourceState.names);if(!prepared)return {false,prepared.error};
   Records before;for(const auto& record:closure.insert){auto found=transient.find(record->id);if(found!=transient.end())before.emplace(*found);}
+  return applySourceEdit(std::move(prepared),{}, {},before);
+}
+LifecycleResult DesignDocument::applySourceEdit(PreparedEdit prepared,const Records& replacements,
+                                               const std::set<std::string>& removed,const Records& promoted){
+  if(!prepared)return {false,prepared.error};
+  if(!sourceStateCurrent())return {false,"Source changed outside the cross section controls. Preview to refresh it."};
+  const auto before=sourceState;auto after=before;
+  const auto editorId=prepared.editor->documentId().toStdString();
+  auto input=std::find_if(after.inputs.begin(),after.inputs.end(),[&](const auto& item){return item.second.editorId==editorId;});
+  if(input==after.inputs.end())return {false,"Destination is not captured"};
+  QVector<SourceEditing::ByteEdit> patches;
+  auto check=SourceEditing::validate(prepared.editor->toPlainText().toUtf8(),prepared.editor->documentId(),
+    prepared.editor->sourceRevision,prepared.editor->sourceFingerprint,prepared.editor->isSourceReadOnly(),prepared.request,patches);
+  if(check.error!=SourceEditing::EditError::None)return {false,check.detail.toStdString()};
+  for(const auto& patch:patches)input->second.utf8.replace(patch.begin,patch.end-patch.begin,patch.replacement.toStdString());
+  input->second.fingerprint=EvaluationInputs::fingerprint(input->second.utf8);
+  for(const auto& id:removed)after.records.erase(id);
+  for(const auto& [id,record]:replacements)after.records.insert_or_assign(id,record);
+  for(auto& [id,record]:after.records)if(record->source && record->source->fileKey==input->first){
+    auto copy=std::const_pointer_cast<Record>(isolated(*record));
+    auto& source=*copy->source;
+    const auto oldEnd=source.endByte;
+    source.beginByte=SourceEditing::transformPosition(source.beginByte,patches);
+    source.endByte=SourceEditing::transformPosition(source.endByte,patches);
+    for(const auto& patch:patches)if(patch.begin==patch.end && size_t(patch.begin)==oldEnd)source.endByte-=patch.replacement.size();
+    source.fingerprint=input->second.fingerprint;record=std::move(copy);
+  }
+  for(const auto& [id,record]:promoted){
+    after.names.insert(declarationName(*record));
+    auto declaration=serialize(*record);if(input->second.utf8.find("\r\n")!=std::string::npos){
+      std::string crlf;for(char c:declaration){if(c=='\n')crlf+='\r';crlf+=c;}declaration=std::move(crlf);
+    }
+    // Insertions are exact transaction payloads, not a search through unrelated source.
+    bool located=false;
+    for(const auto& patch:patches){auto offset=patch.replacement.toStdString().find(declaration);if(offset==std::string::npos)continue;
+      auto copy=std::const_pointer_cast<Record>(isolated(*record));
+      const auto begin=SourceEditing::transformPosition(patch.begin,patches)-patch.replacement.size()+offset;
+      copy->source=DeclarationKey{input->first,input->second.fingerprint,declarationName(*record),DeclarationHost::Assignment,
+        size_t(begin),size_t(begin+declaration.size()- (declaration.ends_with("\r\n")?2:1))};
+      after.records.insert_or_assign(id,std::move(copy));located=true;break;
+    }
+    if(!located)return {false,"Inserted declaration could not be located"};
+  }
   QPointer<DesignDocument> guard(this);auto participant=std::make_shared<SourceEditing::UndoParticipant>();participant->lifetime=this;
-  participant->undo=[guard,before]{if(guard){for(const auto& [id,record]:before)guard->transient.insert_or_assign(id,record);emit guard->changed();}};
-  participant->redo=[guard,before]{if(guard){for(const auto& [id,record]:before)guard->transient.erase(id);emit guard->changed();}};
+  participant->undo=[guard,before,promoted]{if(guard){guard->sourceState=before;for(const auto& item:promoted)guard->transient.insert_or_assign(item.first,item.second);guard->sourceMutation=false;emit guard->changed();}};
+  participant->redo=[guard,after,promoted]{if(guard){guard->sourceState=after;for(const auto& item:promoted)guard->transient.erase(item.first);guard->sourceMutation=false;emit guard->changed();}};
   prepared.request.participant=participant;
-  auto result=SourceEditing::apply(*prepared.editor,prepared.request);return {result.changed,result.error==SourceEditing::EditError::None?std::string():result.detail.toStdString()};
+  sourceMutation=true;
+  auto result=SourceEditing::apply(*prepared.editor,prepared.request);
+  if(guard){sourceMutation=false;emit changed();}
+  return {result.changed,result.error==SourceEditing::EditError::None?std::string():result.detail.toStdString()};
 }
 LifecycleResult DesignDocument::promoteConsumer(const std::string& token){
   auto found=editing.find(token);if(found==editing.end() || !found->second.consumer)return {false,"Consumer draft no longer exists"};
@@ -264,14 +353,20 @@ LifecycleResult DesignDocument::promotePersonal(const std::string& id,EditorInte
 LifecycleResult DesignDocument::remove(const std::string& id,const Selection::Stamp& stamp){
   const auto local=transient.find(id);
   if(local!=transient.end() && independentSection(local->second))return changeTransient(id,{});
-  if(!valid(stamp))return {false,"Evaluation is stale"};
+  if(!valid(stamp) && !sourceStateCurrent())return {false,"Preview to refresh source changed outside the cross section controls."};
   if(transient.count(id))return changeTransient(id,{});
   auto all=records(stamp);auto found=all.find(id);if(found==all.end())return {false,"Design id is missing"};
-  auto prepared=edits.prepare(*found->second,{{ChangeKind::DeleteDeclaration}},stamp);if(!prepared)return {false,prepared.error};
-  auto result=SourceEditing::apply(*prepared.editor,prepared.request);return {result.changed,result.error==SourceEditing::EditError::None?std::string():result.detail.toStdString()};
+  auto prepared=prepareSourceEdit(*found->second,{{ChangeKind::DeleteDeclaration}});if(!prepared)return {false,prepared.error};
+  return applySourceEdit(std::move(prepared),{},{id});
 }
 void DesignDocument::synchronize(){
   if(!window || !owner)return;auto stamp=window->evaluationBinding->stamp();if(!valid(stamp))return;
+  auto scene=window->evaluationBinding->scene(stamp);
+  if(scene && scene->designObjects)sourceState={scene->designObjects->records,scene->inputs->consumed(),owner->documentId(),environmentRevision};
+  if(scene && scene->backing && scene->backing->parsedRoot)for(const auto& assignment:scene->backing->parsedRoot->scope->assignmentOccurrences)sourceState.names.insert(assignment->getName());
+  if(!sourceInputWatcher.files().empty())sourceInputWatcher.removePaths(sourceInputWatcher.files());
+  QStringList paths;for(const auto& [key,input]:sourceState.inputs)if(!input.editorId)paths.append(QString::fromStdString(key));
+  if(!paths.empty() && !sourceInputWatcher.addPaths(paths).empty())++environmentRevision;
   clearTemporaryDrafts();for(auto& [token,draft]:editing)if(restoredConsumers.count(token))draft.stamp=stamp;
   auto pending=pendingConsumers;QPointer<DesignDocument> self(this);
   for(const auto& [token,draft]:pending){

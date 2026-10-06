@@ -130,6 +130,20 @@ std::string serialize(const Record& record) {
     else if(value.type()==Value::Type::VECTOR){stream<<"[";bool first=true;for(const auto& item:value.toVector()){if(!first)stream<<", ";first=false;data(item);}stream<<"]";}
     else stream<<value;
   };
-  stream << "@{type: " << record.kind << "}\n" << declarationName(record) << " = ";data(record.definition);stream<<";\n"; return stream.str();
+  stream << "@{type: " << record.kind << "}\n" << declarationName(record) << " = ";
+  if(record.definition.type()==Value::Type::OBJECT){
+    stream<<"{\n";
+    bool first=true;
+    for(const auto& key:record.definition.toObject().keys()){
+      if(!first)stream<<",\n";
+      first=false;
+      stream<<"    "<<QuotedString(key)<<": ";
+      data(record.definition.toObject().get(key));
+    }
+    if(!first)stream<<"\n";
+    stream<<"}";
+  }else data(record.definition);
+  stream<<";\n";
+  return stream.str();
 }
 }

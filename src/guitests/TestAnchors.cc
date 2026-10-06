@@ -27,11 +27,20 @@
 #include <QUuid>
 #include <QScrollArea>
 namespace {
-QPointF projected(QGLView& view,const Vector3d& point) {
+struct ProjectionSnapshot {
+  Eigen::Matrix4d worldToClip;
+  int width,height;
+  qreal pixelRatio;
+  QPointF operator()(const Vector3d& point) const {
+    Vector4d clip=worldToClip*Vector4d(point.x(),point.y(),point.z(),1);clip/=clip.w();
+    return {((clip.x()+1)*width/2)/pixelRatio,((1-clip.y())*height/2)/pixelRatio};
+  }
+};
+ProjectionSnapshot projectionSnapshot(QGLView& view) {
   view.makeCurrent();view.setupCamera();const Eigen::Map<const Eigen::Matrix4d> model(view.modelview),projection(view.projection);
-  Vector4d clip=projection*model*Vector4d(point.x(),point.y(),point.z(),1);clip/=clip.w();view.doneCurrent();
-  return {((clip.x()+1)*view.cam.pixel_width/2)/view.devicePixelRatio(),((1-clip.y())*view.cam.pixel_height/2)/view.devicePixelRatio()};
+  ProjectionSnapshot snapshot{projection*model,view.cam.pixel_width,view.cam.pixel_height,view.devicePixelRatio()};view.doneCurrent();return snapshot;
 }
+QPointF projected(QGLView& view,const Vector3d& point) { return projectionSnapshot(view)(point); }
 AgentAnnotations::Record undoAnnotation(){
   QImage image(8,8,QImage::Format_RGB32);image.fill(Qt::blue);QByteArray png;QBuffer buffer(&png);buffer.open(QIODevice::WriteOnly);image.save(&buffer,"PNG");
   return {{{"id",QUuid::createUuid().toString(QUuid::WithoutBraces)},{"comment","anchor joint undo"},{"created_utc",QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
@@ -64,10 +73,12 @@ void TestAnchors::nativePreviewRenderAndSolvedPicks() {
   const auto source=fixture();evaluate(source);if(QTest::currentTestFailed())return;
   auto scene=window->evaluationBinding->scene(window->evaluationBinding->stamp());QVERIFY(scene);QVERIFY(scene->semantic->instances.at("/fixture-a/peg").localToWorld.translation().isApprox(Vector3d(20,0,10)));
   auto *view=window->qglview;const Vector3d tip(20,0,22);view->navigation()->apply({CameraPose::upright(Vector3d::UnitZ()),-tip,100,45,Camera::ProjectionType::ORTHOGONAL});view->update();QTest::qWait(20);
-  const auto pixel=projected(*view,tip);auto picked=window->selectionService->pick(pixel,window->evaluationBinding->stamp());QVERIFY2(picked.hit,qPrintable(picked.detail));
+  // Inspector can resize the viewport after selection; use the captured pick frame.
+  const auto pickProjection=projectionSnapshot(*view);const auto pixel=pickProjection(tip);
+  auto picked=window->selectionService->pick(pixel,window->evaluationBinding->stamp());QVERIFY2(picked.hit,qPrintable(picked.detail));
   // The GPU reads a pixel center; X/Y must agree within that physical pixel, not an arbitrary subpixel distance.
   QVERIFY(std::abs(picked.hit->worldPoint.z()-tip.z())<1e-4);
-  QVERIFY(QLineF(projected(*view,picked.hit->worldPoint),pixel).length()<=1.5/view->devicePixelRatio());
+  QVERIFY(QLineF(pickProjection(picked.hit->worldPoint),pixel).length()<=1.5/pickProjection.pixelRatio);
   QVERIFY((picked.hit->worldPoint-tip).norm()<1);QVERIFY(picked.hit->outwardNormal.dot(Vector3d::UnitZ())>0.99);
   auto path=window->semanticController->pathForDraw(picked.hit->object.drawId);QVERIFY(path);QCOMPARE(*path,std::string("/fixture-a/peg"));
   evaluate(source,true);if(QTest::currentTestFailed())return;scene=window->evaluationBinding->scene(window->evaluationBinding->stamp());QVERIFY(scene->semantic->instances.at("/fixture-a/peg").localToWorld.translation().isApprox(Vector3d(20,0,10)));

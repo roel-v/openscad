@@ -71,15 +71,20 @@ void Controller::bind() {
   auto key=personalKey(*editor);
   if(owner==editor && document && ownerDocumentId==editor->documentId()) {if(settingsKey!=key){settingsKey=key;savePersonal();}return;}
   savePersonal();state->planes.clear();effect.reset();request.reset();provider.reset();disconnect(documentConnection);owner=editor;ownerDocumentId=editor->documentId();document=Design::DesignDocument::forEditor(*editor,*window);
-  settingsKey=key;enabledIds.clear();helperIds.clear();
+  settingsKey=key;enabledIds.clear();helperIds.clear();sessionIds.clear();
   QSettingsCached settings;global=settings.value(key+"enabled",true).toBool();selected=settings.value(key+"selected").toString().toStdString();
   for(const auto& id:settings.value(key+"enabledIds").toStringList())if(enabledIds.size()<ClipState::MaxPlanes)enabledIds.insert(id.toStdString());
   for(const auto& id:settings.value(key+"helperIds").toStringList())helperIds.insert(id.toStdString());
   documentConnection=connect(document,&Design::DesignDocument::changed,this,[this]{refresh();});
 }
 void Controller::savePersonal() const {
-  if(settingsKey.isEmpty())return;QStringList enabled,helpers;for(const auto& id:enabledIds)enabled<<QString::fromStdString(id);for(const auto& id:helperIds)helpers<<QString::fromStdString(id);
-  QSettingsCached settings;settings.setValue(settingsKey+"enabled",global);settings.setValue(settingsKey+"enabledIds",enabled);settings.setValue(settingsKey+"helperIds",helpers);settings.setValue(settingsKey+"selected",QString::fromStdString(selected));
+  if(settingsKey.isEmpty())return;
+  // Session-only definitions are not serialized: do not retain dangling IDs for them.
+  auto sessionOnly=[this](const std::string& id){return sessionIds.count(id) || (document && document->transientRecords().count(id));};
+  QStringList enabled,helpers;
+  for(const auto& id:enabledIds)if(!sessionOnly(id))enabled<<QString::fromStdString(id);
+  for(const auto& id:helperIds)if(!sessionOnly(id))helpers<<QString::fromStdString(id);
+  QSettingsCached settings;settings.setValue(settingsKey+"enabled",global);settings.setValue(settingsKey+"enabledIds",enabled);settings.setValue(settingsKey+"helperIds",helpers);settings.setValue(settingsKey+"selected",sessionOnly(selected)?QString():QString::fromStdString(selected));
 }
 Design::Records Controller::records() const {
   if(!document || !window->evaluationBinding->validate(window->evaluationBinding->stamp()))return {};
@@ -92,7 +97,7 @@ Design::ResolveContext Controller::context(const Design::Records& all) const {
   auto stamp=window->evaluationBinding->stamp();return {stamp.resultId.toStdString(),stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString(),bounds(),all,{}};
 }
 std::optional<Transform3d> Controller::frame(const std::string& id,QString *error) const {
-  auto all=records();auto found=all.find(id);if(found==all.end()){if(error)*error=tr("Missing Section or stale evaluation");return {};}
+  auto all=records();auto found=all.find(id);if(found==all.end()){if(error)*error=tr("Missing cross section or stale evaluation");return {};}
   auto resolveContext=context(all);auto resolution=Design::sectionFrame(*found->second,resolveContext);
   if(resolution.state!=Design::ResolutionState::Resolved || !resolution.frame){if(error)*error=QString::fromStdString(resolution.diagnostic);return {};}
   return resolution.frame;
@@ -100,13 +105,14 @@ std::optional<Transform3d> Controller::frame(const std::string& id,QString *erro
 ClipCapabilities Controller::capabilities() const {
   ClipCapabilities result;auto view=window->qglview;
   result.available=view->isValid() && view->context() && view->context()->format().majorVersion()>=3 && view->edge_shader && view->edge_shader->resource.shader_program;
-  result.reason=result.available?"Caps are unavailable; live Sections display exposed mesh surfaces":"Live Sections require a shader-capable viewport";return result;
+  result.reason=result.available?"Caps are unavailable; cross sections display exposed mesh surfaces":"Cross section clipping requires a shader-capable viewport";return result;
 }
 void Controller::fail(const QString& detail){message=detail;emit changed();}
 void Controller::refresh() {
   if(refreshing || closing)return;refreshing=true;
-  if(!window->evaluationBinding->current()){message=tr("Evaluate the active document to edit Sections. The last evaluated display is retained.");refreshing=false;emit changed();return;}
+  if(!window->evaluationBinding->current()){message=tr("Evaluate the active document to edit cross sections. The last evaluated display is retained.");refreshing=false;emit changed();return;}
   bind();auto all=records();if(selected.empty() || !all.count(selected)){selected.clear();for(const auto& [id,record]:all)if(record->kind=="Section"){selected=id;break;}}
+  for(const auto& [id,record]:all)if(record->source)sessionIds.erase(id);else sessionIds.insert(id);
   bool wanted=global && !enabledIds.empty();
   if(wanted && !provider)provider=window->inspectionPresentation->registerMeshProvider("live-sections-root",0,this,[this](auto scene,auto stamp,auto done){return jobs->start(scene,stamp,done);});
   if(wanted && !effect)effect=window->inspectionPresentation->registerMeshEffect("live-sections",20,this,[this](auto child) {
@@ -123,27 +129,33 @@ void Controller::refresh() {
   if(!problems.isEmpty())message=problems.trimmed();
   else if(wanted && presentation->status()!=InspectionPresentationController::Status::Ready && presentation->status()!=InspectionPresentationController::Status::Empty)message=presentation->reason();
   else if(wanted && box.isEmpty())message=tr("The evaluated model is empty. No clipping fragments are available.");
-  else message=tr("Caps are unavailable. Helpers show the plane and retained direction.");
+  else message=tr("Cut surfaces are not filled. The blue rectangle shows the cutting plane; enable its handles to show the retained-side arrow and rotate it.");
   refreshing=false;emit changed();window->qglview->update();
 }
 std::optional<std::string> Controller::createPreset(const std::string& preset) {
   if(!document || !window->evaluationBinding->current()){fail(tr("Evaluate the document first"));return {};}
   if(bounds().isEmpty()){fail(tr("A preset requires model bounds"));return {};}
-  ObjectType definition(nullptr);definition.set("label",Value(preset+" Section"));definition.set("origin",vector(bounds().center()));definition.set("normal",vector(presetNormal(preset)));definition.set("up",vector(transportedUp(presetNormal(preset),Vector3d::UnitZ())));
+  ObjectType definition(nullptr);definition.set("label",Value(preset+" cross section"));definition.set("origin",vector(bounds().center()));definition.set("normal",vector(presetNormal(preset)));definition.set("up",vector(transportedUp(presetNormal(preset),Vector3d::UnitZ())));
   std::string error;auto id=document->createTransient("Section",Value(std::move(definition)),&error);if(!id){fail(QString::fromStdString(error));return {};}
   selected=*id;setHelperEnabled(*id,true);enable(*id,true);refresh();return id;
 }
 bool Controller::enable(const std::string& id,bool value) {
-  if(value){QString error;if(!frame(id,&error)){fail(error);return false;}if(!enabledIds.count(id) && enabledIds.size()>=ClipState::MaxPlanes){fail(tr("At most eight Sections can be enabled. Disable another Section first."));return false;}if(!capabilities().available){fail(QString::fromStdString(capabilities().reason));return false;}enabledIds.insert(id);}
+  if(value){QString error;if(!frame(id,&error)){fail(error);return false;}if(!enabledIds.count(id) && enabledIds.size()>=ClipState::MaxPlanes){fail(tr("At most eight cross sections can be enabled. Disable another cross section first."));return false;}if(!capabilities().available){fail(QString::fromStdString(capabilities().reason));return false;}enabledIds.insert(id);}
   else {enabledIds.erase(id);if(enabledIds.empty()){state->planes.clear();effect.reset();request.reset();provider.reset();}}
   savePersonal();refresh();return true;
 }
 void Controller::setGlobalEnabled(bool value){cancelGesture();global=value;if(!global){state->planes.clear();effect.reset();request.reset();provider.reset();}savePersonal();refresh();}
 void Controller::setHelperEnabled(const std::string& id,bool value){if(value)helperIds.insert(id);else helperIds.erase(id);savePersonal();emit changed();window->qglview->update();}
 void Controller::select(const std::string& id){cancelGesture();selected=id;savePersonal();emit changed();window->qglview->update();}
+void Controller::setHandlesEnabled(bool value){cancelGesture();handles=value;emit changed();window->qglview->update();}
 bool Controller::editable(const std::string& id,QString *reason) const {
-  if(GuiLocker::isLocked()){if(reason)*reason=tr("Wait for inspection preparation to finish, or cancel it.");return false;}
-  auto all=records();auto found=all.find(id);if(found==all.end()){if(reason)*reason=tr("Missing Section or stale evaluation");return false;}
+  if(GuiLocker::isLocked()){
+    if(reason)*reason=window->inspectionPresentation->status()==InspectionPresentationController::Status::Preparing
+      ? tr("Preparing geometry for cross sections. Wait, or use Cancel in the status bar. You do not need to close Inspector.")
+      : tr("The model is being evaluated. Wait before editing cross sections.");
+    return false;
+  }
+  auto all=records();auto found=all.find(id);if(found==all.end()){if(reason)*reason=tr("Missing cross section or stale evaluation");return false;}
   if(!frame(id,reason))return false;
   if(found->second->source){auto section=std::dynamic_pointer_cast<const Design::Section>(found->second->evaluated);if(!section)return false;Design::FieldChange change{Design::ChangeKind::Offset};change.offset=section->offset;
     auto prepared=Design::DesignEdits(window).prepare(*found->second,{change},window->evaluationBinding->stamp());if(!prepared){if(reason)*reason=QString::fromStdString(prepared.error);return false;}}
@@ -155,7 +167,7 @@ std::optional<std::pair<double,double>> Controller::offsetRange(const std::strin
   double lower=INFINITY,upper=-INFINITY;for(int corner=0;corner<8;++corner){double parameter=(box.corner(static_cast<BoundingBox::CornerType>(corner))-pose->translation()).dot(pose->linear().col(2))+section->offset;lower=std::min(lower,parameter);upper=std::max(upper,parameter);}return std::pair{lower,upper};
 }
 bool Controller::beginGesture(const std::string& id) {
-  cancelGesture();QString error;if(!editable(id,&error)){fail(error);return false;}gestureStamp=window->evaluationBinding->stamp();auto token=document->beginEdit(id,gestureStamp);if(!token){fail(tr("Section already has an active edit"));return false;}draft=*token;priorGesture=*state;return true;
+  cancelGesture();QString error;if(!editable(id,&error)){fail(error);return false;}gestureStamp=window->evaluationBinding->stamp();auto token=document->beginEdit(id,gestureStamp);if(!token){fail(tr("Cross section already has an active edit"));return false;}draft=*token;priorGesture=*state;return true;
 }
 bool Controller::preview(const std::vector<Design::FieldChange>& changes) {
   if(draft.empty() || !document)return false;auto result=document->updateDraft(draft,changes);if(!result){fail(QString::fromStdString(result.error));cancelGesture();return false;}refresh();return true;
@@ -180,7 +192,22 @@ bool Controller::flip(const std::string& id){auto pose=frame(id);if(!pose)return
 bool Controller::reset(const std::string& id,const std::string& preset){auto pose=frame(id);if(!pose)return false;auto normal=presetNormal(preset);return edit(id,poseChanges(id,pose->translation(),normal,transportedUp(normal,pose->linear().col(1))));}
 bool Controller::setAngles(const std::string& id,double azimuth,double elevation){auto pose=frame(id);if(!pose || !std::isfinite(azimuth) || !std::isfinite(elevation))return false;double radians=std::acos(-1.)/180;azimuth*=radians;elevation*=radians;Vector3d normal(std::cos(elevation)*std::cos(azimuth),std::cos(elevation)*std::sin(azimuth),std::sin(elevation));return edit(id,poseChanges(id,pose->translation(),normal,transportedUp(normal,pose->linear().col(1))));}
 bool Controller::setOrigin(const std::string& id,const Vector3d& origin){auto pose=frame(id);if(!pose || !origin.allFinite())return false;return edit(id,poseChanges(id,origin,pose->linear().col(2),pose->linear().col(1)));}
-bool Controller::remove(const std::string& id){cancelGesture();auto result=document?document->remove(id,window->evaluationBinding->stamp()):Design::LifecycleResult{false,"Document closed"};if(!result){fail(QString::fromStdString(result.error));return false;}refresh();return true;}
+bool Controller::remove(std::string id) {
+  cancelGesture();
+  const auto all=records();
+  if(all.count(id)){
+    auto result=document->remove(id,window->evaluationBinding->stamp());
+    if(!result){fail(QString::fromStdString(result.error));return false;}
+  } else if(!enabledIds.count(id) && !helperIds.count(id)){
+    fail(tr("No cross section or remembered entry to remove"));return false;
+  }
+  enabledIds.erase(id);helperIds.erase(id);if(selected==id)selected.clear();
+  std::erase_if(state->planes,[&id](const ClipPlane& plane){return plane.sectionId==id;});
+  ++state->generation;
+  if(enabledIds.empty()){effect.reset();request.reset();provider.reset();}
+  else if(effect)effect.uniformsChanged();
+  savePersonal();refresh();return true;
+}
 bool Controller::promote(const std::string& id){cancelGesture();if(!owner || !document)return false;auto result=document->promote({id},*owner,window->evaluationBinding->stamp());if(!result){fail(QString::fromStdString(result.error));return false;}refresh();return true;}
 bool Controller::applyHit(const std::string& id,const Selection::Hit& hit,bool align) {
   if(!window->evaluationBinding->validate(hit.stamp)){fail(tr("Pick belongs to a stale result"));return false;}auto pose=frame(id);if(!pose)return false;
@@ -188,7 +215,7 @@ bool Controller::applyHit(const std::string& id,const Selection::Hit& hit,bool a
 }
 void Controller::pick(const std::string& id,bool align) {
   cancelGesture();QString error;if(!editable(id,&error)){fail(error);return;}auto stamp=window->evaluationBinding->stamp();
-  tool=window->viewportTools->beginPick({"Live Sections",stamp,true},this,[this,id,align](auto result){tool=0;if(result.hit)applyHit(id,*result.hit,align);else if(result.error!=Selection::PickError::Cancelled)fail(result.detail);});
+  tool=window->viewportTools->beginPick({"Cross sections",stamp,true},this,[this,id,align](auto result){tool=0;if(result.hit)applyHit(id,*result.hit,align);else if(result.error!=Selection::PickError::Cancelled)fail(result.detail);});
   message=tr("Click a surface. A miss leaves picking active; Escape cancels.");emit changed();
 }
 bool Controller::beginDrag(const std::string& id,QPointF press,bool rotate,int axis) {
@@ -204,17 +231,33 @@ bool Controller::beginDrag(const std::string& id,QPointF press,bool rotate,int a
     double delta=*parameter-first;Vector3d origin=initial.translation(),normal=initial.linear().col(2),up=initial.linear().col(1);
     if(rotate){delta=std::remainder(delta,2*std::acos(-1.));Eigen::AngleAxisd rotation(snappedAngle(delta,modifiers.testFlag(Qt::ShiftModifier)),initial.linear().col(axis));normal=rotation*normal;up=rotation*up;preview(poseChanges(id,origin,normal,up));}
     else{Design::FieldChange offset{Design::ChangeKind::Offset};offset.offset=baseOffset+delta;preview({offset});}};
-  tool=window->viewportTools->beginDrag({"Live Sections",gestureStamp,true},this,press,{move,[this,move](auto point,auto modifiers){move(point,modifiers);tool=0;finishGesture();},[this](auto){tool=0;cancelGesture();refresh();}});
+  tool=window->viewportTools->beginDrag({"Cross sections",gestureStamp,true},this,press,{move,[this,move](auto point,auto modifiers){move(point,modifiers);tool=0;finishGesture();},[this](auto){tool=0;cancelGesture();refresh();}});
   if(!tool){cancelGesture();return false;}return true;
 }
 void Controller::prepareHelper() {
   helperPose.reset();
   if(!window->evaluationBinding->current() || !helperEnabled(selected))return;
   helperPose=frame(selected);const auto box=bounds();helperSize=box.isEmpty()?1:box.sizes().norm()*.18;
+  planeSize=helperSize;
+  if(helperPose && !box.isEmpty())for(int corner=0;corner<8;++corner){
+    const Vector3d local=helperPose->inverse()*box.corner(static_cast<BoundingBox::CornerType>(corner));
+    planeSize=std::max(planeSize,1.1*std::max(std::abs(local.x()),std::abs(local.y())));
+  }
 }
 void Controller::drawHelper(const Selection::OverlayContext&) {
   if(!window->evaluationBinding->current() || !helperPose)return;const auto& pose=helperPose;
   double size=helperSize;Vector3d origin=pose->translation(),normal=pose->linear().col(2),up=pose->linear().col(1),right=pose->linear().col(0);
+  glDisable(GL_LIGHTING);glDisable(GL_CULL_FACE);glDisable(GL_TEXTURE_2D);glDisable(GL_COLOR_LOGIC_OP);
+  glDisable(GL_TEXTURE_1D);glDisable(GL_TEXTURE_3D);glDisable(GL_TEXTURE_CUBE_MAP);glDisable(GL_TEXTURE_RECTANGLE);
+  glDisable(GL_ALPHA_TEST);glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
+  // GLView leaves opaque alpha for Qt composition. Blend RGB without reducing it.
+  glEnable(GL_BLEND);glBlendEquation(GL_FUNC_ADD);
+  glBlendFuncSeparate(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA,GL_ZERO,GL_ONE);
+  glColor4f(.1f,.7f,1.f,.18f);glBegin(GL_QUADS);
+  for(const Vector3d& corner:std::array<Vector3d,4>{-right-up,right-up,right+up,-right+up}){Vector3d point=origin+planeSize*corner;glVertex3dv(point.data());}glEnd();
+  glColor4f(.1f,.7f,1.f,1.f);glLineWidth(2);glBegin(GL_LINE_LOOP);
+  for(const Vector3d& corner:std::array<Vector3d,4>{-right-up,right-up,right+up,-right+up}){Vector3d point=origin+planeSize*corner;glVertex3dv(point.data());}glEnd();
+  if(!handles)return;
   glDisable(GL_LIGHTING);glColor4f(.1f,.7f,1.f,1.f);glLineWidth(2);glBegin(GL_LINES);
   auto line=[](const Vector3d& a,const Vector3d& b){glVertex3dv(a.data());glVertex3dv(b.data());};
   line(origin,origin+normal*size);line(origin-right*size,origin+right*size);line(origin-up*size,origin+up*size);glEnd();
@@ -224,7 +267,7 @@ void Controller::drawHelper(const Selection::OverlayContext&) {
   glPointSize(7);glBegin(GL_POINTS);glVertex3dv(origin.data());glEnd();
 }
 bool Controller::eventFilter(QObject *,QEvent *event) {
-  if(event->type()!=QEvent::MouseButtonPress || window->viewportTools->active() || !helperEnabled(selected))return false;
+  if(event->type()!=QEvent::MouseButtonPress || !handles || window->viewportTools->active() || !helperEnabled(selected))return false;
   auto& mouse=*static_cast<QMouseEvent *>(event);if(mouse.button()!=Qt::LeftButton || mouse.modifiers()!=Qt::NoModifier)return false;auto pose=frame(selected);if(!pose || !editable(selected))return false;
   auto view=window->qglview;view->makeCurrent();view->setupCamera();Selection::OverlayContext context{window->evaluationBinding->stamp(),Eigen::Map<const Eigen::Matrix4d>(view->modelview),Eigen::Map<const Eigen::Matrix4d>(view->projection),view->size(),view->devicePixelRatio()};view->doneCurrent();
   double size=bounds().isEmpty()?1:bounds().sizes().norm()*.18;auto origin=projected(context,pose->translation()),tip=projected(context,pose->translation()+size*pose->linear().col(2));

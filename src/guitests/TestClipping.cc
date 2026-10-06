@@ -31,6 +31,10 @@
 #include <QTreeWidget>
 #include <QDoubleSpinBox>
 #include <QPushButton>
+#include <QLineF>
+#include "gui/QSettingsCached.h"
+#include <QCryptographicHash>
+#include <QFileInfo>
 #include <QWindow>
 #include <algorithm>
 
@@ -268,6 +272,10 @@ void TestClipping::canonicalDockLifecycle() {
   auto offset=controller->dock->findChild<QDoubleSpinBox *>("sectionOffset");QVERIFY(offset);QVERIFY(offset->isEnabled());
   auto originX=controller->dock->findChild<QDoubleSpinBox *>("sectionOriginX");QVERIFY(originX && originX->isEnabled());originX->setValue(3);QVERIFY(QMetaObject::invokeMethod(originX,"editingFinished"));QVERIFY(window->activeEditor->toPlainText().contains("height/2"));QVERIFY(compile(*window,window->activeEditor->toPlainText()));QTRY_VERIFY(window->inspectionPresentation->status()==Status::Ready);QVERIFY(controller->frame("middle")->translation().isApprox(Vector3d(3,0,20)));window->activeEditor->undo();QCOMPARE(window->activeEditor->toPlainText(),source);QVERIFY(compile(*window,source));QTRY_VERIFY(window->inspectionPresentation->status()==Status::Ready);
   controller->setHelperEnabled("middle",true);window->qglview->navigation()->apply({CameraPose::upright(Vector3d(-1,-1,.7)),Vector3d(-10,-10,-20),110,45,Camera::ProjectionType::ORTHOGONAL});QTest::qWait(50);const auto screenshot=qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT");if(!screenshot.isEmpty())QVERIFY(window->grab().save(screenshot+"/clipping-dock.png"));
+  window->qglview->repaint();const auto planeImage=window->qglview->grabFramebuffer();
+  const auto planePixel=(projected(*window->qglview,Vector3d(-5,-5,20))*window->qglview->devicePixelRatio()).toPoint();
+  QVERIFY(planeImage.rect().contains(planePixel));const auto planeColor=planeImage.pixelColor(planePixel);
+  QCOMPARE(planeColor.alpha(),255);QVERIFY(planeColor.green()>planeColor.red());QVERIFY(planeColor.blue()>planeColor.red());
   QVERIFY(controller->beginGesture("middle"));Design::FieldChange change{Design::ChangeKind::Offset};change.offset=-35;QVERIFY(controller->preview({change}));QVERIFY(window->activeEditor->toPlainText()==source);QVERIFY(controller->frame("middle")->translation().isApprox(Vector3d(0,0,-15)));QVERIFY(controller->finishGesture());
   QVERIFY(window->activeEditor->toPlainText().contains("height/2"));QVERIFY(window->activeEditor->toPlainText().contains("offset:-35"));window->activeEditor->undo();QCOMPARE(window->activeEditor->toPlainText(),source);QVERIFY(compile(*window,window->activeEditor->toPlainText()));QTRY_VERIFY(window->inspectionPresentation->status()==Status::Ready);
   window->activeEditor->redo();QVERIFY(window->activeEditor->toPlainText().contains("offset:-35"));QVERIFY(compile(*window,window->activeEditor->toPlainText()));QTRY_VERIFY(window->inspectionPresentation->status()==Status::Ready);
@@ -278,6 +286,29 @@ void TestClipping::canonicalDockLifecycle() {
   QVERIFY(controller->enable(*id,true));controller->setHelperEnabled(*id,true);auto stableId=*id;window->tabManager->closeCurrentTab();window->tabManager->open(path);QVERIFY(compile(*window,window->activeEditor->toPlainText()));QVERIFY(controller->records().count(stableId));QVERIFY(controller->enabled(stableId));QVERIFY(controller->helperEnabled(stableId));QCOMPARE(controller->records().at(stableId)->label,std::string("Named plane"));
   QVERIFY(!QFile::exists(path+".sections.json"));controller->setGlobalEnabled(false);
 }
+void TestClipping::deleteAndSessionPersistence() {
+  QVERIFY(compile(*window,"cube(20,center=true);"));
+  auto controller=Clipping::Controller::forWindow(*window);controller->dock->show();
+  auto id=controller->createPreset("XY");QVERIFY(id);controller->setGlobalEnabled(false);
+  auto editor=window->activeEditor;
+  const auto identity=editor->filepath.isEmpty()?editor->documentId():QFileInfo(editor->filepath).absoluteFilePath();
+  const auto key="inspection/sections/"+QString::fromLatin1(QCryptographicHash::hash(identity.toUtf8(),QCryptographicHash::Sha256).toHex())+"/";
+  QSettingsCached settings;
+  QVERIFY(!settings.value(key+"enabledIds").toStringList().contains(QString::fromStdString(*id)));
+  auto remove=controller->dock->findChild<QPushButton *>("sectionDelete");QVERIFY(remove && remove->isEnabled());
+  remove->click();
+  QVERIFY(!controller->records().count(*id));QVERIFY(!controller->enabled(*id));QVERIFY(!controller->helperEnabled(*id));
+  window->activeEditor->undo();QVERIFY(controller->records().count(*id));
+  // Reproduce the orphan left by older builds: a remembered ID without its definition.
+  QVERIFY(controller->enable(*id,true));controller->setGlobalEnabled(false);
+  auto document=Design::DesignDocument::forEditor(*editor,*window);
+  QVERIFY(document->remove(*id,window->evaluationBinding->stamp()));
+  controller->select(*id);QVERIFY(remove->isEnabled());remove->click();
+  QVERIFY(!controller->enabled(*id));QVERIFY(!controller->helperEnabled(*id));
+  auto rows=controller->dock->findChild<QTreeWidget *>("sectionRows");
+  for(int i=0;i<rows->topLevelItemCount();++i)QVERIFY(rows->topLevelItem(i)->data(0,Qt::UserRole).toString()!=QString::fromStdString(*id));
+}
+
 void TestClipping::presetsLimitsAndSourceOnly() {
   QVERIFY(compile(*window,"cube(20,center=true);"));auto controller=Clipping::Controller::forWindow(*window);
   std::vector<std::string> ids;for(int i=0;i<9;++i){auto id=controller->createPreset(i%3==0?"XY":i%3==1?"XZ":"YZ");QVERIFY(id);ids.push_back(*id);}
@@ -299,14 +330,15 @@ void TestClipping::routedPicksAndGestures() {
   controller->pick(*id,true);QTest::mouseClick(view,Qt::LeftButton,Qt::NoModifier,projected(*view,{0,-5,0}).toPoint());QTRY_VERIFY(!window->viewportTools->active());auto pose=controller->frame(*id);QVERIFY(pose);QVERIFY(std::abs(pose->translation().y()+5)<1e-3);QVERIFY(pose->linear().col(2).dot(Vector3d::UnitY())>.999);
   auto pivot=pose->translation();QVERIFY(controller->flip(*id));QVERIFY(controller->flip(*id));QVERIFY(controller->frame(*id)->translation().isApprox(pivot,1e-10));QVERIFY(controller->frame(*id)->linear().isApprox(pose->linear(),1e-10));QVERIFY(controller->setAngles(*id,30,20));QVERIFY(controller->frame(*id)->translation().isApprox(pivot,1e-10));
   auto initial=*controller->frame(*id);Vector3d up=initial.linear().col(1);view->navigation()->apply({CameraPose::upright(-up),-pivot,40,45,Camera::ProjectionType::ORTHOGONAL});
-  auto start=projected(*view,pivot+initial.linear().col(2)*2),finish=projected(*view,pivot+initial.linear().col(2)*3);
+  auto start=projected(*view,pivot+initial.linear().col(2)*2),finish=projected(*view,pivot+initial.linear().col(2)*7);
   const auto jobs=controller->metrics().jobs.load();QSignalSpy evaluations(window,&MainWindow::compilationDone);
-  QVERIFY(controller->beginDrag(*id,start,false));for(int i=0;i<100;++i)QTest::mouseMove(view,(start+(finish-start)*i/99.).toPoint());QTest::mouseRelease(view,Qt::LeftButton,Qt::NoModifier,finish.toPoint());QVERIFY(!window->viewportTools->active());QVERIFY((controller->frame(*id)->translation()-pivot).dot(initial.linear().col(2))>.9);QCOMPARE(controller->metrics().jobs.load(),jobs);QVERIFY(evaluations.empty());
+  QVERIFY(controller->beginDrag(*id,start,false));for(int i=0;i<100;++i)QTest::mouseMove(view,(start+(finish-start)*i/99.).toPoint());QTest::mouseRelease(view,Qt::LeftButton,Qt::NoModifier,finish.toPoint());QVERIFY(!window->viewportTools->active());qInfo("Section drag displacement %.9g, projected pixels %.9g, viewport %d x %d, DPR %.3f",(controller->frame(*id)->translation()-pivot).dot(initial.linear().col(2)),QLineF(start,finish).length(),view->width(),view->height(),view->devicePixelRatio());QVERIFY((controller->frame(*id)->translation()-pivot).dot(initial.linear().col(2))>4.5);QCOMPARE(controller->metrics().jobs.load(),jobs);QVERIFY(evaluations.empty());
   auto moved=*controller->frame(*id);QVERIFY(controller->beginDrag(*id,start,false));QTest::mouseMove(view,finish.toPoint());QTest::keyClick(view,Qt::Key_Escape);QVERIFY(controller->frame(*id)->matrix().isApprox(moved.matrix(),1e-10));
   QVERIFY(controller->beginDrag(*id,start,false));auto external=window->viewportTools->claimExternal("measurement fixture",window,[](auto){});QVERIFY(external);QVERIFY(controller->frame(*id)->matrix().isApprox(moved.matrix(),1e-10));window->viewportTools->finish(external);
   QVERIFY(controller->beginDrag(*id,start,false));window->activeEditor->insert("\n// stale");QVERIFY(!window->viewportTools->active());controller->setGlobalEnabled(false);
 }
 void TestClipping::sourceManipulatorRotationAndOwnership() {
+  Clipping::Controller::forWindow(*window)->setHandlesEnabled(true);
   const QString source="height=40;\n@{type:Section}\ncut={id:\"cut\",origin:[0,0,height/2],normal:[0,0,1],up:[0,1,0],adjust:{offset:0}};\ncube([20,20,height],center=false);";
   QVERIFY(compile(*window,source));auto controller=Clipping::Controller::forWindow(*window);controller->select("cut");QVERIFY(controller->enable("cut",true));controller->setGlobalEnabled(true);QTRY_VERIFY_WITH_TIMEOUT(window->inspectionPresentation->status()==Status::Ready,20000);controller->setHelperEnabled("cut",false);
   auto view=window->qglview;Vector3d pivot=controller->frame("cut")->translation();view->navigation()->apply({CameraPose::upright(Vector3d(0,-1,0)),-pivot,70*view->height()/538.,45,Camera::ProjectionType::ORTHOGONAL});

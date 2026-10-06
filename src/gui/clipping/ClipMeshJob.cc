@@ -36,7 +36,7 @@ struct Work : std::enable_shared_from_this<Work> {
            const Transform3d& transform, const Color4f& color, InspectionPiece::Role role,
            std::optional<size_t> nodeIndex = {}) {
     if (!geometry || geometry->isEmpty()) return;
-    if (geometry->getDimension() != 3) throw std::domain_error("Live Sections require three-dimensional mesh geometry");
+    if (geometry->getDimension() != 3) throw std::domain_error("Cross section clipping requires three-dimensional mesh geometry");
     if (auto list = std::dynamic_pointer_cast<const GeometryList>(geometry)) {
       for (const auto& [node, child] : list->children) add(child, output, transform, color, role, node ? std::optional<size_t>(node->index()) : nodeIndex);
       return;
@@ -87,7 +87,7 @@ struct Work : std::enable_shared_from_this<Work> {
       QTimer::singleShot(10, delivery.get(), [self] { self->attempt(); }); return;
     }
     if (std::dynamic_pointer_cast<ThrownTogetherRenderer>(window->qglview->renderer)) {
-      done({Status::Unsupported, {}, "Live Sections are unavailable in Thrown Together mode"}); return;
+      done({Status::Unsupported, {}, "Cross section clipping is unavailable in Thrown Together mode"}); return;
     }
     lock = std::make_unique<GuiLocker>();
     if (window->qglview->renderer == window->geomRenderer) finalGeometry = window->rootGeom;

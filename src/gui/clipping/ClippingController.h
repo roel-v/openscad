@@ -43,7 +43,9 @@ public:
   bool reset(const std::string&,const std::string& preset);
   bool setAngles(const std::string&,double azimuth,double elevation);
   bool setOrigin(const std::string&,const Vector3d&);
-  bool remove(const std::string&);
+  bool remove(std::string);
+  bool handlesEnabled() const { return handles; }
+  void setHandlesEnabled(bool value);
   bool promote(const std::string&);
   void pick(const std::string&,bool align);
   bool beginDrag(const std::string&,QPointF press,bool rotate,int axis=0);
@@ -65,12 +67,12 @@ private:
   std::shared_ptr<ClipState> state=std::make_shared<ClipState>();
   InspectionPresentationController::Token provider,effect,request;
   Selection::ViewportOverlays::Token overlay;
-  std::set<std::string> enabledIds,helperIds;
+  std::set<std::string> enabledIds,helperIds,sessionIds;
   std::string selected,draft;
   std::optional<ClipState> priorGesture;
   Selection::Stamp gestureStamp;
   uint64_t tool=0;
-  bool global=true,refreshing=false,closing=false;
+  bool global=true,refreshing=false,closing=false,handles=false;
   QString message,settingsKey;
   void bind();
   void refresh();
@@ -83,6 +85,7 @@ private:
   void prepareHelper();
   std::optional<Transform3d> helperPose;
   double helperSize=1;
+  double planeSize=1;
   bool eventFilter(QObject*,QEvent*) override;
 };
 }

@@ -13,6 +13,7 @@ private slots:
   void cancellationAndUnsupportedInputs();
   void uniformUpdatesAndPerformance();
   void canonicalDockLifecycle();
+  void deleteAndSessionPersistence();
   void presetsLimitsAndSourceOnly();
   void routedPicksAndGestures();
   void sourceManipulatorRotationAndOwnership();

@@ -1,15 +1,16 @@
-# Live Sections
+# Cross sections
 
 Live clipping consumes the shared immutable inspection mesh presentation and canonical `Section`
-design records. It does not modify solids or rerun SCAD source while a plane moves.
+design records. The UI calls these cross sections; the source annotation remains `@{type:Section}`.
+Clipping hides geometry beyond their cutting planes. It does not modify solids or rerun SCAD source while a plane moves.
 
-Open **Window > Sections** to show the dock. New XY/XZ/YZ creates a transient Section at
+Open **Window > Cross sections** to show the dock. New XY/XZ/YZ creates a session-only cross section at
 the model bounds center. Name it, enable it, and use the model-range slider or numeric
 offset to move along its current normal. Numeric offsets may be negative or outside
-the model range. Origin X/Y/Z sets its world position through the resolved design frame;
+the model range. Cutting plane origin X/Y/Z sets its world position through the resolved design frame;
 azimuth and elevation represent its current normal. Flip and Reset keep the origin fixed.
-Show selected plane helper displays the plane outline, origin, retained-side arrow and
-two rotation rings. Helper visibility is independent of clipping enablement.
+**Show cutting plane** displays a translucent blue rectangle at the cut. **Show move and rotate handles**
+adds the origin, retained-side arrow and two rotation rings. Hiding these guides does not disable clipping.
 
 **Pick point** preserves orientation. **Pick + align** uses the negative outward surface
 normal so the clicked boundary is removed and the interior behind it becomes visible.
@@ -27,11 +28,11 @@ The resulting source change invalidates the evaluated result; use ordinary Previ
 to evaluate that changed source. An unavailable or stale definition disables graphical edits
 with feedback. Computed/helper-valued adjustment fields require direct source editing.
 
-**Promote to source** writes a transient Section through the common design-object lifecycle
+**Save cross section in source** writes a session-only cross section through the common design-object lifecycle
 and keeps its stable ID. Ordinary **Save** uses the editor's conflict handling. Reopening
-source reconstructs the same named Section; personal settings store only enabled IDs,
+source reconstructs the same named cross section; personal settings store only enabled IDs,
 helper IDs, selection and the global toggle. There is no separate Section-definition file.
-Deleting a source Section removes its declaration in one undo action and can leave another
+Deleting a source-backed cross section removes its declaration in one undo action and can leave another
 design object with a Missing reference. No replacement definition is invented.
 
 The renderer intersects up to eight enabled positive half-spaces. A fragment is retained only
@@ -66,7 +67,7 @@ The native `TestClipping` harness records visible retained surfaces separately f
 pick points and normals. It also records preparation time and p50/p95 frame times for a mesh of
 at least 100,000 triangles at 1280 by 720 physical pixels, with one and eight enabled planes.
 These measurements apply to the recorded GPU and driver; they do not establish a portable GPU
-performance guarantee. Computed contours and section export belong to the separate geometry
+performance guarantee. Computed contours and cross section export belong to the separate geometry
 service feature.
 
 Native numerical verification exercises frozen preview, actual Manifold final geometry and

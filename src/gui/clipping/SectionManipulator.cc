@@ -23,7 +23,7 @@ std::optional<double> ringAngle(const Ray& ray, const Vector3d& origin, const Ve
   return std::atan2(delta.dot(transported),delta.dot(right));
 }
 Vector3d transportedUp(const Vector3d& normal, const Vector3d& previousUp) {
-  if (!normal.allFinite() || normal.norm()==0 || !previousUp.allFinite()) throw std::invalid_argument("Section orientation must be finite");
+  if (!normal.allFinite() || normal.norm()==0 || !previousUp.allFinite()) throw std::invalid_argument("Cutting plane orientation must be finite");
   Vector3d n=normal.normalized(), up=previousUp-n*previousUp.dot(n);
   if (up.norm()<1e-8) {
     Eigen::Index index; n.cwiseAbs().minCoeff(&index);Vector3d fallback=Vector3d::Zero();fallback[index]=1;

@@ -3,6 +3,8 @@
 #include <boost/optional.hpp>
 #include <cstddef>
 #include <memory>
+#include <functional>
+#include <stdexcept>
 #include <map>
 #include <string>
 #include <utility>
@@ -16,9 +18,17 @@ class Value;
 class ContextFrame;
 namespace Design { class Collector; struct Payload; }
 
+enum class NativeCapability { ExternalInput, FontInput, UnseededRandom, ExternalCallback };
+class EvaluationCapabilityError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
 class EvaluationSession
 {
 public:
+  std::function<void(NativeCapability)> capabilityGuard;
+  void requireCapability(NativeCapability capability) const { if (capabilityGuard) capabilityGuard(capability); }
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}
   std::shared_ptr<Design::Collector> designCollector;
   // Evaluation-local, move-owned consumer data; no borrowed native Context is retained.

@@ -33,6 +33,15 @@ SourceFileCache::~SourceFileCache()
 {
   for (auto& entry : entries) delete entry.second.parsed_file;
 }
+void SourceFileCache::seedCaptured(const std::string& key, const SourceFile& file) {
+  if (!inputs) throw EvaluationInputError("Captured AST seeding requires request-local inputs");
+  if (!inputs->consumed().count(key)) throw EvaluationInputError("AST has no captured input: " + key);
+  if (entries.count(key)) throw EvaluationInputError("Captured AST already seeded: " + key);
+  auto clone = std::make_unique<SourceFile>(file);
+  cache_entry entry; entry.file = clone.get(); entry.parsed_file = clone.get();
+  entries.emplace(key, std::move(entry));
+  clone.release();
+}
 
 /*!
    Reprocess the given file and all its dependencies and reparse anything

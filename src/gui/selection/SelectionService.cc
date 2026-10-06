@@ -24,6 +24,7 @@ PickResult SelectionService::pick(QPointF logical, const Stamp& expected)
   if (!window) return {PickError::Cancelled, {}, tr("Viewport closed")};
   if (GuiLocker::isLocked() || QApplication::activeModalWidget()) return {PickError::Busy, {}, tr("Evaluation or modal interaction is active")};
   const auto inspection=window->inspectionPresentation;
+  if(window->evaluationBinding->draftPixels())return {PickError::Unsupported,{},tr("Draft geometry is unavailable for live surface picking")};
   if (inspection && inspection->status()!=InspectionPresentationController::Status::Inactive &&
       inspection->status()!=InspectionPresentationController::Status::Ready && inspection->status()!=InspectionPresentationController::Status::Empty)
     return {inspection->status()==InspectionPresentationController::Status::Preparing ? PickError::Busy : PickError::Unsupported,{},inspection->reason()};

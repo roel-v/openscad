@@ -68,6 +68,7 @@ struct ParserSourceLocation {
 #include "core/Expression.h"
 #include "core/ParserInspection.h"
 #include "core/provenance/SourceProvenance.h"
+#include "core/EvaluationSession.h"
 #include "core/function.h"
 #include "io/fileutils.h"
 #include "utils/printutils.h"
@@ -998,7 +999,7 @@ int parserlex(void)
   if (parserInspection) {
     if (token == '(' || token == '[' || token == '{') ++parserInspection->nesting;
     if (token == ')' || token == ']' || token == '}') --parserInspection->nesting;
-    if (++parserInspection->tokens > 8192 || parserInspection->nesting > 256 ||
+    if (++parserInspection->tokens > parserInspection->tokenLimit || parserInspection->nesting > 256 ||
         !parserInspection->alive()) parserInspection->failed = true;
     if (parserInspection->failed) {
       if (token == TOK_ID || token == TOK_STRING || token == TOK_USE) free(parserlval.text);
@@ -1128,6 +1129,24 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
     parserretval = parserparse();
   }catch (const HardWarningException &e) {
     yyerror("stop on first warning");
+  }catch (const MissingCapturedInput &) {
+    // Missing captured source is a closure request, not a syntax diagnostic.
+    // Return ownership of the partial AST and unwind all lexer/scope state.
+    lexerdestroy();
+    lexerlex_destroy();
+    scope_stack = {};
+    parser_input_buffer = nullptr;
+    parser_error_pos = -1;
+    file = rootfile;
+    throw;
+  }catch (const EvaluationCapabilityError &) {
+    lexerdestroy();
+    lexerlex_destroy();
+    scope_stack = {};
+    parser_input_buffer = nullptr;
+    parser_error_pos = -1;
+    file = rootfile;
+    throw;
   }catch (const EvaluationInputError &e) {
     yyerror(e.what());
   }catch (const std::filesystem::filesystem_error &e) {

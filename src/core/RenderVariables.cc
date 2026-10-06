@@ -8,7 +8,7 @@ void RenderVariables::applyToContext(ContextHandle<BuiltinContext>& context) con
   context->set_variable("$preview", preview);
   context->set_variable("$t", time);
 
-  const auto vpr = camera.getVpr();
+  const auto vpr = cameraVariableRotation.value_or(camera.getVpr());
   context->set_variable("$vpr", VectorType(context->session(), vpr.x(), vpr.y(), vpr.z()));
   const auto vpt = camera.getVpt();
   context->set_variable("$vpt", VectorType(context->session(), vpt.x(), vpt.y(), vpt.z()));

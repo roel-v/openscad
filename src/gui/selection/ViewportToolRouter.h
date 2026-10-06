@@ -4,8 +4,10 @@
 #include <QObject>
 #include <QPointer>
 #include <QPointF>
+#include <vector>
 class MainWindow;
 class QEvent;
+class QWidget;
 namespace Selection {
 using CancelReason=SelectionRouter::CancelReason;
 using ToolToken=SelectionRouter::Token;
@@ -23,6 +25,8 @@ public:
   ToolToken beginDrag(ToolRequest request,QObject *lifetime,QPointF press,DragCallbacks callbacks,Qt::MouseButton button=Qt::LeftButton);
   // Legacy tools retain their existing input handler, but share exclusive ownership.
   ToolToken claimExternal(QString owner,QObject *lifetime,std::function<void(CancelReason)> cancelled);
+  bool setFocusGroup(ToolToken,const std::vector<QWidget *>& widgets);
+  bool beginSessionDrag(ToolToken,ToolRequest,QPointF press,DragCallbacks,Qt::MouseButton button=Qt::LeftButton);
   void cancel(ToolToken token,CancelReason reason);
   void finish(ToolToken token);
   ToolToken active() const { return router.token(); }
@@ -40,6 +44,8 @@ private:
   QMetaObject::Connection lifetime;
   Qt::MouseButton dragButton=Qt::LeftButton;
   bool capturedDrag=false;
+  std::vector<QPointer<QWidget>> focusGroup;
+  bool containsFocus(QWidget *) const;
   ToolToken arm(SelectionRouter::Mode mode,QObject *owner,std::function<void(CancelReason)> cancelled);
   void retire();
   bool eventFilter(QObject *object,QEvent *event) override;

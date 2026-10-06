@@ -44,6 +44,9 @@ Q_IMPORT_PLUGIN(QSvgPlugin)
 #endif
 
 class BuiltinContext;
+class RenderVariables;
+class ParameterSet;
+struct EvaluationOverrides;
 class EvaluationInputs;
 class GeometryWorker;
 class CSGNode;
@@ -228,6 +231,7 @@ public:
   std::shared_ptr<SourceFile> parseDocument(EditorInterface *editor);
 
   void parseTopLevelDocument();
+  bool evaluateCapturedVariables(const RenderVariables&,const ParameterSet&);
   void exceptionCleanup();
   void setLastFocus(QWidget *widget);
   void UnknownExceptionCleanup(std::string msg = "");
@@ -236,6 +240,7 @@ public:
 private:
   [[nodiscard]] QString getCurrentFileName() const;
 
+  std::shared_ptr<const EvaluationOverrides> evaluationOverrides;
   void setRenderVariables(ContextHandle<BuiltinContext>& context);
   void updateCompileResult();
   void compile(bool reload, bool forcedone = false);

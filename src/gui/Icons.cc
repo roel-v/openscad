@@ -292,7 +292,7 @@ public:
     }
     return false;
   }
-  void update(QWidget *widget)
+  void update(QWidget *widget, bool force = false)
   {
     if (busy) return;
     busy = true;
@@ -303,8 +303,15 @@ public:
     // A button consumes a shared action; it must not write its local icon back to it.
     if (!qobject_cast<QAbstractButton *>(widget)) {
       for (auto *action : widget->actions()) {
-        if (mappings().contains(canonical(action->icon().name())))
-          action->setIcon(convert(action->icon()));
+        if (mappings().contains(canonical(action->icon().name())) &&
+            (force || action->property("openscadBoundIconKey").toLongLong() != action->icon().cacheKey())) {
+          // Overflow menus repeatedly remove and add shared toolbar actions.
+          // Replacing an already-bound icon emits changed(), invalidating that
+          // layout again. Rebind only external replacements or explicit refreshes.
+          const auto replacement = convert(action->icon());
+          action->setProperty("openscadBoundIconKey", replacement.cacheKey());
+          action->setIcon(replacement);
+        }
       }
     }
     if (auto *button = qobject_cast<QAbstractButton *>(widget)) {
@@ -370,7 +377,7 @@ void install()
 void refresh()
 {
   install();
-  for (auto *widget : QApplication::allWidgets()) events->update(widget);
+  for (auto *widget : QApplication::allWidgets()) events->update(widget, true);
 }
 void setLabelIcon(QLabel *label, const QString& name, int size, qreal rotation)
 {

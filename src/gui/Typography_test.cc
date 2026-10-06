@@ -158,8 +158,16 @@ TEST_CASE("Preferences native tabs synchronize actions and conditional pages", "
   prefs->prefsActionAI->setVisible(true);
   prefs->prefsActionAI->trigger();
   CHECK(prefs->stackedWidget->currentWidget() == prefs->pageAI);
+  const int aiTab = prefs->categoryTabs->currentIndex();
+  REQUIRE(aiTab > 0);
+  auto *previousAction = prefs->categoryTabs->tabData(aiTab - 1).value<QAction *>();
+  REQUIRE(previousAction);
   prefs->prefsActionAI->setVisible(false);
-  CHECK(prefs->stackedWidget->currentWidget() == prefs->pageDialogs);
+  CHECK(prefs->categoryTabs->tabData(prefs->categoryTabs->currentIndex()).value<QAction *>() == previousAction);
+  CHECK(previousAction->isChecked());
+  auto *fallbackPage = prefs->stackedWidget->currentWidget();
+  previousAction->trigger();
+  CHECK(prefs->stackedWidget->currentWidget() == fallbackPage);
   for (int i = 0; i < prefs->categoryTabs->count(); ++i) {
     auto *action = prefs->categoryTabs->tabData(i).value<QAction *>();
     REQUIRE(action);

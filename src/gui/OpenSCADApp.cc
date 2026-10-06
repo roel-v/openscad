@@ -116,8 +116,7 @@ void OpenSCADApp::setRenderBackend3D(RenderBackend3D backend)
 
 void OpenSCADApp::setApplicationFont(const QString& family, uint size)
 {
-  // Update the application font (hopefully) everywhere.
-  scadApp->setFont(QFont(family, size));
+  QApplication::setFont(QFont(family, size));
 }
 
 // For Qt5, simulate the Qt6 behavior.

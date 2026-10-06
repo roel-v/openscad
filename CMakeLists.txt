@@ -1705,6 +1705,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestDesignObjects.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
+    src/guitests/TestInspectionDraft.h
     src/guitests/TestSelection.h
     src/guitests/TestProvenance.h
     src/guitests/TestSemanticHierarchy.h
@@ -1722,6 +1723,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestDesignObjects.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
+    src/guitests/TestInspectionDraft.cc
     src/guitests/TestSelection.cc
     src/guitests/TestProvenance.cc
     src/guitests/TestSemanticHierarchy.cc

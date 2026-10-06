@@ -18,6 +18,7 @@ class Renderer;
 namespace SourceProvenance { class SyntaxTable; class Result; }
 namespace Design { struct Result; }
 namespace Semantic { struct Scene; }
+class InspectionPresentationController;
 
 namespace Selection {
 // Destruction releases contexts before their session, and ASTs after the session.
@@ -57,6 +58,8 @@ public:
   bool takeDiskChanges() { const bool changed=diskInputsChanged; diskInputsChanged=false; return changed; }
   // Actions must still verify exact dependency bytes through validate()/scene().
   bool validate(const Stamp& expected, QString *detail = nullptr) const;
+  bool validateModel(const Stamp& expected, QString *detail = nullptr) const;
+  bool draftPixels() const { return hypotheticalPixels; }
   const Stamp& stamp() const { return installedStamp; }
   std::shared_ptr<const EvaluatedScene> scene(const Stamp& expected) const;
   QString staleReason() const { return reason; }
@@ -64,6 +67,8 @@ signals:
   void invalidated();
   void installed();
 private:
+  friend class ::InspectionPresentationController;
+  bool hypotheticalPixels = false;
   QPointer<MainWindow> window;
   QPointer<EditorInterface> owner;
   std::shared_ptr<const EvaluatedScene> retainedScene;

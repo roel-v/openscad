@@ -1,4 +1,5 @@
 #include "core/EvaluationInputs.h"
+#include "core/EvaluationSession.h"
 #include "core/SourceFileCache.h"
 #include "core/SourceFile.h"
 #include "core/UserModule.h"
@@ -98,6 +99,37 @@ TEST_CASE("Native evaluation reader and library cache scopes restore after excep
   REQUIRE(SourceFileCache::instance() == original);
 }
 
+TEST_CASE("Native parser resource capability guards restore after rejected font imports", "[sealed-evaluation-inputs][evaluation-inputs]")
+{
+  InputFixture fixture;
+  fixture.write("font.ttf", "invalid bytes must not reach the font loader");
+  const auto path=fixture.write("root.scad", "use <font.ttf>\ncube(1);");
+  EvaluationInputs inputs(fixture.input(path,EvaluationInputs::diskBytes(path)));
+  SourceFileCache cache(&inputs);
+  REQUIRE_FALSE(nativeParserCapabilityGuard);
+  unsigned requests=0;
+  {
+    NativeEvaluationScope guarded(inputs,cache,[&](NativeCapability capability){
+      REQUIRE(capability==NativeCapability::FontInput);++requests;
+      throw EvaluationCapabilityError("font fixture rejected before IO");
+    });
+    {
+      NativeEvaluationScope nested(inputs,cache);
+      REQUIRE_FALSE(nativeParserCapabilityGuard);
+    }
+    REQUIRE(nativeParserCapabilityGuard);
+    SourceFile *raw=nullptr;
+    CHECK_THROWS_AS(parse(raw,inputs.root().utf8,path.string(),path.string(),false),EvaluationCapabilityError);
+    std::unique_ptr<SourceFile> partial(raw);
+    CHECK(requests==1);
+    raw=nullptr;
+    REQUIRE(parse(raw,"cube(2);",path.string(),path.string(),false));
+    std::unique_ptr<SourceFile> recovered(raw);
+  }
+  REQUIRE_FALSE(nativeParserCapabilityGuard);
+  REQUIRE(nativeEvaluationInputs==nullptr);
+}
+
 TEST_CASE("Native include and use parsers consume one captured input request", "[evaluation-inputs]")
 {
   InputFixture fixture;
@@ -132,4 +164,70 @@ TEST_CASE("Captured AST cache seeding owns native declarations and ignores later
   REQUIRE_THROWS_AS(seeded.seedCaptured(inputs.root().fileKey, *seeded.lookup(root.string())), EvaluationInputError);
   SourceFile missing(root.parent_path().string(), "missing.scad"); REQUIRE_THROWS_AS(seeded.seedCaptured("uncaptured", missing), EvaluationInputError);
   SourceFileCache global; REQUIRE_THROWS_AS(global.seedCaptured(inputs.root().fileKey, *seeded.lookup(root.string())), EvaluationInputError);
+}
+
+TEST_CASE("Sealed inputs retain dirty nested sources and never read missing disk bytes", "[sealed-evaluation-inputs][evaluation-inputs]")
+{
+  InputFixture fixture;auto root=fixture.write("root.scad","cube(1);");
+  auto include=fixture.write("nested/include.scad","disk bytes must not win");
+  const auto dirty=fixture.input(include,"height=7;\r\n");
+  EvaluationInputs inputs(fixture.input(root,"cube(1);"),{dirty},EvaluationInputs::ReadPolicy::RejectMissing,
+    {{dirty.fileKey,dirty}});
+  REQUIRE(inputs.read(include).utf8==dirty.utf8);
+  auto unseeded=fixture.write("unseeded.scad",std::string("\xc0\xaf"));
+  try {inputs.read(unseeded);FAIL("Missing seed must not read invalid disk bytes");}
+  catch(const MissingCapturedInput& error){REQUIRE(error.key==EvaluationInputs::fileKey(unseeded));}
+  REQUIRE(inputs.consumed().size()==2);
+}
+
+TEST_CASE("Sealed seed identity and fingerprint conflicts fail without choosing a version", "[sealed-evaluation-inputs]")
+{
+  InputFixture fixture;auto root=fixture.write("root.scad","cube(1);");auto input=fixture.input(root,"cube(1);");
+  auto conflicting=input;conflicting.utf8="cube(2);";
+  REQUIRE_THROWS_AS(EvaluationInputs(input,{},EvaluationInputs::ReadPolicy::RejectMissing,{{input.fileKey,conflicting}}),EvaluationInputError);
+  auto badHash=input;badHash.fingerprint=std::string(64,'0');
+  REQUIRE_THROWS_AS(EvaluationInputs(badHash,{},EvaluationInputs::ReadPolicy::RejectMissing),EvaluationInputError);
+  REQUIRE_THROWS_AS(EvaluationInputs(input,{},EvaluationInputs::ReadPolicy::RejectMissing,{{"wrong key",input}}),EvaluationInputError);
+  auto same=input;same.editorId="second";
+  EvaluationInputs equal(input,{input,same},EvaluationInputs::ReadPolicy::RejectMissing,{{input.fileKey,input}});
+  REQUIRE(equal.capturedEditors().size()==2);
+}
+
+TEST_CASE("Hypothetical replacement preserves exact base currentness rather than fabricating an editor revision", "[sealed-evaluation-inputs]")
+{
+  InputFixture fixture;const std::string bytes="\xef\xbb\xbf//\xc3\xa9\r\ncube(1);\r\n";
+  auto root=fixture.write("root.scad",bytes);auto original=fixture.input(root,bytes,"owner",19);
+  EvaluationInputs base(original,{original},EvaluationInputs::ReadPolicy::RejectMissing);base.freeze();
+  const std::string candidate="\xef\xbb\xbf//\xc3\xa9\r\ncube(2);\r\n";
+  auto replaced=base.withReplacement(original.fileKey,candidate);
+  REQUIRE(base.root().utf8==bytes);REQUIRE(replaced.root().utf8==candidate);
+  REQUIRE(replaced.root().fingerprint==EvaluationInputs::fingerprint(candidate));
+  REQUIRE_FALSE(replaced.root().editorId);REQUIRE_FALSE(replaced.root().editorRevision);
+  REQUIRE(replaced.validationInputs().at(original.fileKey).utf8==bytes);
+  REQUIRE(replaced.validationInputs().at(original.fileKey).editorRevision==19);
+  REQUIRE(replaced.capturedEditors().front().editorRevision==19);
+  REQUIRE_THROWS_AS(replaced.withReplacement(original.fileKey,bytes),EvaluationInputError);
+  REQUIRE_THROWS_AS(base.withReplacement("session:uncaptured",candidate),MissingCapturedInput);
+}
+TEST_CASE("Sealed native include and use report missing canonical inputs and recover lexer state without disk bytes", "[sealed-evaluation-inputs]")
+{
+  for (bool include : {true,false}) {
+    InputFixture fixture;
+    auto dependency=fixture.write("nested/source.scad",std::string("\xc0\xaf"));
+    const std::string text=include?"include <nested/source.scad>\ncube(height);":"use <nested/source.scad>\ncube(height());";
+    auto root=fixture.write("root.scad",text);const auto rootInput=fixture.input(root,text);
+    EvaluationInputs missing(rootInput,{},EvaluationInputs::ReadPolicy::RejectMissing);SourceFileCache missingCache(&missing);
+    SourceFile *raw=nullptr;bool requested=false;
+    {
+      NativeEvaluationScope native(missing,missingCache);
+      try {const bool parsed=parse(raw,text,root.string(),root.string(),false);REQUIRE(parsed);raw->handleDependencies();}
+      catch(const MissingCapturedInput& error){requested=true;REQUIRE(error.key==EvaluationInputs::fileKey(dependency));}
+    }
+    std::unique_ptr<SourceFile> partial(raw);REQUIRE(requested);REQUIRE(missing.consumed().size()==1);
+    const auto seed=fixture.input(dependency,include?"height=27;":"function height()=27;");
+    EvaluationInputs seeded(rootInput,{},EvaluationInputs::ReadPolicy::RejectMissing,{{seed.fileKey,seed}});SourceFileCache seededCache(&seeded);
+    NativeEvaluationScope native(seeded,seededCache);SourceFile *recovered=nullptr;
+    REQUIRE(parse(recovered,text,root.string(),root.string(),false));std::unique_ptr<SourceFile> owner(recovered);owner->handleDependencies();
+    REQUIRE(seeded.consumed().size()==2);REQUIRE(seeded.read(dependency).utf8==seed.utf8);
+  }
 }

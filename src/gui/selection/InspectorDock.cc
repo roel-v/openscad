@@ -31,6 +31,7 @@ InspectorDock::InspectorDock(MainWindow *window) : QDockWidget(tr("Inspector"),w
     "The box marks the selected component, preview primitive, or final result bounds; the dot marks the picked point. "
     "Use the source links or component controls below when available."),body);
   help->setWordWrap(true);layout->addWidget(help);
+  layout->setSizeConstraint(QLayout::SetMinAndMaxSize);
   auto select=new QPushButton(tr("Select geometry"),body); select->setObjectName("selectGeometry"); layout->addWidget(select);
   auto clear=new QPushButton(tr("Clear selection"),body); layout->addWidget(clear);
   message=new QLabel(body); message->setObjectName("selectionFeedback");message->setWordWrap(true); layout->addWidget(message);

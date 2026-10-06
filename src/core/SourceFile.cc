@@ -77,6 +77,7 @@ void SourceFile::registerUse(const std::string& path, const Location& loc)
   auto ext = fs::path(path).extension().generic_string();
 
   if (boost::iequals(ext, ".otf") || boost::iequals(ext, ".ttf")) {
+    if (nativeParserCapabilityGuard) nativeParserCapabilityGuard(NativeCapability::FontInput);
     if (fs::is_regular_file(path)) {
       FontCache::instance()->register_font_file(path);
     } else {

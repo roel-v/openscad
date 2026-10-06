@@ -1259,7 +1259,7 @@ Value ObjectExpression::evaluate(const std::shared_ptr<const Context>& context) 
   Value::ObjectType obj(context->session());
   for (const auto& member : members) {
     Value val = member->getExpr()->evaluate(context);
-    if(!obj.set(member->getName(), std::move(val)))obj.recordLiteralDuplicateKey(member->getName());
+    if (!obj.set(member->getName(), std::move(val))) obj.recordLiteralDuplicateKey(member->getName());
   }
   return Value(std::move(obj));
 }

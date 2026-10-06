@@ -20,6 +20,7 @@ private slots:
   void parameterOwnerAndContextGuards();
   void typedParameterControlsAndGlobalCustomizer();
   void closeWindowWithPendingTargets();
+  void foreignPresentationDrawIdsRemainUnowned();
 private:
   int previousBackend=0;
   void evaluate(const QString&,bool final=false);

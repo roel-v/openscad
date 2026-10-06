@@ -20,8 +20,10 @@ private slots:
   void inspectionMeshes();
   void inspectionColors();
   void inspectionProviderLifetime();
+  void inspectionReleaseDuringNewResultInstallation();
   void toolLifecycle();
   void inspectorExtensions();
+  void inspectorDynamicContentScrolls();
   void overlayIsolation();
   void visibleSelectionFeedback();
   void dragAndMeasurementOwnership();

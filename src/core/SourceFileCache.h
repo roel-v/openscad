@@ -23,6 +23,8 @@ public:
   std::time_t process(const std::string& mainFile, const std::string& filename,
                       SourceFile *& sourceFile);
   SourceFile *lookup(const std::string& filename);
+  // Seed a request-local cache from an already captured AST; never reparses current disk.
+  void seedCaptured(const std::string& fileKey, const SourceFile&);
   size_t size() const { return this->entries.size(); }
   void clear();
   static void clear_markers();

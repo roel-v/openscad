@@ -3,6 +3,9 @@
 #include <boost/optional.hpp>
 #include <cstddef>
 #include <memory>
+#include <functional>
+#include <stdexcept>
+#include <map>
 #include <string>
 #include <utility>
 #include <vector>
@@ -15,10 +18,18 @@ class Value;
 class ContextFrame;
 namespace SourceProvenance { class ProvenanceCollector; }
 
+enum class NativeCapability { ExternalInput, FontInput, UnseededRandom, ExternalCallback };
+class EvaluationCapabilityError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
 class EvaluationSession
 {
 public:
   std::shared_ptr<SourceProvenance::ProvenanceCollector> provenanceCollector;
+  std::function<void(NativeCapability)> capabilityGuard;
+  void requireCapability(NativeCapability capability) const { if (capabilityGuard) capabilityGuard(capability); }
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}
 
   size_t push_frame(ContextFrame *frame);

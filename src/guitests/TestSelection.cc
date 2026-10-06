@@ -11,6 +11,10 @@
 #include "gui/selection/ViewportOverlays.h"
 #include "gui/selection/InspectorDock.h"
 #include <QLabel>
+#include <QVBoxLayout>
+#include <QScrollArea>
+#include <QScrollBar>
+#include <QPushButton>
 #include "geometry/PolySetUtils.h"
 #include "glview/SurfacePick.h"
 #include "glview/PolySetRenderer.h"
@@ -655,6 +659,19 @@ void TestSelection::inspectionProviderLifetime()
   afterClose({InspectionPresentationController::Status::Ready,set,{}}); QTest::qWait(10);
   QCOMPARE(coordinator->status(),InspectionPresentationController::Status::Inactive);
 }
+void TestSelection::inspectionReleaseDuringNewResultInstallation()
+{
+  window->tabManager->actionNew();window->activeEditor->setPlainText("cube(1);\n");
+  QSignalSpy compiled(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY(!compiled.empty());
+  auto coordinator=window->inspectionPresentation;QObject lifetime;
+  auto provider=coordinator->registerMeshProvider("new result release proof",0,&lifetime,[&](auto,auto stamp,auto done){done({InspectionPresentationController::Status::Ready,inspectionFixture(window,stamp),{}});return InspectionPresentationController::Cancel{};});
+  auto request=coordinator->requestMeshes("new result release proof",&lifetime);QTRY_COMPARE(coordinator->status(),InspectionPresentationController::Status::Ready);
+  std::shared_ptr<Renderer> newlyInstalled;
+  auto connection=connect(window->evaluationBinding,&Selection::EvaluationBinding::installed,&lifetime,[&]{newlyInstalled=window->qglview->renderer;request.reset();});
+  compiled.clear();window->activeEditor->setPlainText("cube(10);\n");window->actionRenderPreview();QTRY_VERIFY(!compiled.empty());QTest::qWait(20);disconnect(connection);
+  QVERIFY(newlyInstalled);QCOMPARE(window->qglview->renderer,newlyInstalled);QCOMPARE(coordinator->status(),InspectionPresentationController::Status::Inactive);QVERIFY(window->evaluationBinding->current());
+  window->activeEditor->setContentModified(false);window->tabManager->closeCurrentTab();
+}
 
 void TestSelection::toolLifecycle()
 {
@@ -718,6 +735,27 @@ void TestSelection::inspectorExtensions()
   QVERIFY(!window->inspectorDock->registerContribution({"fixture",20,owner.get(),[](const auto&,const auto&) { return new QLabel; }}));
   const auto previous=old; window->selectionService->clear(); QVERIFY(previous.isNull()); QCOMPARE(builds,2);
   owner.reset(); QVERIFY(!token); QVERIFY(old.isNull()); window->selectionService->clear(); QCOMPARE(builds,2);
+  window->inspectorDock->hide();
+}
+
+void TestSelection::inspectorDynamicContentScrolls()
+{
+  QObject owner;
+  auto token=window->inspectorDock->registerContribution({"scroll fixture",100,&owner,[](const auto&,const auto&) {
+    auto *body=new QWidget; auto *layout=new QVBoxLayout(body);
+    for(int i=0;i<30;++i) {auto *button=new QPushButton(QString("Dynamic control %1").arg(i),body);button->setObjectName(QString("dynamicControl%1").arg(i));layout->addWidget(button);}
+    return body;
+  }});
+  QVERIFY(token); window->inspectorDock->show();window->inspectorDock->raise();QTest::qWait(50);
+  auto *scroll=window->inspectorDock->findChild<QScrollArea *>();QVERIFY(scroll);
+  auto *last=window->inspectorDock->findChild<QPushButton *>("dynamicControl29");QVERIFY(last);
+  QTRY_VERIFY(scroll->verticalScrollBar()->maximum()>0);
+  QVERIFY(last->height()>=last->minimumSizeHint().height());
+  scroll->ensureWidgetVisible(last);QTest::qWait(20);
+  QVERIFY(scroll->verticalScrollBar()->value()>0);
+  window->inspectorDock->refresh();QTest::qWait(20);
+  last=window->inspectorDock->findChild<QPushButton *>("dynamicControl29");QVERIFY(last);
+  QVERIFY(last->height()>=last->minimumSizeHint().height());
   window->inspectorDock->hide();
 }
 

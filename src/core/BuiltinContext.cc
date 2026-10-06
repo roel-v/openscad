@@ -4,6 +4,7 @@
 
 #include "core/AST.h"
 #include "core/Builtins.h"
+#include "core/EvaluationSession.h"
 #include "core/Expression.h"
 #include "core/callables.h"
 #include "core/function.h"
@@ -30,6 +31,10 @@ boost::optional<CallableFunction> BuiltinContext::lookup_local_function(const st
   if (search != Builtins::instance().getFunctions().end()) {
     BuiltinFunction *f = search->second;
     if (f->is_enabled()) {
+      if (name == "import" || name == "dxf_dim" || name == "dxf_cross")
+        session()->requireCapability(NativeCapability::ExternalInput);
+      if (name == "textmetrics" || name == "fontmetrics")
+        session()->requireCapability(NativeCapability::FontInput);
       return CallableFunction{f};
     }
 
@@ -55,6 +60,8 @@ boost::optional<InstantiableModule> BuiltinContext::lookup_local_module(const st
           "The %1$s() module will be removed in future releases. Use %2$s instead.", name, replacement);
     }
     if (m->is_enabled()) {
+      if (name == "import" || name == "surface") session()->requireCapability(NativeCapability::ExternalInput);
+      if (name == "text") session()->requireCapability(NativeCapability::FontInput);
       return InstantiableModule{get_shared_ptr(), m};
     }
   }

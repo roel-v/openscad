@@ -396,7 +396,8 @@ void OpenCSGRenderer::configureSurface(OpenCSGVertexState& state, const CSGChain
   // product; mirrored draw winding is reversed separately.
   state.surfaceNormalSign = (subtraction ? 1.0f : -1.0f) *
     (object.leaf->matrix.linear().determinant() < 0 ? -1.0f : 1.0f);
-  surfaceObjects.push_back({state.surfaceDrawId, object.leaf->index, object.leaf->matrix, state.surfaceDrawId});
+  surfaceObjects.push_back({state.surfaceDrawId, object.leaf->index, object.leaf->matrix, state.surfaceDrawId,
+    object.leaf->polyset->getBoundingBox().transformed(object.leaf->matrix)});
 }
 
 Renderer::SurfaceContext OpenCSGRenderer::prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader)

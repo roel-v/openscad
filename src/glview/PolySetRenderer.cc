@@ -286,12 +286,13 @@ Renderer::SurfaceContext PolySetRenderer::prepareSurfacePick(const ShaderUtils::
   if (!polygons_.empty()) return {false, "2D final geometry does not provide 3D surface hits"};
   prepare(displayShader);
   SurfaceContext result{true, {}, Vector3d::Zero(), {}};
+  const auto bounds = getBoundingBox();
   for (const auto& container : polyset_vertex_state_containers_)
     for (const auto& state : container.states())
       if (state->drawSize() > 0) {
         if (result.objects.size() >= SurfacePickMath::MaxDrawId) return {false, "Surface draw ID capacity exceeded"};
         const auto token = static_cast<uint32_t>(result.objects.size()+1);
-        result.objects.push_back({token, {}, {}, token});
+        result.objects.push_back({token, {}, {}, token, bounds});
       }
   return result;
 }

@@ -160,7 +160,7 @@ void InspectionPresentationController::refresh(bool newResult)
   if (!provider) { setStatus(Status::Unsupported,tr("No inspection mesh provider is available")); emit meshesChanged(); return; }
   jobStamp=stamp(); const auto scene=window->evaluationBinding->scene(jobStamp);
   const auto ticket=registry.beginJob();
-  setStatus(Status::Preparing,tr("Preparing inspection")); emit meshesChanged();
+  setStatus(Status::Preparing,tr("Preparing geometry for model tools… Large models may take a while. You can cancel this operation.")); emit meshesChanged();
   const auto delivery=dispatcher;
   const QPointer<InspectionPresentationController> weak(this);
   try {
@@ -193,6 +193,7 @@ void InspectionPresentationController::compose()
 {
   if (!registry.meshes() || !meshRenderer || !registry.requested()) return;
   std::shared_ptr<Renderer> composed=meshRenderer;
+  meshRenderer->setColorScheme(*window->qglview->colorscheme);
   try {
     for (auto id : registry.orderedEffects()) {
       composed=effects.at(id).factory(composed);
@@ -204,6 +205,7 @@ void InspectionPresentationController::compose()
 void InspectionPresentationController::replace(std::shared_ptr<Renderer> renderer)
 {
   replacing=true; window->qglview->makeCurrent();
+  if(renderer)renderer->setColorScheme(*window->qglview->colorscheme);
   window->evaluationBinding->replacePresentationRenderer(std::move(renderer),stamp());
   window->qglview->doneCurrent(); replacing=false;
 }

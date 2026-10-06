@@ -26,6 +26,7 @@ public:
   void start();
   void stop();
   void publish(Snapshot snapshot);
+  void publishCameras(const QJsonArray& cameras);
   void complete(const QString& serverId, const QString& requestId, QJsonObject result, QByteArray png,
                 QString error);
   QJsonObject connection() const { return info; }

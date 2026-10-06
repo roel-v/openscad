@@ -16,6 +16,8 @@ class NavigationSettings : public QObject {
   Q_PROPERTY(double cubeRadius MEMBER cubeRadius NOTIFY changed)
   Q_PROPERTY(double labelSize MEMBER labelSize NOTIFY changed)
   Q_PROPERTY(double arrowSize MEMBER arrowSize NOTIFY changed)
+  Q_PROPERTY(double arrowInset MEMBER arrowInset NOTIFY changed)
+  Q_PROPERTY(double rollInset MEMBER rollInset NOTIFY changed)
   Q_PROPERTY(double idleOpacity MEMBER idleOpacity NOTIFY changed)
   Q_PROPERTY(double activeOpacity MEMBER activeOpacity NOTIFY changed)
   Q_PROPERTY(int enterDelay MEMBER enterDelay NOTIFY changed)
@@ -49,15 +51,16 @@ public:
   QVariantMap values() const;
   QString description() const;
   static QString unit(const QByteArray& name);
-  double scale = 0.75;
+  double scale = 1.1;
   double cubeRight = 10, cubeTop = 26, menuRight = 8, menuTop = 5;
   double chamfer = 0.22, cubeRadius = 30, labelSize = 10, arrowSize = 20;
+  double arrowInset = 0, rollInset = 0;
   double idleOpacity = 0.45, activeOpacity = 1;
   int enterDelay = 0, leaveDelay = 180, fadeIn = 120, fadeOut = 250;
   bool visible = true, animate = true, freeOrbit = true;
   int duration = 200;
   int easing = QEasingCurve::InOutCubic;
-  double rollStep = 90, arrowStep = 15, dragThreshold = 10, orbitSensitivity = 1;
+  double rollStep = 15, arrowStep = 15, dragThreshold = 10, orbitSensitivity = 1;
   bool showInformation=false, triangles=true, fps=true, frameTime=false;
   int statsRefresh=250, statsWindow=30, statsIdle=1000;
 signals:

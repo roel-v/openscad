@@ -1,5 +1,6 @@
 #pragma once
 #include "gui/selection/SelectionTypes.h"
+#include "gui/selection/ViewportOverlays.h"
 #include <QDockWidget>
 #include <QPointer>
 #include <functional>
@@ -37,6 +38,8 @@ public:
   explicit InspectorDock(MainWindow *window);
   ~InspectorDock() override;
   Token registerContribution(InspectorContribution contribution);
+  // Persistent editors survive selection-detail refreshes and retain their controls.
+  void addPanel(QWidget *panel);
   QAction *selectionAction() const { return selectAction; }
 public slots:
   void beginSelection();
@@ -51,8 +54,11 @@ private:
   QPointer<MainWindow> window;
   QLabel *properties,*message;
   QVBoxLayout *contributions;
+  QVBoxLayout *panels;
   QAction *selectAction;
   uint64_t tool=0;
+  ViewportOverlays::Token selectionOverlay;
+  void drawSelection(const OverlayContext& context);
   std::map<QString,Entry> entries;
   void remove(const QString& id);
 };

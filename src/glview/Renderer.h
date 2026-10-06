@@ -50,6 +50,8 @@ public:
     std::optional<size_t> nodeIndex;
     std::optional<Transform3d> localToWorld;
     uint32_t pickToken;
+    // Draw-space bounds; SurfaceContext::positionOrigin restores model coordinates.
+    std::optional<BoundingBox> bounds;
   };
   struct SurfaceContext {
     bool supported = false;

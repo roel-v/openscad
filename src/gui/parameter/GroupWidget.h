@@ -18,6 +18,7 @@ private:
 public:
   GroupWidget(const QString& title, QWidget *parent = nullptr);
   void addWidget(QWidget *widget);
+  void updateVisibility();
 
   bool isExpanded() const { return toggleButton.isChecked(); }
   QString title() const { return toggleButton.text(); }

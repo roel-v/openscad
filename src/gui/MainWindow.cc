@@ -1,6 +1,6 @@
 /*
  *  OpenSCAD (www.openscad.org)
- *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
+ *  Copyright (C) 2009-2025 Clifford Wolf <clifford@clifford.at> and
  *                          Marius Kintel <marius@kintel.net>
  *
  *  This program is free software; you can redistribute it and/or modify
@@ -173,6 +173,7 @@
 #ifdef OPENSCAD_UPDATER
 #include "gui/AutoUpdater.h"
 #endif
+#include "gui/ShortcutConfigurator.h"
 
 #ifdef ENABLE_PYTHON
 #include "nettle/base64.h"
@@ -308,6 +309,14 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   restoreWindowState();
 
   this->hideFind();
+
+  // init shortcut-config
+  QList<QAction *> allActions = this->findChildren<QAction *>();
+  GlobalPreferences::inst()->shortcutConfigurator->collectDefaults(allActions);
+  GlobalPreferences::inst()->shortcutConfigurator->applyConfigFile(allActions);
+  GlobalPreferences::inst()->shortcutConfigurator->initGUI(allActions);
+  GlobalPreferences::inst()->shortcutConfigurator->searchBox->setText("");
+
   show();
   openRemainingFiles(filenames);
 }

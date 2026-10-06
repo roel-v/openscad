@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <stdexcept>
 #include <vector>
 
 #ifdef ENABLE_CGAL
@@ -70,7 +71,16 @@ std::shared_ptr<SurfaceMesh> createSurfaceMeshFromPolySet(const PolySet& ps);
 template <class SurfaceMesh>
 std::unique_ptr<PolySet> createPolySetFromSurfaceMesh(const SurfaceMesh& mesh);
 
-std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(const CGAL_Nef_polyhedron3& N);
+enum class NefPolySetConversion { Render, StrictAnalysis };
+class NefPolySetConversionError : public std::runtime_error
+{
+public:
+  enum class Reason { InvalidTopology, PrecisionLoss, TriangulationFailure };
+  NefPolySetConversionError(Reason reason, const char *detail) : std::runtime_error(detail), reason(reason) {}
+  Reason reason;
+};
+std::unique_ptr<PolySet> createPolySetFromNefPolyhedron3(
+  const CGAL_Nef_polyhedron3& N, NefPolySetConversion conversion = NefPolySetConversion::Render);
 
 std::shared_ptr<const CGALNefGeometry> getNefPolyhedronFromGeometry(
   const std::shared_ptr<const Geometry>& geom);

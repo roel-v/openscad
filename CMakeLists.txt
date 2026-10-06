@@ -1147,6 +1147,7 @@ set(CORE_SOURCES
   src/geometry/PolySet.cc
   src/geometry/PolySetBuilder.cc
   src/geometry/PolySetUtils.cc
+  src/geometry/analysis/GeometryAnalysis.cc
   src/geometry/Polygon2d.cc
   src/geometry/boolean_utils.cc
   src/geometry/linalg.cc
@@ -1773,6 +1774,7 @@ file(GLOB_RECURSE GUI_TEST_SOURCES
 )
 list(APPEND TEST_SOURCES src/glview/SurfacePickMath_test.cc src/glview/InspectionPresentation_test.cc src/glview/SelectionRouter_test.cc)
 list(APPEND TEST_SOURCES src/glview/ClippingState_test.cc)
+list(APPEND TEST_SOURCES "src/geometry/analysis/GeometryAnalysis_test.cc")
 list(FILTER Sources EXCLUDE REGEX ".*_test[.]cc")
 list(REMOVE_ITEM Sources "src/main_wrapper.cc")
 

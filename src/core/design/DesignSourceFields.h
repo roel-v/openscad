@@ -4,6 +4,8 @@
 
 namespace Design {
 struct SourceRange { size_t begin = 0, end = 0; };
+// Requires syntactically valid source. Returns a safe file-scope insertion point.
+std::optional<size_t> fileScopeInsertion(const std::string& source, size_t cursor, std::string& error);
 struct SourcePatch { SourceRange range; std::string expected, replacement; };
 enum class LiteralKind { String, Number, Vector3, Quaternion };
 struct FieldPatch { std::string path, encoded; LiteralKind literal; };

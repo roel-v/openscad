@@ -139,7 +139,7 @@ void TestClipping::suppliedPiecesAndOwnership() {
   auto supplied=std::make_shared<InspectionMeshSet>(); supplied->resultId=window->evaluationBinding->stamp().resultId.toStdString(); supplied->geometryGeneration=22;
   Transform3d mirror=Transform3d::Identity();mirror.scale(Vector3d(-1,1,1));Transform3d rear=mirror;rear.translate(Vector3d(0,14,0));
   supplied->pieces={{uint64_t(1)<<40,{},mesh,mirror,Color4f(1.f,0.f,0.f,1.f)},{77,{},mesh,rear,Color4f(0.f,1.f,0.f,1.f)}};
-  auto high=presentation->registerMeshProvider("piece-fixture",100,&owner,[supplied](auto,auto,auto done){done({Status::Ready,supplied,{}});return InspectionPresentationController::Cancel{};});
+  auto high=presentation->registerMeshProvider("piece-fixture",200,&owner,[supplied](auto,auto,auto done){done({Status::Ready,supplied,{}});return InspectionPresentationController::Cancel{};});
   Effect effect(*window);auto request=presentation->requestMeshes("piece-owner",&owner);
   QTRY_VERIFY(presentation->status()==Status::Ready);
   QVERIFY(request.setMask({1,{77}},presentation->stamp(),22));
@@ -148,9 +148,9 @@ void TestClipping::suppliedPiecesAndOwnership() {
   auto picked=window->selectionService->pick(projected(*view,{0,19,0}),window->evaluationBinding->stamp());QVERIFY(picked.hit);QCOMPARE(picked.hit->object.drawId,uint64_t(77));QVERIFY(std::abs(picked.hit->worldPoint.y()-19)<1e-4);QVERIFY(picked.hit->outwardNormal.dot(Vector3d::UnitY())>.999);
   effect.effect.reset();QVERIFY(presentation->meshes()==supplied);
   picked=window->selectionService->pick(projected(*view,{0,9,0}),window->evaluationBinding->stamp());QVERIFY(picked.hit);QCOMPARE(picked.hit->object.drawId,uint64_t(77));QVERIFY(std::abs(picked.hit->worldPoint.y()-9)<1e-4);
-  high.reset();auto failed=presentation->registerMeshProvider("failed-pieces",100,&owner,[](auto,auto,auto done){done({Status::Failed,{},"fixture failure"});return InspectionPresentationController::Cancel{};});
+  high.reset();auto failed=presentation->registerMeshProvider("failed-pieces",200,&owner,[](auto,auto,auto done){done({Status::Failed,{},"fixture failure"});return InspectionPresentationController::Cancel{};});
   QTRY_VERIFY(presentation->status()==Status::Failed);QCOMPARE(root.metrics().jobs.load(),uint64_t(0));
-  failed.reset(); auto pending=presentation->registerMeshProvider("pending-pieces",100,&owner,[](auto,auto,auto){return InspectionPresentationController::Cancel{};});
+  failed.reset(); auto pending=presentation->registerMeshProvider("pending-pieces",200,&owner,[](auto,auto,auto){return InspectionPresentationController::Cancel{};});
   QTRY_VERIFY(presentation->status()==Status::Preparing);presentation->cancelPreparation();QCOMPARE(presentation->status(),Status::Cancelled);QCOMPARE(root.metrics().jobs.load(),uint64_t(0));
   request.reset();pending.reset();low.reset();
 }
@@ -194,7 +194,7 @@ void TestClipping::numericalGpuBoundaries() {
     auto sheet=[](double height){auto mesh=std::make_shared<PolySet>(3);mesh->vertices={{-1,-1,height},{1,-1,height},{1,1,height},{-1,1,height}};mesh->indices={{0,1,2},{0,2,3}};mesh->setTriangular(true);return mesh;};
     auto set=std::make_shared<InspectionMeshSet>();set->resultId=presentation->stamp().resultId.toStdString();set->geometryGeneration=1;
     set->pieces={{101,{},sheet(0),transform,Color4f(1.f,0.f,0.f,1.f)},{202,{},sheet(separation),transform,Color4f(0.f,1.f,0.f,1.f)}};
-    QObject owner;auto provider=presentation->registerMeshProvider("numerical-sheets",100,&owner,[set](auto,auto,auto done){done({Status::Ready,set,{}});return InspectionPresentationController::Cancel{};});
+    QObject owner;auto provider=presentation->registerMeshProvider("numerical-sheets",200,&owner,[set](auto,auto,auto done){done({Status::Ready,set,{}});return InspectionPresentationController::Cancel{};});
     Effect effect(*window);auto request=presentation->requestMeshes("numerics",&owner);QTRY_VERIFY(presentation->status()==Status::Ready);
     auto view=window->qglview;const Vector3d point=center+normal*separation*scale;
     view->navigation()->apply({CameraPose::upright(-normal),-point,3.5*scale,45,Camera::ProjectionType::ORTHOGONAL});

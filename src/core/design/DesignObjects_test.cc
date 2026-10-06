@@ -148,7 +148,7 @@ TEST_CASE("Design reference outcomes protect cycles fingerprints unsupported dom
   auto context = resolveContext(f.result->records); Design::ReferenceToken reference{"design","a",Value::undefined.clone()};
   REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Invalid); REQUIRE(context.visitedIds.empty());
   reference.id="missing"; REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Missing);
-  reference.domain="semantic"; REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Unsupported);
+  reference.domain="unregistered-reference-test-domain"; REQUIRE(Design::resolve(reference,context).state == Design::ResolutionState::Unsupported);
   ObjectType token(nullptr); token.set("inputsFingerprint",Value("old")); token.set("configurationFingerprint",Value("config"));
   Design::ReferenceToken geometric{"geometric","",Value(std::move(token))}; REQUIRE(Design::resolve(geometric,context).state == Design::ResolutionState::Changed);
 }
@@ -221,4 +221,35 @@ TEST_CASE("Registered consumers share one required transient declaration in a to
   auto closure=Design::persistenceClosure({"owner-one","owner-two"},records,{});
   REQUIRE(closure.valid());REQUIRE(closure.insert.size()==3);REQUIRE(closure.insert.front()->id=="shared");
   REQUIRE(std::count_if(closure.insert.begin(),closure.insert.end(),[](const auto& record){return record->id=="shared";})==1);
+}
+
+TEST_CASE("Consumer decode failures notify their owner without delivering an invalid record", "[design-objects]") {
+  struct Probe {int consumed=0,rejected=0;std::vector<Design::Diagnostic> diagnostics;};auto state=std::make_shared<Probe>();std::weak_ptr<Probe> weak=state;
+  Design::KindHandler handler{"RejectingNativeConsumer",{Design::DeclarationHost::Assignment},{Design::DeclarationScope::File},Design::decodeSection,Design::RecordDestination::Consumer,
+    [weak](Design::Record,const Design::EvaluatedDeclaration&,EvaluationSession&){if(auto state=weak.lock())++state->consumed;}};
+  handler.reject=[weak](const std::vector<Design::Diagnostic>& diagnostics,const Design::EvaluatedDeclaration& declaration,EvaluationSession&){if(auto state=weak.lock()){++state->rejected;state->diagnostics=diagnostics;REQUIRE(declaration.nativeContext);REQUIRE(!diagnostics.empty());}};
+  REQUIRE(Design::registerKind(std::move(handler)));
+  Fixture invalid;invalid.evaluate("@{type:RejectingNativeConsumer} a={id:\"a\",origin:[0,0,0],normal:[0,0,0]};cube(1);");REQUIRE(state->consumed==0);REQUIRE(state->rejected==1);REQUIRE(!invalid.result->diagnostics.empty());REQUIRE(state->diagnostics.front().source);
+  Fixture valid;valid.evaluate("@{type:RejectingNativeConsumer} a={id:\"a\",origin:[0,0,0],normal:[0,0,1]};cube(1);");REQUIRE(state->consumed==1);REQUIRE(state->rejected==1);REQUIRE(valid.result->records.empty());
+  Design::KindHandler document{"ForbiddenDocumentReject",{Design::DeclarationHost::Assignment},{Design::DeclarationScope::File},Design::decodeSection};document.reject=[](const auto&,const auto&,auto&){};REQUIRE_FALSE(Design::registerKind(std::move(document)));
+}
+
+TEST_CASE("Consumer syntax and reassignment failures reach rejection callbacks before value dispatch", "[design-objects]") {
+  struct Probe {int rejected=0,consumed=0;std::string code;};auto state=std::make_shared<Probe>();std::weak_ptr<Probe> weak=state;
+  Design::KindHandler handler;handler.name="PreDispatchConsumer";handler.hosts={Design::DeclarationHost::Assignment};handler.scopes={Design::DeclarationScope::File};handler.destination=Design::RecordDestination::Consumer;
+  handler.decode=[](const Value&,const Design::DeclarationContext&){Design::DecodeResult out;out.payload=std::make_shared<Design::Payload>();return out;};
+  handler.consume=[weak](Design::Record,const Design::EvaluatedDeclaration&,EvaluationSession&){if(auto state=weak.lock())++state->consumed;};
+  handler.reject=[weak](const std::vector<Design::Diagnostic>& diagnostics,const Design::EvaluatedDeclaration& declaration,EvaluationSession&){if(auto state=weak.lock()){++state->rejected;REQUIRE(diagnostics.size()==1);state->code=diagnostics.front().code;REQUIRE(declaration.nativeContext);REQUIRE(declaration.localScope);REQUIRE(declaration.source.endByte>declaration.source.beginByte);}};
+  REQUIRE(Design::registerKind(std::move(handler)));
+  for(const auto& source:{std::string("@{type:PreDispatchConsumer} a={id:\"a\"};a={id:\"a\"};cube(1);"),std::string("@{type:PreDispatchConsumer,extra:1} a={id:\"a\"};cube(1);")}){
+    state->rejected=0;Fixture fixture;fixture.evaluate(source);REQUIRE(state->rejected==1);REQUIRE(state->consumed==0);REQUIRE((state->code=="design-reassignment" || state->code=="invalid-metadata"));
+  }
+}
+TEST_CASE("Native literal duplicate proof survives helper returns and owned copies without changing ordinary values", "[design-objects]") {
+  struct Probe {int calls=0;std::vector<std::string> duplicates;double lastValue=0;};auto state=std::make_shared<Probe>();std::weak_ptr<Probe> weak=state;
+  Design::KindHandler handler;handler.name="LiteralProofConsumer";handler.hosts={Design::DeclarationHost::Assignment};handler.scopes={Design::DeclarationScope::File};handler.destination=Design::RecordDestination::Consumer;
+  handler.decode=[weak](const Value& value,const Design::DeclarationContext&){Design::DecodeResult decoded;const auto& duplicates=value.toObject().literalDuplicateKeys();if(auto state=weak.lock()){state->duplicates=duplicates;state->lastValue=value.toObject().get("height").toDouble();}decoded.payload=std::make_shared<Design::Payload>();return decoded;};
+  handler.consume=[weak](Design::Record record,const Design::EvaluatedDeclaration&,EvaluationSession&){if(auto state=weak.lock()){++state->calls;REQUIRE(record.definition.toObject().literalDuplicateKeys()==state->duplicates);}};REQUIRE(Design::registerKind(std::move(handler)));
+  Fixture fixture;fixture.evaluate("function make()={id:\"a\",height:1,height:2}; @{type:LiteralProofConsumer} a=make(); cube(1);");REQUIRE(fixture.node);REQUIRE(state->calls==1);REQUIRE(state->duplicates==std::vector<std::string>{"height"});REQUIRE(state->lastValue==2);
+  ObjectType programmatic(nullptr);REQUIRE(programmatic.set("height",Value(1.0)));REQUIRE_FALSE(programmatic.set("height",Value(2.0)));REQUIRE(programmatic.literalDuplicateKeys().empty());REQUIRE(programmatic.get("height").toDouble()==2);
 }

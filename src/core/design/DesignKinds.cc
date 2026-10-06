@@ -44,7 +44,8 @@ void invalid(DecodeResult& output, const std::string& message) { output.diagnost
 }
 bool registerKind(KindHandler handler) {
   if (handler.name.empty() || !handler.decode || handler.hosts.empty() || handler.scopes.empty() ||
-      (handler.destination == RecordDestination::Consumer) != bool(handler.consume)) return false;
+      (handler.destination == RecordDestination::Consumer) != bool(handler.consume) ||
+      (handler.destination != RecordDestination::Consumer && handler.reject)) return false;
   std::lock_guard<std::mutex> lock(handlerMutex());
   auto name = handler.name;
   return handlers().emplace(name, std::make_shared<const KindHandler>(std::move(handler))).second;

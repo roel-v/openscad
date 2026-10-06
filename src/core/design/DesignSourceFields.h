@@ -21,7 +21,8 @@ public:
   const std::string& error() const { return problem; }
   bool ownsDeclaration() const { return owned; }
   const ObjectFields& fields() const { return root; }
-  std::optional<std::vector<SourcePatch>> patches(const std::vector<FieldPatch>&, std::string& error) const;
+  std::optional<std::vector<SourcePatch>> patches(const std::vector<FieldPatch>&, std::string& error,
+      const std::set<std::string>& allowedFields = {"label","adjust.translation","adjust.rotation","adjust.offset"}) const;
   std::optional<SourcePatch> deletion(std::string& error) const;
 private:
   std::string bytes, problem;

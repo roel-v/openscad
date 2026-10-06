@@ -1,4 +1,5 @@
 #include "core/design/DesignSourceFields.h"
+#include "core/design/DesignKinds.h"
 #include "core/str_utf8_wrapper.h"
 #include <algorithm>
 #include <cctype>
@@ -103,7 +104,8 @@ bool literal(const std::string& bytes,SourceRange range,LiteralKind kind){
 DesignSourceMap DesignSourceMap::scan(const DeclarationKey& declaration,const SourceInput& input,const std::string& expectedKind){
   DesignSourceMap map;map.bytes=input.utf8;map.declaration=declaration;
   if(declaration.host!=DeclarationHost::Assignment){map.problem="Unsupported declaration host";return map;}
-  if((expectedKind!="Section" && expectedKind!="View") || declaration.fileKey!=input.fileKey || declaration.fingerprint!=input.fingerprint || declaration.endByte>input.utf8.size() || declaration.beginByte>=declaration.endByte){map.problem="Source identity or kind does not match";return map;}
+  registerBuiltins();auto handler=kind(expectedKind);
+  if(!handler || !handler->hosts.count(DeclarationHost::Assignment) || declaration.fileKey!=input.fileKey || declaration.fingerprint!=input.fingerprint || declaration.endByte>input.utf8.size() || declaration.beginByte>=declaration.endByte){map.problem="Source identity or kind does not match";return map;}
   try{
     Scanner scanner(map.bytes,declaration.beginByte,declaration.endByte);scanner.require("@");scanner.require("{");scanner.require("type");scanner.require(":");scanner.require(expectedKind);scanner.require("}");
     auto name=scanner.next();if(!name || name->type!=Token::Name || name->decoded!=declaration.hostName)throw std::invalid_argument("Assignment name does not match");scanner.require("=");
@@ -128,14 +130,15 @@ std::optional<SourcePatch> DesignSourceMap::deletion(std::string& error)const{
   if(!owned){error=problem.empty()?"Annotation ownership is unavailable":problem;return {};}
   return SourcePatch{{declaration.beginByte,declaration.endByte},bytes.substr(declaration.beginByte,declaration.endByte-declaration.beginByte),""};
 }
-std::optional<std::vector<SourcePatch>> DesignSourceMap::patches(const std::vector<FieldPatch>& changes,std::string& error)const{
+std::optional<std::vector<SourcePatch>> DesignSourceMap::patches(const std::vector<FieldPatch>& changes,std::string& error,const std::set<std::string>& allowedFields)const{
   if(!direct()){error=problem;return {};}
   std::vector<SourcePatch> patches;std::map<std::string,FieldPatch> selected;
   for(const auto& change:changes)selected.insert_or_assign(change.path,change);
   std::map<std::string,std::string> rootInsert,adjustInsert;
   for(const auto& [path,change]:selected){
     bool nested=path.rfind("adjust.",0)==0;std::string name=nested?path.substr(7):path;
-    if((!nested && name!="label") || (nested && name!="translation" && name!="rotation" && name!="offset")){error="Unsupported design edit field";return {};}
+    if(!allowedFields.count(path) || name.empty() || name.find('.')!=std::string::npos){error="Unsupported design edit field";return {};}
+    if(!literal(change.encoded,{0,change.encoded.size()},change.literal)){error="Replacement must be a finite typed literal";return {};}
     const ObjectFields *fields=nested?(adjust?&*adjust:nullptr):&root;
     auto found=fields?fields->fields.find(name):root.fields.end();
     if(fields && found!=fields->fields.end()){
@@ -148,10 +151,11 @@ std::optional<std::vector<SourcePatch>> DesignSourceMap::patches(const std::vect
     std::string text;size_t position=fields.close;
     if(fields.multiline){
       // Put a needed comma immediately after the previous expression, before any trailing comment.
-      if(!fields.fields.empty() && !fields.trailingComma){size_t last=0;for(const auto& [name,range]:fields.fields)last=std::max(last,range.end);patches.push_back({{last,last},"",","});}
+      size_t comma=0;if(!fields.fields.empty() && !fields.trailingComma)for(const auto& [name,range]:fields.fields)comma=std::max(comma,range.end);
       auto line=bytes.rfind('\n',fields.close);if(line!=std::string::npos){size_t start=line+1;bool whitespace=true;for(size_t i=start;i<fields.close;++i)if(bytes[i]!=' ' && bytes[i]!='\t')whitespace=false;if(whitespace)position=start;}
       if(position==fields.close)text+=fields.eol;
       size_t i=0;for(const auto& [name,value]:values){text+=fields.indent+name+": "+value;if(++i<values.size() || fields.trailingComma)text+=",";text+=fields.eol;}
+      if(comma){if(comma==position)text=","+text;else patches.push_back({{comma,comma},"",","});}
     }else{
       if(!fields.fields.empty() && !fields.trailingComma)text+=",";
       size_t i=0;for(const auto& [name,value]:values){if(i++ || !fields.fields.empty())text+=" ";text+=name+": "+value;if(i<values.size() || fields.trailingComma)text+=",";}

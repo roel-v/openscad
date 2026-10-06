@@ -8,13 +8,16 @@
 class EditorInterface;
 class MainWindow;
 namespace Design {
-enum class ChangeKind { Label, Translation, Rotation, Offset, DeleteDeclaration, InsertRecord };
+enum class ChangeKind { Label, Translation, Rotation, Offset, DeleteDeclaration, InsertRecord, LiteralField };
 struct FieldChange {
   ChangeKind kind;
   std::string label;
   Vector3d translation = Vector3d::Zero();
   Eigen::Quaterniond rotation = Eigen::Quaterniond::Identity();
   double offset = 0;
+  // Consumer-owned schemas validate this field path and immutable native value.
+  std::string fieldPath;
+  std::shared_ptr<const Value> literal;
 };
 struct PreparedEdit {
   QPointer<EditorInterface> editor;

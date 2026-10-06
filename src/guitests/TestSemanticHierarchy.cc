@@ -366,7 +366,7 @@ void TestSemanticHierarchy::sourceNavigationAndSection(){
   QVERIFY(!sectionRecord->definition.toObject().contains("target"));
   QVERIFY(!sectionRecord->definition.toObject().contains("frame"));
   const auto target=controller->targetService()->resolve(key);
-  Design::ResolveContext context;
+  Design::ResolveContext context{"", "", "", BoundingBox(), document->transientRecords(), {}};
   const auto pose=Design::sectionFrame(*sectionRecord,context);
   QVERIFY(pose.frame);QVERIFY(target.localBounds);
   QVERIFY(pose.frame->translation().isApprox(target.localToWorld*target.localBounds->center()));

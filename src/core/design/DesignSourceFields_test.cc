@@ -1,4 +1,5 @@
 #include "core/design/DesignSourceFields.h"
+#include "core/design/DesignKinds.h"
 #include <catch2/catch_test_macros.hpp>
 
 namespace {
@@ -41,9 +42,22 @@ TEST_CASE("Design numerical edits refuse adjustment expressions and merge repeat
   REQUIRE(applyPatches(bytes,*patches).find("adjust: {offset: 3}")!=std::string::npos);
 }
 TEST_CASE("Design insertions preserve multiline comma and comment ownership", "[design-source-edits]") {
-  for(const std::string suffix:{",\n}"," // retained\n}","\n}"}){
+  for(const std::string suffix:{",\n}"," // retained\n}","\n}","}"}){
     std::string bytes="@{type: Section}\nsection={\n  id:\"x\",\n  origin:[0,0,height/2],\n  normal:[0,0,1]"+suffix+";";
     auto map=scan(bytes);REQUIRE(map.direct());std::string error;auto patches=map.patches({{"adjust.offset","5",Design::LiteralKind::Number}},error);REQUIRE(patches);auto changed=applyPatches(bytes,*patches);REQUIRE(scan(changed).direct());
     if(suffix.find("retained")!=std::string::npos)REQUIRE(changed.find("// retained")!=std::string::npos);
   }
+}
+TEST_CASE("Registered consumer fields require an explicit whitelist and finite typed replacement literals", "[design-source-edits]") {
+  Design::registerBuiltins();REQUIRE(Design::registerKind({"NativeFields",{Design::DeclarationHost::Assignment},{Design::DeclarationScope::File},Design::decodeSection,Design::RecordDestination::Consumer,[](auto,auto&,auto&){}}));
+  std::string bytes="@{type: NativeFields} consumer={id:\"stable\",origin:[0,0,height/2],normal:[0,0,1],mode:\"first\",adjust:{offset:[0,0,1],spin:0}};";
+  SourceInput input{"session:test",bytes,EvaluationInputs::fingerprint(bytes),"test",3};
+  auto map=Design::DesignSourceMap::scan({input.fileKey,input.fingerprint,"consumer",Design::DeclarationHost::Assignment,0,bytes.size()},input,"NativeFields");REQUIRE(map.direct());std::string error;
+  std::vector<Design::FieldPatch> changes{{"mode","\"second\"",Design::LiteralKind::String},{"adjust.spin","15",Design::LiteralKind::Number},{"adjust.offset","[1,2,3]",Design::LiteralKind::Vector3}};
+  REQUIRE_FALSE(map.patches(changes,error));auto patches=map.patches(changes,error,{"mode","adjust.spin","adjust.offset"});REQUIRE(patches);
+  auto changed=applyPatches(bytes,*patches);REQUIRE(changed.find("height/2")!=std::string::npos);REQUIRE(changed.find("mode:\"second\"")!=std::string::npos);
+  REQUIRE_FALSE(map.patches({{"mode","\"bad\";cube(100);",Design::LiteralKind::String}},error,{"mode"}));
+  REQUIRE_FALSE(map.patches({{"adjust.spin","1/0",Design::LiteralKind::Number}},error,{"adjust.spin"}));
+  REQUIRE_FALSE(map.patches({{"adjust.offset","[1,2]",Design::LiteralKind::Vector3}},error,{"adjust.offset"}));
+  REQUIRE_FALSE(map.patches({{"origin","[1,2,3]",Design::LiteralKind::Vector3}},error,{"mode"}));
 }

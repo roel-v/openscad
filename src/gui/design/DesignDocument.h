@@ -22,6 +22,7 @@ struct LifecycleCallbacks {
   std::function<PreparedEdit(const Draft&, const Selection::Stamp&)> prepareInsert;
   std::function<PreparedEdit(const std::string&, const std::vector<FieldChange>&, const Selection::Stamp&)> prepareEdit;
   std::function<std::shared_ptr<const Record>(const Draft&, const Selection::Stamp&)> locatePromotedRecord;
+  std::function<std::shared_ptr<const Record>(const Record&, const std::vector<FieldChange>&, std::string&)> previewConsumerRecord;
 };
 struct LifecycleResult { bool changed = false; std::string error; explicit operator bool() const { return error.empty(); } };
 struct SaveOutcome { QPointer<EditorInterface> editor; bool saved = false; QString detail; };
@@ -51,6 +52,8 @@ public:
   std::optional<std::string> createTransient(const std::string& kind, Value definition, std::string *error = nullptr);
   std::optional<std::string> beginEdit(const std::string& id, const Selection::Stamp&);
   std::optional<std::string> beginConsumerEdit(const std::string& kind, const std::string& opaqueKey, const Selection::Stamp&);
+  std::optional<std::string> createConsumerTransient(const std::string& kind, const std::string& opaqueKey,
+      Value definition, const Selection::Stamp&, std::string *error = nullptr);
   LifecycleResult updateDraft(const std::string& token, const std::vector<FieldChange>&);
   void cancelDraft(const std::string& token);
   LifecycleResult commitDraft(const std::string& token);

@@ -13,6 +13,12 @@ namespace Design {
 namespace {
 std::string uuid() { return QUuid::createUuid().toString(QUuid::WithoutBraces).toStdString(); }
 Value vector(const Vector3d& value) { VectorType result(nullptr); for (int i=0;i<3;++i) result.emplace_back(Value(value[i])); return Value(std::move(result)); }
+std::shared_ptr<const Record> isolated(const Record& before){
+  auto result=std::make_shared<Record>();result->id=before.id;result->kind=before.kind;result->label=before.label;result->source=before.source;
+  result->definition=ownedValue(before.definition);result->evaluated=before.evaluated;
+  for(const auto& dependency:before.dependencies)result->dependencies.push_back({dependency.domain,dependency.id,ownedValue(dependency.data)});
+  return result;
+}
 }
 DesignDocument::Token::Token(Token&& other) noexcept : document(other.document), kind(std::move(other.kind)) { other.document.clear(); }
 DesignDocument::Token& DesignDocument::Token::operator=(Token&& other) noexcept { if (this!=&other) { reset(); document=other.document; kind=std::move(other.kind); other.document.clear(); } return *this; }
@@ -87,6 +93,25 @@ std::optional<std::string> DesignDocument::beginConsumerEdit(const std::string& 
   for (const auto& [token,draft]:editing) if(draft.consumer && draft.kind==name && draft.key==key)return {};
   auto token=uuid();editing.emplace(token,Draft{token,key,name,record,record,{},stamp,true});return token;
 }
+std::optional<std::string> DesignDocument::createConsumerTransient(const std::string& name,const std::string& key,Value definition,const Selection::Stamp& stamp,std::string *error) {
+  auto fail=[&](const std::string& message)->std::optional<std::string>{if(error)*error=message;return {};};
+  auto handler=kind(name);auto adapter=adapters.find(name);
+  if(!valid(stamp) || !handler || handler->destination!=RecordDestination::Consumer || adapter==adapters.end() || !adapter->second.owner)
+    return fail("A current evaluation and registered consumer lifecycle owner are required");
+  if(key.empty())return fail("A consumer draft requires an opaque owner key");
+  for(const auto& [token,draft]:editing)if(draft.consumer && draft.kind==name && draft.key==key)return fail("Consumer draft already exists");
+  for(const auto& [token,draft]:pendingConsumers)if(draft.kind==name && draft.key==key)return fail("Consumer promotion is pending");
+  QPointer<DesignDocument> self(this);auto existing=consumerRecord(name,key,stamp);
+  if(!self)return fail("Document closed during lifecycle callback");
+  if(!valid(stamp) || !adapters.count(name) || !adapters.at(name).owner)return fail("Lifecycle callback changed its owner or evaluation");
+  if(existing)return fail("Consumer declaration already exists");
+  std::vector<Diagnostic> diagnostics;auto decoded=makeRecord(*handler,definition,{{"","",key},DeclarationScope::File},diagnostics);
+  if(!decoded)return fail(diagnostics.empty()?"Invalid consumer definition":diagnostics.front().message);
+  auto record=std::make_shared<Record>();record->id=decoded->id;record->kind=decoded->kind;record->label=decoded->label;
+  record->definition=ownedValue(decoded->definition);record->evaluated=decoded->evaluated;
+  for(const auto& dependency:decoded->dependencies)record->dependencies.push_back({dependency.domain,dependency.id,ownedValue(dependency.data)});
+  auto token=uuid();editing.emplace(token,Draft{token,key,name,record,record,{},stamp,true});emit changed();return token;
+}
 std::shared_ptr<const Record> DesignDocument::updated(const Record& record,const std::vector<FieldChange>& changes,std::string& error) const {
   auto value=ownedValue(record.definition);auto object=value.toObject().clone();
   for (const auto& change:changes) {
@@ -108,7 +133,23 @@ LifecycleResult DesignDocument::updateDraft(const std::string& token,const std::
   auto found=editing.find(token);if(found==editing.end())return {false,"Draft no longer exists"};
   if(!valid(found->second.stamp)){editing.erase(found);return {false,"Draft evaluation became stale"};}
   std::string error;auto merged=found->second.changes;merged.insert(merged.end(),changes.begin(),changes.end());
-  if(found->second.consumer) { found->second.changes=std::move(merged);emit changed();return {true,{}}; }
+  if(found->second.consumer) {
+    auto draft=found->second;auto adapter=adapters.find(draft.kind);
+    if(adapter==adapters.end() || !adapter->second.owner)return {false,"Lifecycle owner closed"};
+    auto callback=adapter->second.callbacks.previewConsumerRecord;
+    if(callback) {
+      QPointer<DesignDocument> self(this);QPointer<QObject> lifetime=adapter->second.owner;
+      // ObjectType::clone retains shared mutable storage. Isolate both callback input and published output.
+      auto input=isolated(*draft.before);auto preview=callback(*input,merged,error);
+      if(!self)return {false,"Document closed during lifecycle callback"};
+      found=editing.find(token);
+      if(!lifetime || found==editing.end() || !valid(draft.stamp))return {false,"Lifecycle callback changed its owner or evaluation"};
+      if(!preview || preview->kind!=draft.kind || preview->id!=draft.before->id)return {false,error.empty()?"Consumer preview changed its kind or identity":error};
+      found->second.preview=isolated(*preview);
+    } else if(std::any_of(merged.begin(),merged.end(),[](const auto& change){return change.kind==ChangeKind::LiteralField;}))
+      return {false,"Literal consumer fields require a registered preview validator"};
+    found->second.changes=std::move(merged);emit changed();return {true,{}};
+  }
   auto preview=updated(*found->second.before,merged,error);if(!preview)return {false,error};
   found->second.preview=std::move(preview);found->second.changes=std::move(merged);emit changed();return {true,{}};
 }

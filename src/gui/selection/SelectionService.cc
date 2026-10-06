@@ -33,6 +33,10 @@ PickResult SelectionService::pick(QPointF logical, const Stamp& expected)
   if (!binding->validate(expected, &detail)) return {PickError::Stale, {}, detail};
   auto scene = binding->scene(expected);
   auto view = window->qglview;
+  // Fractional scaling can round the framebuffer beyond the logical widget edge.
+  // Reject that extra fraction before converting logical coordinates to pixels.
+  if (logical.x() < 0 || logical.y() < 0 || logical.x() >= view->width() || logical.y() >= view->height())
+    return {PickError::InvalidViewport, {}, tr("Pixel or GL viewport is invalid")};
   const auto renderer = view->renderer;
   if (!renderer) return {PickError::Miss};
   const auto statistics = renderer->triangleStatistics();

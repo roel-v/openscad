@@ -1,4 +1,5 @@
 #include "gui/ScintillaEditor.h"
+#include "gui/source/EditorUndoRegistry.h"
 
 #include <QColor>
 #include <QCursor>
@@ -226,7 +227,7 @@ ScintillaEditor::ScintillaEditor(QWidget *parent) : EditorInterface(parent)
   connect(qsci, &QsciScintillaBase::SCN_MODIFIED, this,
           [this](int, int type, const char *, int, int, int, int, int, int token, int) {
     if (type & QsciScintillaBase::SC_MOD_CONTAINER) {
-      annotations->applyHistory(token, (type & QsciScintillaBase::SC_PERFORMED_UNDO) != 0);
+      SourceEditing::EditorUndoRegistry::forEditor(*this)->dispatch(token,(type & QsciScintillaBase::SC_PERFORMED_UNDO) != 0);
     }
   });
   connect(qsci, &QsciScintilla::modificationChanged, this, &ScintillaEditor::fireModificationChanged);
@@ -386,9 +387,10 @@ void ScintillaEditor::publishSourceChange()
   emit modificationChanged(this);
 }
 
-void ScintillaEditor::applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits)
+void ScintillaEditor::applyValidatedByteEdits(const QVector<SourceEditing::ByteEdit>& edits,
+                                           std::shared_ptr<const SourceEditing::UndoParticipant> participant)
 {
-  if (sourceEditBatch || qsci->isReadOnly() || edits.isEmpty())
+  if (sourceEditBatch || qsci->isReadOnly() || (edits.isEmpty() && !participant) || (participant && !participant->valid()))
     throw std::logic_error("Invalid validated source edit operation");
   const auto caret = qsci->SendScintilla(QsciScintillaBase::SCI_GETCURRENTPOS);
   const auto anchor = qsci->SendScintilla(QsciScintillaBase::SCI_GETANCHOR);
@@ -396,12 +398,13 @@ void ScintillaEditor::applyValidatedByteEdits(const QVector<SourceEditing::ByteE
   qsci->beginUndoAction();
   struct BatchGuard {
     ScintillaEditor *editor;
+    bool source;
     ~BatchGuard() {
       editor->qsci->endUndoAction();
       editor->sourceEditBatch = false;
-      editor->publishSourceChange();
+      if(source)editor->publishSourceChange();
     }
-  } guard{this};
+  } guard{this,!edits.isEmpty()};
   for (const auto& edit : edits) {
     qsci->SendScintilla(QsciScintillaBase::SCI_SETTARGETSTART, static_cast<unsigned long>(edit.begin));
     qsci->SendScintilla(QsciScintillaBase::SCI_SETTARGETEND, static_cast<unsigned long>(edit.end));
@@ -413,6 +416,14 @@ void ScintillaEditor::applyValidatedByteEdits(const QVector<SourceEditing::ByteE
   qsci->SendScintilla(QsciScintillaBase::SCI_SETSEL,
     static_cast<unsigned long>(SourceEditing::transformPosition(anchor, edits)),
     static_cast<long>(SourceEditing::transformPosition(caret, edits)));
+  if(participant){
+    auto token=SourceEditing::EditorUndoRegistry::forEditor(*this)->add(participant);
+    qsci->SendScintilla(QsciScintillaBase::SCI_ADDUNDOACTION,static_cast<unsigned long>(token),0L);
+  }
+}
+void ScintillaEditor::clearUndoHistory(){
+  SourceEditing::EditorUndoRegistry::forEditor(*this)->clear();annotations->clearHistory();
+  qsci->SendScintilla(QsciScintillaBase::SCI_EMPTYUNDOBUFFER);
 }
 
 void ScintillaEditor::setPlainText(const QString& text)
@@ -428,7 +439,12 @@ void ScintillaEditor::appendAnnotationUndo(int token)
   if (!prepareExternalEdit()) return;
   const bool readOnly = qsci->isReadOnly();
   qsci->setReadOnly(false);
-  qsci->SendScintilla(QsciScintillaBase::SCI_ADDUNDOACTION, static_cast<unsigned long>(token), 0L);
+  QPointer<AgentAnnotations::Store> store(annotations);
+  auto participant=std::make_shared<SourceEditing::UndoParticipant>();participant->lifetime=annotations;
+  participant->undo=[store,token]{if(store)store->applyHistory(token,true);};
+  participant->redo=[store,token]{if(store)store->applyHistory(token,false);};
+  auto containerToken=SourceEditing::EditorUndoRegistry::forEditor(*this)->add(participant);
+  qsci->SendScintilla(QsciScintillaBase::SCI_ADDUNDOACTION, static_cast<unsigned long>(containerToken), 0L);
   qsci->setReadOnly(readOnly);
 }
 

@@ -1435,7 +1435,9 @@ set(GUI_SOURCES
   src/gui/ScadApi.cc
   src/gui/ScadLexer.cc
   src/gui/ScintillaEditor.cc
+  src/gui/source/EditorUndoRegistry.cc
   src/gui/source/SourceEditTransaction.cc
+  src/gui/source/EditorUndoRegistry.h
   src/gui/source/SourceEditTransaction.h
   src/gui/source/DiskSourceState.cc
   src/gui/source/DiskSourceState.h

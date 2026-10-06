@@ -314,6 +314,8 @@ public:
     Value operator>=(const ObjectType& v) const;
     const Value& operator[](const str_utf8_wrapper& v) const;
     [[nodiscard]] const std::vector<std::string>& keys() const;
+    [[nodiscard]] const std::vector<std::string>& literalDuplicateKeys() const;
+    void recordLiteralDuplicateKey(const std::string& key);
     [[nodiscard]] const std::vector<Value>& values() const;
     static bool keyIsIdentifier(const std::string& k);
   };
@@ -439,6 +441,7 @@ struct Value::ObjectType::ObjectObject {
 
   std::unordered_map<std::string, size_t> map;
   std::vector<std::string> keys;
+  std::vector<std::string> literalDuplicates;
   std::vector<Value> values;
 
   const size_t find(const std::string& key)

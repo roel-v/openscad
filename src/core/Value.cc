@@ -25,6 +25,7 @@
  */
 
 #include "core/Value.h"
+#include <algorithm>
 
 #include <double-conversion/double-conversion.h>
 #include <double-conversion/ieee.h>
@@ -1428,14 +1429,47 @@ ObjectType::ObjectType(EvaluationSession *session) : ptr(std::make_shared<Object
   ptr->evaluation_session = session;
 }
 
-const Value& ObjectType::get(const std::string& key) const              { return ptr->get(key); }
-bool ObjectType::set(const std::string& key, Value value)               { return ptr->set(key,std::move(value)); }
-void ObjectType::merge(Value&& value, const Location& loc)              { ptr->merge(std::move(value), std::move(loc)); }
-bool ObjectType::del(const std::string& key)                            { return ptr->del(key) != NOINDEX; }
-bool ObjectType::contains(const std::string& key) const                 { return ptr->find(key)!= NOINDEX; }
-bool ObjectType::empty() const                                          { return ptr->values.empty(); }
-const std::vector<std::string>& ObjectType::keys() const                { return ptr->keys; }
-const std::vector<Value>& ObjectType::values() const                    { return ptr->values; }
+const Value& ObjectType::get(const std::string& key) const
+{
+  return ptr->get(key);
+}
+bool ObjectType::set(const std::string& key, Value value)
+{
+  return ptr->set(key, std::move(value));
+}
+bool ObjectType::del(const std::string& key)
+{
+  return ptr->del(key) != NOINDEX;
+}
+bool ObjectType::contains(const std::string& key) const
+{
+  return ptr->find(key) != NOINDEX;
+}
+bool ObjectType::empty() const
+{
+  return ptr->values.empty();
+}
+const std::vector<std::string>& ObjectType::literalDuplicateKeys() const
+{
+  return ptr->literalDuplicates;
+}
+void ObjectType::recordLiteralDuplicateKey(const std::string& key)
+{
+  for(const auto& existing:ptr->literalDuplicates)if(existing==key)return;
+  ptr->literalDuplicates.push_back(key);
+}
+const std::vector<std::string>& ObjectType::keys() const
+{
+  return ptr->keys;
+}
+const std::vector<Value>& ObjectType::values() const
+{
+  return ptr->values;
+}
+void ObjectType::merge(Value&& value, const Location& loc)
+{
+  ptr->merge(std::move(value), loc);
+}
 
 const Value& ObjectType::operator[](const str_utf8_wrapper& v) const
 {
@@ -1501,6 +1535,9 @@ void ObjectType::ObjectObject::merge(Value&& value, const Location& loc)
   }
 
   ObjectType o = value.toObject();
+  for(const auto& key:o.literalDuplicateKeys()){
+    if(std::find(literalDuplicates.begin(),literalDuplicates.end(),key)==literalDuplicates.end())literalDuplicates.push_back(key);
+  }
   for (auto iter = o.ptr->keys.begin(); iter != o.ptr->keys.end(); ++iter) {
     const auto& k = *iter;
     this->set(k, o[k].clone());

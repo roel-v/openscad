@@ -69,6 +69,26 @@ public:
 private:std::shared_ptr<Renderer> child;std::shared_ptr<EffectProbe> probe;
 };
 }
+void TestSemanticHierarchy::foreignPresentationDrawIdsRemainUnowned(){
+  evaluate(part+"@{type:Component,id:\"a\"}bracket();");if(QTest::currentTestFailed())return;
+  auto presentation=window->inspectionPresentation;QTRY_COMPARE(presentation->status(),InspectionPresentationController::Status::Ready);
+  auto semantic=window->semanticController;QVERIFY(semantic->select({Semantic::TargetRole::Instance,"/a"}));
+  const auto source=window->activeEditor->toPlainText();window->activeEditor->clearUndoHistory();
+  auto foreign=std::make_shared<InspectionMeshSet>(*presentation->meshes());
+  QVERIFY(!foreign->pieces.empty());for(auto& piece:foreign->pieces)piece.drawId+=1000000;
+  foreign->geometryGeneration+=1000000;QObject lifetime;
+  auto provider=presentation->registerMeshProvider("foreign semantic draw IDs",500,&lifetime,[foreign](auto,auto,auto done){
+    done({InspectionPresentationController::Status::Ready,foreign,{}});return InspectionPresentationController::Cancel{};
+  });
+  auto request=presentation->requestMeshes("foreign semantic fixture",&lifetime);
+  QTRY_COMPARE(presentation->meshes(),std::shared_ptr<const InspectionMeshSet>(foreign));
+  QVERIFY(semantic->select({Semantic::TargetRole::Instance,"/a"}));
+  QVERIFY(!semantic->pathForDraw(foreign->pieces.front().drawId));
+  QVERIFY(!window->selectionService->state().object);
+  QCOMPARE(window->activeEditor->toPlainText(),source);QVERIFY(!window->activeEditor->canUndo());
+  request.reset();provider.reset();QTRY_COMPARE(presentation->status(),InspectionPresentationController::Status::Ready);
+  QVERIFY(semantic->select({Semantic::TargetRole::Instance,"/a"}));QVERIFY(window->selectionService->state().object);
+}
 void TestSemanticHierarchy::initTestCase(){
   window->hide();window->show();window->raise();window->activateWindow();QVERIFY(QTest::qWaitForWindowExposed(window));QTRY_VERIFY(window->qglview->isValid());
   auto output=qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT");if(!output.isEmpty()){window->qglview->makeCurrent();auto info=window->qglview->getRendererInfo();window->qglview->doneCurrent();QFile file(output+"/renderer-info.txt");QVERIFY(file.open(QIODevice::WriteOnly));QVERIFY(file.write(QByteArray::fromStdString(info))>0);}

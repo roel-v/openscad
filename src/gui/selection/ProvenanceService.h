@@ -34,6 +34,7 @@ public:
   bool validateTarget(const EditableTarget& target, QString *detail = nullptr) const;
   bool navigate(const Resolved& resolved, uint64_t instance, NavigationSite site,
     QString *detail = nullptr);
+  bool navigateSite(const SyntaxTable&, const Site&, const Selection::Stamp&, QString *detail = nullptr);
 private:
   QPointer<MainWindow> window;
   Selection::InspectorDock::Token contribution;

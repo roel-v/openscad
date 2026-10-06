@@ -57,6 +57,11 @@ void ProvenanceCollector::emitted(size_t nodeIndex) {
   nodeOwners[nodeIndex] = owner;
   if (owner) instances.at(owner).emittedNodeIndices.push_back(nodeIndex);
 }
+void ProvenanceCollector::linkEmitted(size_t nodeIndex, uint64_t invocation) {
+  if (invocation && !instances.count(invocation)) throw std::invalid_argument("Unknown provenance invocation");
+  if (!nodeOwners.emplace(nodeIndex, invocation).second) throw std::invalid_argument("Node already has a provenance owner");
+  if (invocation) instances.at(invocation).emittedNodeIndices.push_back(nodeIndex);
+}
 
 std::shared_ptr<const Result> ProvenanceCollector::finish(const AbstractNode& root) const {
   if (!stack.empty()) throw std::logic_error("Cannot publish provenance with an open invocation");

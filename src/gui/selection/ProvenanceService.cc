@@ -148,10 +148,15 @@ bool ProvenanceService::navigate(const Resolved& resolved, uint64_t id, Navigati
   const auto instance = current.result->instance(id);
   if (!instance || (role == NavigationSite::Definition && !instance->definition)) return fail(tr("Definition source is unavailable"));
   const auto& site = role == NavigationSite::Definition ? *instance->definition : instance->call;
+  return navigateSite(current.result->syntaxTable(), site, current.hit.stamp, detail);
+}
+bool ProvenanceService::navigateSite(const SyntaxTable& syntax, const Site& site, const Selection::Stamp& stamp, QString *detail) {
+  auto fail = [detail](const QString& reason) { if (detail) *detail = reason; return false; };
+  if (!window || !window->evaluationBinding->validate(stamp)) return fail(tr("Source navigation requires a current evaluated result"));
   const auto span = site.head ? site.head : site.wholeComplete ? std::optional<Span>(site.whole) : std::nullopt;
-  if (!span || !current.result->syntaxTable().original(*span) || span->end > static_cast<uint64_t>(std::numeric_limits<int>::max()))
+  if (!span || !syntax.original(*span) || span->end > static_cast<uint64_t>(std::numeric_limits<int>::max()))
     return fail(tr("Source range is unavailable"));
-  const auto inputs = current.result->syntaxTable().inputs();
+  const auto inputs = syntax.inputs();
   auto source = inputs->consumed().find(span->fileKey);
   if (source == inputs->consumed().end()) return fail(tr("Source was not captured by this evaluation"));
   QPointer<MainWindow> guard = window;

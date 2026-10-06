@@ -14,6 +14,8 @@ public:
   void emitted(size_t nodeIndex);
   std::shared_ptr<const Result> finish(const AbstractNode& root) const;
   size_t activeDepth() const { return stack.size(); }
+  uint64_t currentInvocation() const { return stack.empty() ? 0 : stack.back(); }
+  void linkEmitted(size_t nodeIndex, uint64_t invocation);
   class Frame {
   public:
     Frame(ProvenanceCollector *collector, const ModuleInstantiation& call);

@@ -11,6 +11,7 @@
 #include "core/Tree.h"
 #include "core/ModuleInstantiation.h"
 #include "core/CSGTreeEvaluator.h"
+#include "core/TransformNode.h"
 #include "glview/preview/CSGTreeNormalizer.h"
 #include "geometry/GeometryEvaluator.h"
 #include "openscad.h"
@@ -372,4 +373,29 @@ TEST_CASE("Provenance evaluation failures unwind frames and publication outlives
   for (const auto& [id, instance] : retained->instances()) {
     REQUIRE(retained->syntaxTable().original(instance.call.whole));
   }
+}
+
+TEST_CASE("Provenance synthetic placement nodes link an existing invocation without semantic dependencies", "[source-provenance]") {
+  ProvenanceFixture fixture; REQUIRE(fixture.parseText("cube(2);")); fixture.evaluate();
+  auto collector = fixture.session->provenanceCollector;
+  REQUIRE(collector->currentInvocation() == 0);
+  const auto call = fixture.parsed->scope->moduleInstantiations.at(0);
+  {
+    SourceProvenance::ProvenanceCollector::Frame frame(collector.get(), *call);
+    REQUIRE(collector->currentInvocation() != 0); REQUIRE(collector->activeDepth() == 1);
+  }
+  REQUIRE(collector->currentInvocation() == 0);
+  auto id = fixture.result->instances().begin()->first;
+  ModuleInstantiation synthetic("transform", {}, call->location());
+  auto transformed = std::make_shared<TransformNode>(&synthetic, "test placement");
+  transformed->matrix = Transform3d::Identity(); transformed->matrix.translation() = Vector3d(5,6,7);
+  transformed->children.push_back(fixture.treeRoot);
+  REQUIRE_THROWS_AS(collector->linkEmitted(transformed->index(), UINT64_MAX), std::invalid_argument);
+  collector->linkEmitted(transformed->index(), id);
+  REQUIRE_THROWS_AS(collector->linkEmitted(transformed->index(), id), std::invalid_argument);
+  auto result = collector->finish(*transformed);
+  auto mapping = result->forNode(transformed->index()); REQUIRE(mapping.localToWorld);
+  REQUIRE(mapping.localToWorld->translation().isApprox(Vector3d(5,6,7)));
+  const auto& indices = result->instance(id)->emittedNodeIndices;
+  REQUIRE(std::find(indices.begin(), indices.end(), transformed->index()) != indices.end());
 }

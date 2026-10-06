@@ -101,6 +101,82 @@ bool literal(const std::string& bytes,SourceRange range,LiteralKind kind){
   }catch(const std::invalid_argument&){return false;}
 }
 }
+std::optional<size_t> fileScopeInsertion(const std::string& source,size_t cursor,std::string& error){
+  if(cursor>source.size()){error="Cursor is outside the document";return {};}
+  try{
+    Scanner scanner(source,0,source.size());
+    auto afterStatement=[&](size_t end){
+      // Keep a trailing comment with the statement it describes.
+      size_t at=end;while(at<source.size() && (source[at]==' ' || source[at]=='\t'))++at;
+      if(source.compare(at,2,"//")==0){auto newline=source.find('\n',at+2);return newline==std::string::npos?source.size():newline;}
+      if(source.compare(at,2,"/*")==0){auto close=source.find("*/",at+2);if(close==std::string::npos)throw std::invalid_argument("Unterminated comment");return close+2;}
+      return end;
+    };
+    while(true){
+      const auto gapBegin=scanner.position;
+      auto first=scanner.next();
+      const auto gapEnd=first?first->begin:source.size();
+      if(cursor>=gapBegin && cursor<=gapEnd){
+        // Whitespace is safe, but never insert within a comment's text.
+        size_t at=gapBegin;
+        while(at<gapEnd){
+          if(source.compare(at,2,"//")==0){auto end=source.find('\n',at+2);if(end==std::string::npos)end=source.size();
+            if(cursor>at && cursor<=end)return end;at=end;}
+          else if(source.compare(at,2,"/*")==0){auto end=source.find("*/",at+2);if(end==std::string::npos)throw std::invalid_argument("Unterminated comment");end+=2;
+            if(cursor>at && cursor<end)return end;at=end;}
+          else ++at;
+        }
+        return cursor;
+      }
+      if(!first)break;
+      // Include/use paths are lexer directives, not expressions: delimiters and
+      // comment-looking characters inside the angle brackets are path characters.
+      if(first->type==Token::Name && (first->text=="include" || first->text=="use")){
+        scanner.require("<");auto end=source.find('>',scanner.position);
+        if(end==std::string::npos)throw std::invalid_argument("Incomplete include/use directive");
+        scanner.position=end+1;if(cursor<=scanner.position)return afterStatement(scanner.position);continue;
+      }
+      std::vector<char> nesting;
+      bool expressionBody=false,annotation=false,ended=false;
+      auto token=first;
+      while(token){
+        if(token->type==Token::Name && (token->text=="include" || token->text=="use")){
+          scanner.require("<");auto end=source.find('>',scanner.position);
+          if(end==std::string::npos)throw std::invalid_argument("Incomplete include/use directive");
+          scanner.position=end+1;token=scanner.next();continue;
+        }
+        if(token->type==Token::Punctuation){
+          const auto ch=token->text[0];
+          if(ch=='@' && nesting.empty())annotation=true;
+          if(ch=='=' && nesting.empty())expressionBody=true;
+          if(ch=='(' || ch=='[' || ch=='{')nesting.push_back(ch);
+          else if(ch==')' || ch==']' || ch=='}'){
+            if(nesting.empty() || (nesting.back()=='('?')':nesting.back()=='['?']':'}')!=ch)
+              throw std::invalid_argument("Mismatched source delimiters");
+            nesting.pop_back();
+            if(ch=='}' && nesting.empty()){
+              if(annotation)annotation=false;
+              else if(!expressionBody)ended=true;
+            }
+          }else if(ch==';' && nesting.empty())ended=true;
+        }
+        if(ended){
+          const auto end=token->end;
+          auto next=scanner.next();
+          if(next && next->type==Token::Name && next->text=="else"){
+            ended=false;token=scanner.next();continue;
+          }
+          scanner.position=end;
+          if(cursor<end)return afterStatement(end);
+          break;
+        }
+        token=scanner.next();
+      }
+      if(!ended)throw std::invalid_argument("Incomplete file-level statement");
+    }
+    return source.size();
+  }catch(const std::invalid_argument& problem){error=problem.what();return {};}
+}
 DesignSourceMap DesignSourceMap::scan(const DeclarationKey& declaration,const SourceInput& input,const std::string& expectedKind){
   DesignSourceMap map;map.bytes=input.utf8;map.declaration=declaration;
   if(declaration.host!=DeclarationHost::Assignment){map.problem="Unsupported declaration host";return map;}

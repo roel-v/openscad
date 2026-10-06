@@ -3,6 +3,7 @@
 #include "core/design/DesignReferences.h"
 #include "core/SourceFile.h"
 #include "gui/Editor.h"
+#include "gui/ScintillaEditor.h"
 #include "gui/MainWindow.h"
 #include "gui/TabManager.h"
 #include "gui/selection/EvaluationBinding.h"
@@ -28,7 +29,7 @@ EditorInterface *target(MainWindow& window,const SourceInput& input){
   for(auto *editor:window.tabManager->editorList){
     if(editor->documentId().toStdString()!=*input.editorId)continue;
     if(input.fileKey.rfind("session:",0)!=0 && EvaluationInputs::fileKey(editor->filepath.toStdString())!=input.fileKey)return nullptr;
-    if(editor->sourceRevision!=*input.editorRevision || editor->sourceFingerprint.toStdString()!=input.fingerprint || editor->isSourceReadOnly())return nullptr;
+    if(editor->sourceFingerprint.toStdString()!=input.fingerprint || editor->isSourceReadOnly())return nullptr;
     return editor;
   }
   return nullptr;
@@ -48,6 +49,12 @@ PreparedEdit DesignEdits::prepare(const Record& record,const std::vector<FieldCh
   if(record.kind!="Section" && record.kind!="View")return failure("Kind requires its own lifecycle edit adapter");
   auto scene=window->evaluationBinding->scene(stamp);if(!scene)return failure("Evaluation is unavailable");
   auto input=captured(*scene,record);if(!input)return failure("Declaration source is not captured");
+  return prepareCurrent(record,changes,*input);
+}
+PreparedEdit DesignEdits::prepareCurrent(const Record& record,const std::vector<FieldChange>& changes,const SourceInput& current)const{
+  auto failure=[](const std::string& error){return PreparedEdit{{},{},error};};
+  if(!window || !record.source)return failure("Source document is unavailable");
+  const auto *input=&current;
   auto *editor=target(*window,*input);if(!editor)return failure("Open captured source is required; evaluate again after opening it, or unlock it");
   auto sourceMap=DesignSourceMap::scan(*record.source,*input,record.kind);
   std::string error;std::vector<SourcePatch> patches;
@@ -87,19 +94,33 @@ PreparedEdit DesignEdits::insert(const std::vector<std::shared_ptr<const Record>
   auto destinationKey=destination.filepath.isEmpty()?std::string():EvaluationInputs::fileKey(destination.filepath.toStdString());
   if(!included){auto found=scene->inputs->consumed().find(destinationKey);included=found!=scene->inputs->consumed().end() && found->second.editorId && *found->second.editorId==destination.documentId().toStdString();}
   if(!included)return failure("Destination is outside the current root's include closure; add its include explicitly and reevaluate");
-  auto bytes=destination.toPlainText().toUtf8();
   // Parse destination names with the native AST retained for this evaluation; no text-name guesses.
   std::set<std::string> names;
   auto parsed=scene->backing->parsedRoot;
   for(const auto& assignment:parsed->scope->assignmentOccurrences)names.insert(assignment->getName());
+  return insertCurrent(records,destination,std::move(names));
+}
+PreparedEdit DesignEdits::insertCurrent(const std::vector<std::shared_ptr<const Record>>& records,EditorInterface& destination,std::set<std::string> names)const{
+  auto failure=[](const std::string& error){return PreparedEdit{{},{},error};};
+  if(!window || !window->tabManager->editorList.contains(&destination) || destination.isSourceReadOnly())return failure("Destination must be an open writable editor");
+  auto bytes=destination.toPlainText().toUtf8();
+  auto editor=dynamic_cast<ScintillaEditor *>(&destination);
+  if(!editor)return failure("Source insertion requires an editor cursor");
+  const auto cursor=editor->qsci->SendScintilla(QsciScintillaBase::SCI_GETCURRENTPOS);
+  std::string placementError;
+  const auto point=fileScopeInsertion(bytes.toStdString(),size_t(cursor),placementError);
+  if(!point)return failure("Cannot find a safe insertion point: "+placementError);
+  const auto position=qsizetype(*point);
   QByteArray insertion;
-  if(!bytes.isEmpty() && !bytes.endsWith('\n'))insertion.append(bytes.contains("\r\n")?"\r\n":"\n");
+  if(position>0 && bytes[position-1]!='\n')insertion.append(bytes.contains("\r\n")?"\r\n":"\n");
+  const auto declarationStart=position+insertion.size();
   std::set<std::string> ids;
   for(const auto& record:records){
     if(!record || record->source || record->kind!="Section" && record->kind!="View")return failure("Insertion requires unsourced Section/View definitions");
     if(!ids.insert(record->id).second || !names.insert(declarationName(*record)).second)return failure("Destination id or variable collision");
     auto declaration=QByteArray::fromStdString(serialize(*record));if(bytes.contains("\r\n"))declaration.replace("\n","\r\n");insertion.append(declaration);
   }
-  return {&destination,{destination.documentId(),destination.sourceRevision,destination.sourceFingerprint,{{bytes.size(),bytes.size(),{},insertion}}},{}};
+  return {&destination,{destination.documentId(),destination.sourceRevision,destination.sourceFingerprint,{{position,position,{},insertion}}},{},
+    std::make_pair(declarationStart,position+insertion.size())};
 }
 }

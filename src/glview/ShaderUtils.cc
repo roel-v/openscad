@@ -4,26 +4,47 @@
 #include <sstream>
 #include <string>
 #include <fstream>
+#include <set>
+#include <stdexcept>
 
 #include "utils/printutils.h"
 #include "platform/PlatformUtils.h"
 
 namespace ShaderUtils {
 
-std::string loadShaderSource(const std::string& name)
+namespace {
+std::string load(const std::string& name, std::set<std::string>& visiting)
 {
+  if (name.find_first_of("/\\") != std::string::npos || !visiting.insert(name).second)
+    throw std::runtime_error("Invalid or cyclic shader include: " + name);
   std::string shaderPath = (PlatformUtils::resourcePath("shaders") / name).string();
   std::ostringstream buffer;
-  const std::ifstream f(shaderPath);
+  std::ifstream f(shaderPath);
   if (f.is_open()) {
-    buffer << f.rdbuf();
+    std::string line;
+    while (std::getline(f, line)) {
+      if (line.starts_with("#include \"")) {
+        auto end = line.find('"', 10);
+        if (end == std::string::npos) throw std::runtime_error("Invalid shader include: " + name);
+        buffer << load(line.substr(10, end-10), visiting);
+      } else buffer << line << '\n';
+    }
   } else {
     LOG(message_group::UI_Error, "Cannot open shader source file: '%1$s'", shaderPath);
+    throw std::runtime_error("Cannot open shader source: " + name);
   }
+  visiting.erase(name);
   return buffer.str();
 }
+}
+std::string loadShaderSource(const std::string& name)
+{
+  std::set<std::string> visiting;
+  return load(name, visiting);
+}
 
-ShaderResource compileShaderProgram(const std::string& vs_str, const std::string& fs_str)
+ShaderResource compileShaderProgram(const std::string& vs_str, const std::string& fs_str,
+                                   const std::unordered_map<std::string, int>& attributes)
 {
   int shaderstatus;
   const char *vs_source = vs_str.c_str();
@@ -39,6 +60,7 @@ ShaderResource compileShaderProgram(const std::string& vs_str, const std::string
     glGetShaderInfoLog(vertex_shader, sizeof(logbuffer), &loglen, logbuffer);
     // FIXME: Use OpenCAD log to error instead of stderr
     fprintf(stderr, __FILE__ ": OpenGL vertex shader Error:\n%.*s\n\n", loglen, logbuffer);
+    glDeleteShader(vertex_shader);
     return {};
   }
 
@@ -52,6 +74,7 @@ ShaderResource compileShaderProgram(const std::string& vs_str, const std::string
     glGetShaderInfoLog(fragment_shader, sizeof(logbuffer), &loglen, logbuffer);
     // FIXME: Use OpenCAD log to error instead of stderr
     fprintf(stderr, __FILE__ ": OpenGL fragment shader Error:\n%.*s\n\n", loglen, logbuffer);
+    glDeleteShader(vertex_shader); glDeleteShader(fragment_shader);
     return {};
   }
 
@@ -59,6 +82,8 @@ ShaderResource compileShaderProgram(const std::string& vs_str, const std::string
   auto shader_prog = glCreateProgram();
   glAttachShader(shader_prog, vertex_shader);
   glAttachShader(shader_prog, fragment_shader);
+  for (const auto& [name, index] : attributes)
+    if (index >= 0) glBindAttribLocation(shader_prog, index, name.c_str());
   GL_CHECKD(glLinkProgram(shader_prog));
 
   GLint status;
@@ -69,6 +94,7 @@ ShaderResource compileShaderProgram(const std::string& vs_str, const std::string
     glGetProgramInfoLog(shader_prog, sizeof(logbuffer), &loglen, logbuffer);
     // FIXME: Use OpenCAD log to error instead of stderr
     fprintf(stderr, __FILE__ ": OpenGL Program Linker Error:\n%.*s\n\n", loglen, logbuffer);
+    glDeleteProgram(shader_prog); glDeleteShader(vertex_shader); glDeleteShader(fragment_shader);
     return {};
   } else {
     glValidateProgram(shader_prog);
@@ -79,6 +105,7 @@ ShaderResource compileShaderProgram(const std::string& vs_str, const std::string
       glGetProgramInfoLog(shader_prog, sizeof(logbuffer), &loglen, logbuffer);
       // FIXME: Use OpenCAD log to error instead of stderr
       fprintf(stderr, __FILE__ ": OpenGL Program Validation results:\n%.*s\n\n", loglen, logbuffer);
+      glDeleteProgram(shader_prog); glDeleteShader(vertex_shader); glDeleteShader(fragment_shader);
       return {};
     }
   }

@@ -63,7 +63,8 @@ class Geometry;
 class Polygon2d;
 class Tree;
 
-GeometryEvaluator::GeometryEvaluator(const Tree& tree) : tree(tree)
+GeometryEvaluator::GeometryEvaluator(const Tree& tree, bool includeBackgroundRoot)
+  : tree(tree), includeBackgroundRoot(includeBackgroundRoot)
 {
 }
 
@@ -559,7 +560,7 @@ Response GeometryEvaluator::visit(State& state, const GroupNode& node)
 Response GeometryEvaluator::lazyEvaluateRootNode(State& state, const AbstractNode& node)
 {
   if (state.isPrefix()) {
-    if (node.modinst->isBackground()) {
+    if (node.modinst->isBackground() && !includeBackgroundRoot) {
       state.setBackground(true);
       return Response::PruneTraversal;
     }

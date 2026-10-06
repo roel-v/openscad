@@ -1,5 +1,6 @@
 #include <QTest>
 #include <QDir>
+#include <QDockWidget>
 #include <iostream>
 
 #include "TestMainWindow.h"
@@ -12,6 +13,7 @@
 #include "TestNavigation.h"
 #include "TestSelection.h"
 #include "TestProvenance.h"
+#include "TestClipping.h"
 #include "TestInspectionDraft.h"
 
 template <typename TestClass>
@@ -22,7 +24,10 @@ int runTests(MainWindow *window)
   const auto output = qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT");
   if (!output.isEmpty()) {
     const auto log = QDir(output).filePath(QString::fromLatin1(tc.metaObject()->className()) + ".txt");
-    return QTest::qExec(&tc, QStringList{"gui-tests", "-o", log + ",txt"});
+    QStringList arguments{"gui-tests", "-o", log + ",txt"};
+    const auto functions=qEnvironmentVariable("OPENSCAD_GUI_TEST_FUNCTIONS");
+    if(!functions.isEmpty())arguments.append(functions.split(',',Qt::SkipEmptyParts));
+    return QTest::qExec(&tc, arguments);
   }
   const auto log = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG");
   if (!log.isEmpty()) return QTest::qExec(&tc, QStringList{"annotation-tests", "-o", log + ",txt"});
@@ -44,6 +49,7 @@ int runAllTest(MainWindow *window)
   }
   int totalTestFailures = 0;
   if (qEnvironmentVariableIsSet("OPENSCAD_PROVENANCE_TESTS_ONLY")) return runTests<TestProvenance>(window);
+  if (qEnvironmentVariableIsSet("OPENSCAD_CLIPPING_TESTS_ONLY")) return runTests<TestClipping>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_DESIGN_OBJECT_TESTS_ONLY")) return runTests<TestDesignObjects>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_SELECTION_TESTS_ONLY")) return runTests<TestSelection>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_ANNOTATION_TESTS_ONLY")) return runTests<TestAnnotations>(window);
@@ -55,10 +61,14 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestDesignObjects>(window);
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
+  // Exercise the established annotation/navigation/selection flows with this
+  // inspection dock visible; its controls must not seize viewport ownership.
+  if(auto dock=window->findChild<QDockWidget *>("clippingDock"))dock->show();
   totalTestFailures += runTests<TestAnnotations>(window);
   totalTestFailures += runTests<TestNavigation>(window);
   totalTestFailures += runTests<TestSelection>(window);
   totalTestFailures += runTests<TestProvenance>(window);
+  totalTestFailures += runTests<TestClipping>(window);
   totalTestFailures += runTests<TestInspectionDraft>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <functional>
 
 class AbstractNode;
 
@@ -22,4 +23,14 @@ void progress_tick();
 
 class ProgressCancelException
 {
+};
+
+// An isolated worker can observe/cancel progress without borrowing GUI callback userdata.
+class ScopedProgressCallback {
+public:
+  explicit ScopedProgressCallback(std::function<void()> callback);
+  ~ScopedProgressCallback();
+  ScopedProgressCallback(const ScopedProgressCallback&) = delete;
+private:
+  std::function<void()> previous;
 };

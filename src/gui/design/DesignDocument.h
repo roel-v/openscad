@@ -3,6 +3,7 @@
 #include "gui/source/EditorUndoRegistry.h"
 #include <QObject>
 #include <QPointer>
+#include <QFileSystemWatcher>
 #include <map>
 #include <optional>
 
@@ -63,6 +64,10 @@ public:
   LifecycleResult remove(const std::string& id, const Selection::Stamp&);
   Records records(const Selection::Stamp&) const;
   const Records& transientRecords() const { return transient; }
+  bool sourceStateCurrent() const;
+  Records sourceDisplayRecords() const;
+  bool sourceEditInProgress() const { return sourceMutation; }
+  PreparedEdit prepareSourceEdit(const Record&, const std::vector<FieldChange>&) const;
   const std::map<std::string, Draft>& drafts() const { return editing; }
   static std::vector<SaveOutcome> saveSequentially(TabManager&, const std::vector<EditorInterface *>&,
                                                  const std::function<bool(EditorInterface&)>& save = {});
@@ -74,6 +79,18 @@ private:
   QPointer<MainWindow> window;
   DesignEdits edits;
   Records transient;
+  struct SourceState {
+    Records records;
+    std::map<std::string,SourceInput> inputs;
+    QString documentId;
+    quint64 environmentRevision=0;
+    std::set<std::string> names;
+  } sourceState;
+  quint64 environmentRevision=0;
+  QFileSystemWatcher sourceInputWatcher;
+  bool sourceMutation=false;
+  LifecycleResult applySourceEdit(PreparedEdit, const Records& replacements, const std::set<std::string>& removed,
+                                  const Records& promoted = {});
   std::map<std::string, Draft> editing;
   std::map<std::string, Adapter> adapters;
   std::map<std::string, Draft> pendingConsumers;

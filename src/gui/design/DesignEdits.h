@@ -2,6 +2,7 @@
 #include "core/design/DesignObjects.h"
 #include "gui/selection/SelectionTypes.h"
 #include "gui/source/SourceEditTransaction.h"
+#include "core/EvaluationInputs.h"
 #include <QPointer>
 #include <Eigen/Geometry>
 
@@ -32,6 +33,9 @@ public:
   PreparedEdit prepare(const std::string& recordId, const std::vector<FieldChange>&, const Selection::Stamp&) const;
   PreparedEdit insert(const std::vector<std::shared_ptr<const Record>>&, EditorInterface& destination,
                       const Selection::Stamp&) const;
+  PreparedEdit prepareCurrent(const Record&, const std::vector<FieldChange>&, const SourceInput&) const;
+  PreparedEdit insertCurrent(const std::vector<std::shared_ptr<const Record>>&, EditorInterface&,
+                             std::set<std::string> names) const;
 private:
   QPointer<MainWindow> window;
 };

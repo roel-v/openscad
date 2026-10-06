@@ -7,6 +7,8 @@
 class TestContextualInsertion:public UXTest {
   Q_OBJECT
 private slots:
+  void actualClippingAndVisibilitySuspendAndRestore();
+  void actualVimInsertionCommitKeepsTypingUndoSeparate();
   void initTestCase();void init();void cleanup();void cleanupTestCase();
   void isolatedCandidatePreservesLiveBase();
   void invalidCandidatePreservesLiveBase();

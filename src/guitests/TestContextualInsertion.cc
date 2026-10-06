@@ -1,3 +1,7 @@
+#include "gui/vim/VimEditorController.h"
+#include "gui/semantic/SemanticController.h"
+#include "gui/clipping/ClippingDock.h"
+#include "gui/clipping/ClippingController.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "TestContextualInsertion.h"
 #include "gui/insertion/InsertionPreviewProcess.h"
@@ -308,4 +312,40 @@ void TestContextualInsertion::httpSnapshotsAndConcurrentSourceTransaction(){
   SourceEditing::EditRequest external{id,editor->sourceRevision,editor->sourceFingerprint,{{offset,offset+2,"10","11"}}};
   QCOMPARE(SourceEditing::apply(*editor,external).error,SourceEditing::EditError::None);QCOMPARE(controller->state(),Controller::State::Idle);QVERIFY(!controller->commit());
   QCOMPARE(editor->toPlainText(),QString("cube(11);\n"));editor->undo();QCOMPARE(editor->toPlainText(),original);QVERIFY(!editor->canUndo());
+}
+
+void TestContextualInsertion::actualClippingAndVisibilitySuspendAndRestore(){
+  const QString source="@{type:Part,id:\"plate\"}module plate(){cube(10);}\n@{type:Component,id:\"a\"}plate();translate([20,0,0]){@{type:Component,id:\"b\"}plate();}\n@{type:Section}cut={id:\"cut\",origin:[0,0,5],normal:[0,0,-1],up:[0,1,0]};\n";
+  window->activeEditor->setPlainText(source);QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();
+  QTRY_VERIFY_WITH_TIMEOUT(!done.empty() && !GuiLocker::isLocked(),20000);
+  QTRY_COMPARE(window->inspectionPresentation->status(),InspectionPresentationController::Status::Ready);
+  auto clip=Clipping::Controller::forWindow(*window);QVERIFY(clip);QVERIFY(clip->enable("cut",true));clip->setGlobalEnabled(true);clip->select("cut");
+  auto semantic=window->semanticController;QVERIFY(semantic->setHidden("/b",true));QVERIFY(semantic->setSolo("/a"));
+  auto hit=picked(window);QVERIFY(hit);window->activeEditor->clearUndoHistory();auto controller=window->insertionController;
+  const auto frame=clip->frame("cut");QVERIFY(frame);const auto jobs=semantic->meshJobs();
+  QVERIFY(controller->begin(*hit));QVERIFY(choose(window,"scadmaxx.builtin:plain-hole"));controller->approveShared(true);
+  QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Ready,20000);QCOMPARE(controller->proof()->volumes.size(),size_t(2));
+  QVERIFY(candidateBounds(*controller->proof()).max().isApprox(Vector3d(30,10,10)));
+  QVERIFY(clip->enabled("cut") && clip->globalEnabled());QVERIFY(!clip->frame("cut"));
+  QVERIFY(semantic->visibility().hidden.count("/b"));QCOMPARE(semantic->visibility().solo,std::string("/a"));
+  auto offset=clip->dock->findChild<QDoubleSpinBox *>("sectionOriginZ");QVERIFY(offset && !offset->isEnabled());
+  controller->cancel();QTRY_VERIFY(offset->isEnabled());QVERIFY(clip->enabled("cut") && clip->globalEnabled());
+  const auto restored=clip->frame("cut");QVERIFY(restored);QVERIFY(restored->matrix().isApprox(frame->matrix()));
+  QVERIFY(semantic->visibility().hidden.count("/b"));QCOMPARE(semantic->visibility().solo,std::string("/a"));QCOMPARE(semantic->meshJobs(),jobs);
+  QCOMPARE(window->activeEditor->toPlainText(),source);QVERIFY(!window->activeEditor->canUndo());
+  QVERIFY(!picked(window,{25,5,10}));QVERIFY(picked(window));clip->setGlobalEnabled(false);QVERIFY(semantic->setHidden("/b",false));QVERIFY(semantic->setSolo({}));
+}
+void TestContextualInsertion::actualVimInsertionCommitKeepsTypingUndoSeparate(){
+  auto editor=qobject_cast<ScintillaEditor *>(window->activeEditor);QVERIFY(editor);const auto original=editor->toPlainText();
+  editor->vimController->setEnabled(true);struct Disable{ScintillaEditor *editor;~Disable(){editor->vimController->setEnabled(false);}}disable{editor};
+  editor->setFocus();editor->qsci->setCursorPosition(1,0);QTest::keyClicks(editor->qsci,"i");QCOMPARE(editor->vimController->engine().mode(),Vim::Mode::Insert);
+  QTest::keyClicks(editor->qsci,"// Earlier Vim typing");const auto typed=editor->toPlainText();QVERIFY(typed!=original);
+  QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty() && !GuiLocker::isLocked(),20000);
+  auto hit=picked(window);QVERIFY(hit);auto controller=window->insertionController;QVERIFY(controller->begin(*hit));QVERIFY(choose(window,"scadmaxx.builtin:cube"));
+  QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Ready,15000);const auto candidate=controller->editPlan()->candidate;
+  QSignalSpy boundary(editor,&EditorInterface::externalEditStarting);done.clear();QVERIFY(controller->commit());QCOMPARE(boundary.size(),1);
+  QCOMPARE(editor->vimController->engine().mode(),Vim::Mode::Normal);QVERIFY(!editor->vimController->engine().undoGroupOpen());
+  QTRY_VERIFY_WITH_TIMEOUT(!done.empty() && !GuiLocker::isLocked(),20000);
+  editor->undo();QCOMPARE(editor->toPlainText(),typed);editor->undo();QCOMPARE(editor->toPlainText(),original);
+  editor->redo();QCOMPARE(editor->toPlainText(),typed);editor->redo();QCOMPARE(editor->toPlainText().toUtf8().toStdString(),candidate);
 }

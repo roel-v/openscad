@@ -88,6 +88,7 @@ private:
   } sourceState;
   quint64 environmentRevision=0;
   QFileSystemWatcher sourceInputWatcher;
+  std::vector<QMetaObject::Connection> sourceConnections;
   bool sourceMutation=false;
   LifecycleResult applySourceEdit(PreparedEdit, const Records& replacements, const std::set<std::string>& removed,
                                   const Records& promoted = {});

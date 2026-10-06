@@ -364,6 +364,13 @@ void DesignDocument::synchronize(){
   auto scene=window->evaluationBinding->scene(stamp);
   if(scene && scene->designObjects)sourceState={scene->designObjects->records,scene->inputs->consumed(),owner->documentId(),environmentRevision};
   if(scene && scene->backing && scene->backing->parsedRoot)for(const auto& assignment:scene->backing->parsedRoot->scope->assignmentOccurrences)sourceState.names.insert(assignment->getName());
+  for(const auto& connection:sourceConnections)disconnect(connection);sourceConnections.clear();
+  for(auto editor:window->tabManager->editorList)if(editor!=owner){
+    bool captured=false;for(const auto& [key,input]:sourceState.inputs)if(input.editorId==editor->documentId().toStdString())captured=true;
+    if(captured)sourceConnections.push_back(connect(editor,&EditorInterface::externalEditStarting,this,[this]{
+      sourceMutation=true;QTimer::singleShot(0,this,[this]{sourceMutation=false;emit changed();});
+    }));
+  }
   if(!sourceInputWatcher.files().empty())sourceInputWatcher.removePaths(sourceInputWatcher.files());
   QStringList paths;for(const auto& [key,input]:sourceState.inputs)if(!input.editorId)paths.append(QString::fromStdString(key));
   if(!paths.empty() && !sourceInputWatcher.addPaths(paths).empty())++environmentRevision;

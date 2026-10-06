@@ -4,6 +4,7 @@
 #include <QPointer>
 #include <QThread>
 #include <QDeadlineTimer>
+#include <QJsonArray>
 class QWidget;
 class EditorInterface;
 namespace AgentAnnotations {
@@ -32,6 +33,8 @@ private:
   QVector<QPointer<Controller>> controllers;
   QJsonObject info;
   QTimer heartbeat;
+  QJsonArray lastCameras;
+  void publishCameras();
   bool starting = false;
   struct Source {
     QJsonObject metadata;

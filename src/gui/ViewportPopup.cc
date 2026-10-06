@@ -45,7 +45,6 @@ ViewportPopup::ViewportPopup(MainWindow *window)
 {
   setObjectName("viewportPopup");
   setAccessibleName(tr("Viewport settings"));
-  setAttribute(Qt::WA_NoMouseReplay);
   setFrameStyle(QFrame::Box | QFrame::Plain);
   setLineWidth(1);
   setMinimumSize(230,260);
@@ -102,12 +101,16 @@ ViewportPopup::ViewportPopup(MainWindow *window)
       const QSignalBlocker block(box);
       box->setChecked(settings->property(property).toBool());
     });
-    layout->addWidget(box);
     return box;
   };
   auto information=settingBox(tr("Show information"),"showInformation");
+  layout->addWidget(information);
+  auto informationItems=new QVBoxLayout;
+  informationItems->setContentsMargins(20,0,0,0);
+  layout->addLayout(informationItems);
   for (const auto& item : QList<QPair<QString,QByteArray>>{{tr("Triangles"),"triangles"},{tr("FPS"),"fps"},{tr("Frame time"),"frameTime"}}) {
     auto box=settingBox(item.first,item.second);
+    informationItems->addWidget(box);
     box->setEnabled(information->isChecked());
     connect(information,&QCheckBox::toggled,box,&QWidget::setEnabled);
     connect(settings,&NavigationSettings::changed,box,[box,settings]{box->setEnabled(settings->showInformation);});
@@ -247,6 +250,14 @@ void ViewportPopup::toggle()
   show(); raise();
   perspective->setFocus(Qt::PopupFocusReason);
   window->qglview->navigationCube()->setPopupActive(true);
+}
+
+void ViewportPopup::mousePressEvent(QMouseEvent *event)
+{
+  // Qt clears this flag for each mouse event. Set it before the default popup
+  // handler dismisses us, so clicking the opener cannot replay and reopen us.
+  setAttribute(Qt::WA_NoMouseReplay);
+  QFrame::mousePressEvent(event);
 }
 
 void ViewportPopup::hideEvent(QHideEvent *event)

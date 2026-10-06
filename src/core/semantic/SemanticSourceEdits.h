@@ -16,4 +16,5 @@ ParameterEdit changeParameter(const Scene&,TargetKey,const Parameter&,const Valu
 ParameterEdit resetParameter(const Scene&,TargetKey,const Parameter&);
 std::optional<std::string> encodeLiteral(const Value&);
 bool literalParameterSource(const Scene&,const Parameter&);
+ParameterEdit initializeStructure(const Scene&,const std::string& fileKey,const std::string& label);
 }

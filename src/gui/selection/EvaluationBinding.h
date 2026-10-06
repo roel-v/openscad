@@ -3,6 +3,7 @@
 #include "gui/selection/SelectionTypes.h"
 #include <QObject>
 #include <QPointer>
+#include <QFileSystemWatcher>
 #include <memory>
 
 class MainWindow;
@@ -52,7 +53,10 @@ public:
   void rendererChanged();
   bool replacePresentationRenderer(std::shared_ptr<Renderer> renderer, const Stamp& expected);
   void observeInputs();
+  // Cheap display state. Disk notifications may arrive on the next event-loop turn.
   bool current() const;
+  bool takeDiskChanges() { const bool changed=diskInputsChanged; diskInputsChanged=false; return changed; }
+  // Actions must still verify exact dependency bytes through validate()/scene().
   bool validate(const Stamp& expected, QString *detail = nullptr) const;
   bool validateModel(const Stamp& expected, QString *detail = nullptr) const;
   bool draftPixels() const { return hypotheticalPixels; }
@@ -81,5 +85,8 @@ private:
   };
   std::map<Renderer *, RendererBinding> renderers;
   std::vector<QMetaObject::Connection> inputConnections;
+  QFileSystemWatcher inputWatcher;
+  void editorsChanged();
+  bool diskInputsChanged = false;
 };
 }

@@ -67,7 +67,8 @@ PickResult SelectionService::pick(QPointF logical, const Stamp& expected)
     hit.localToWorld = found->localToWorld;
     hit.localPoint = found->localToWorld->inverse() * hit.worldPoint;
   }
-  selected = {hit.object, hit};
+  selected = {hit.object, hit, found->bounds};
+  if (selected.bounds) selected.bounds->translate(context.positionOrigin);
   emit selectionChanged(selected);
   return {PickError::None, hit, {}};
 }
@@ -93,7 +94,8 @@ bool SelectionService::selectObject(const ObjectKey& object, const Stamp& expect
   if (!context.supported || found == context.objects.end()) return false;
   const auto scene = window->evaluationBinding->scene(expected);
   if (!scene || object.nodeIndex != (found->nodeIndex ? found->nodeIndex : std::optional<size_t>(scene->root->index()))) return false;
-  selected = {object, {}};
+  selected = {object, {}, found->bounds};
+  if (selected.bounds) selected.bounds->translate(context.positionOrigin);
   emit selectionChanged(selected);
   return true;
 }

@@ -12,6 +12,28 @@ std::string apply(std::string bytes,ParameterEdit edit) {
 const std::string definition="@{type:Part,id:\"p\"} module p(width=30,height=5){cube([width,height,2]);}\n";
 const std::string prefix="@{type:Component,id:\"a\"} ";
 }
+TEST_CASE("Structure initialization preserves globals imports geometry bytes and names","[semantic-source-edits]") {
+  SemanticTest::Fixture f;
+  f.write("library.scad","module imported() { cube([size,2,3]); }\n");
+  const std::string text="\xef\xbb\xbf// header\r\ninclude <library.scad>\r\nsize=9; // Customizer\r\nmodule scadmaxx_model(){}\r\n// geometry\r\nimported(); // keep Unicode α\r\ntranslate([20,0,0]) cube(2);";
+  f.evaluate(text);const auto before=f.bounds(f.node);
+  auto changed=apply(text,initializeStructure(*f.scene,f.inputs->root().fileKey,"Housing \"α\""));
+  REQUIRE(changed.find("module scadmaxx_model_1()")!=std::string::npos);
+  REQUIRE(changed.substr(0,text.find("imported();"))==text.substr(0,text.find("imported();")));
+  REQUIRE(changed.find(text.substr(text.find("imported();")))!=std::string::npos);
+  f.evaluate(changed);REQUIRE(f.scene->valid());REQUIRE(f.scene->instances.size()==1);
+  REQUIRE(f.scene->instances.begin()->second.label=="Housing \"α\"");
+  REQUIRE(f.bounds(f.node).min().isApprox(before.min()));REQUIRE(f.bounds(f.node).max().isApprox(before.max()));
+  REQUIRE_FALSE(initializeStructure(*f.scene,f.inputs->root().fileKey,"Again").editable);
+}
+TEST_CASE("Structure initialization refuses source that cannot preserve scope or presentation","[semantic-source-edits]") {
+  SemanticTest::Fixture f;
+  for(const auto& text:{"cube(1); a=3;","{cube(1);}","cube(1); module later(){}","echo($parent_modules);cube(1);","cube(is_undef($children)?1:2);","#cube(1);","%cube(1);","!cube(1);","x=1;"}){
+    f.evaluate(text);auto edit=initializeStructure(*f.scene,f.inputs->root().fileKey,"Part");REQUIRE_FALSE(edit.editable);REQUIRE(edit.patches.empty());REQUIRE_FALSE(edit.reason.empty());
+  }
+  f.write("geometry.scad","cube(2);");f.evaluate("include <geometry.scad>\ncube(1);");
+  REQUIRE_FALSE(initializeStructure(*f.scene,f.inputs->root().fileKey,"Part").editable);
+}
 TEST_CASE("Semantic source edits insert omitted overrides and replace only native winning literal spans","[semantic-source-edits]") {
   for(const auto& [call,expected]:std::vector<std::pair<std::string,std::string>>{
       {"p();","p(width = 40);"},{"p(30);","p(40);"},{"p(width = 30);","p(width = 40);"},

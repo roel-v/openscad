@@ -7,6 +7,8 @@ private slots:
   void init();
   void cleanup();
   void hierarchyAndTargets();
+  void viewportStructureInteractions();
+  void initializeUnstructuredModel();
   void pickingAndMasks();
   void transformedFinishedParts();
   void effectsAndToolArbitration();

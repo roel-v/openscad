@@ -59,7 +59,7 @@ QVariant ModelTreeModel::data(const QModelIndex& value,int role) const {
   if(role==Qt::ToolTipRole) return !ready && (entry->kind==TreeRole::Instance || entry->kind==TreeRole::Other) ? tr("Prepare semantic inspection before changing visibility") : QString::fromStdString(entry->id);
   return {};
 }
-QVariant ModelTreeModel::headerData(int section,Qt::Orientation orientation,int role) const { return orientation==Qt::Horizontal && role==Qt::DisplayRole ? QVariant(section==0?tr("Model"):tr("Target")) : QVariant(); }
+QVariant ModelTreeModel::headerData(int section,Qt::Orientation orientation,int role) const { return orientation==Qt::Horizontal && role==Qt::DisplayRole ? QVariant(section==0?tr("Component"):tr("Type")) : QVariant(); }
 Qt::ItemFlags ModelTreeModel::flags(const QModelIndex& value) const {
   if(!value.isValid())return Qt::NoItemFlags;
   auto flags=Qt::ItemIsEnabled|Qt::ItemIsSelectable;

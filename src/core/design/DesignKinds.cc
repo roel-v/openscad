@@ -68,8 +68,7 @@ std::optional<ReferenceToken> referenceToken(const Value& value, const std::stri
 }
 DecodeResult decodeSection(const Value& value, const DeclarationContext&) {
   DecodeResult output; const auto& object = value.toObject(); auto section = std::make_shared<Section>();
-  bool valid = members(object, {"id","label","target","frame","origin","normal","up","adjust"}, output);
-  valid = references(object, section->target, section->frame, output) && valid;
+  bool valid = members(object, {"id","label","origin","normal","up","adjust"}, output);
   if (!vector3(object.get("origin"), section->origin) || !vector3(object.get("normal"), section->normal)) {
     invalid(output, "Section requires finite origin[3] and normal[3]"); valid = false;
   }

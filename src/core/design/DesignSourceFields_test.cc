@@ -11,6 +11,27 @@ std::string applyPatches(std::string bytes,const std::vector<Design::SourcePatch
   for(const auto& patch:patches){REQUIRE(bytes.substr(patch.range.begin,patch.range.end-patch.range.begin)==patch.expected);bytes.replace(patch.range.begin,patch.range.end-patch.range.begin,patch.replacement);}return bytes;
 }
 }
+TEST_CASE("Source insertion stays between complete file-level statements", "[design-source-edits]") {
+  auto insertion=[](const std::string& text,size_t cursor){
+    std::string error;auto point=Design::fileScopeInsertion(text,cursor,error);
+    INFO(error);REQUIRE(point);return *point;
+  };
+  const std::string gap="cube(1);\n\nsphere(2);";
+  REQUIRE(insertion(gap,9)==9);
+  const std::string nested="module thing() { if (true) cube(1); else sphere(2); }\nthing();";
+  REQUIRE(insertion(nested,nested.find("cube"))==nested.find('}')+1);
+  const std::string conditional="if (true) cube(1); /* branch */ else sphere(2);\ncube(3);";
+  REQUIRE(insertion(conditional,conditional.find("cube"))==conditional.find('\n'));
+  const std::string object="@{type: Section}\nsection = {label: \"}; //\", origin: [0, 0, 0]};\ncube(1);";
+  REQUIRE(insertion(object,object.find("origin"))==object.rfind(";\n")+1);
+  const std::string comment="// note about cube\ncube(1);";
+  REQUIRE(insertion(comment,5)==comment.find('\n'));
+  const std::string trailing="cube(1); // keep with cube\nsphere(2);";
+  REQUIRE(insertion(trailing,3)==trailing.find('\n'));
+  const std::string include="include <folder/model.scad>\ncube(1);";
+  REQUIRE(insertion(include,12)==include.find('>')+1);
+  std::string error;REQUIRE_FALSE(Design::fileScopeInsertion("module unfinished() {",20,error));
+}
 TEST_CASE("Design field patches preserve parametric source trivia Unicode and trailing comma style", "[design-source-edits]") {
   for(const std::string eol:{"\n","\r\n"}){
     std::string bytes="@{type: Section}"+eol+"section = {"+eol+"  id: \"stable\", // original"+eol+"  label: \"日本語 \\\"label\\\"\","+eol+"  origin: [0, 0, height/2],"+eol+"  normal: [0,0,1],"+eol+"  adjust: {offset: -2, /* keep */ rotation: [0,0,0,1],},"+eol+"};";

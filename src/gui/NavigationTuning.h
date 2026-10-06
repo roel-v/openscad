@@ -1,8 +1,8 @@
 #pragma once
-#include <QDialog>
+#include "gui/Dock.h"
 class QGLView;
 
-class NavigationTuning : public QDialog {
+class NavigationTuning : public Dock {
   Q_OBJECT
 public:
   explicit NavigationTuning(QGLView *view);

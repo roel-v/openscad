@@ -6,11 +6,50 @@
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QApplication>
+#include <QPainterPath>
 #include <algorithm>
 #include <cmath>
 
+namespace {
+class NavigationArrow : public QToolButton {
+public:
+  NavigationArrow(int direction,QWidget *parent) : QToolButton(parent),direction(direction) {}
+protected:
+  void paintEvent(QPaintEvent *) override {
+    // Paint only the glyph: native/style-sheet button panels obscure the viewport on hover.
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const double side=std::min(width(),height());
+    painter.translate((width()-side)/2,(height()-side)/2);
+    painter.scale(side/20,side/20);
+    const auto role=isEnabled() && (underMouse() || hasFocus() || isDown())
+      ? QPalette::Highlight : QPalette::ButtonText;
+    const auto color=palette().color(isEnabled() ? QPalette::Active : QPalette::Disabled,role);
+    if (direction<2) {
+      if (direction==0) {painter.translate(20,0);painter.scale(-1,1);}
+      painter.setPen(QPen(color,1.6,Qt::SolidLine,Qt::RoundCap,Qt::RoundJoin));
+      painter.setBrush(Qt::NoBrush);
+      QPainterPath curve;
+      curve.moveTo(14,16);
+      curve.cubicTo(3,19,1,5,10,5);
+      curve.cubicTo(13,5,15,6,16,9);
+      painter.drawPath(curve);
+      painter.drawPolyline(QPolygonF{QPointF(11,9),QPointF(16,9),QPointF(16,4)});
+    } else {
+      painter.translate(10,10);
+      painter.rotate(direction==2 ? 0 : direction==3 ? 180 : direction==4 ? -90 : 90);
+      painter.setPen(Qt::NoPen);
+      painter.setBrush(color);
+      painter.drawPolygon(QPolygonF{QPointF(0,-6),QPointF(6,4),QPointF(-6,4)});
+    }
+  }
+private:
+  int direction;
+};
+}
+
 NavigationCube::NavigationCube(QGLView *view)
-  : QWidget(view), view(view), navigation(view->navigation()), triangle(new QToolButton(view)),
+  : QWidget(view), view(view), navigation(view->navigation()), triangle(new NavigationArrow(3,view)),
     opacity(new QGraphicsOpacityEffect(this)), triangleOpacity(new QGraphicsOpacityEffect(triangle))
 {
   setObjectName("navigationCube");
@@ -35,13 +74,12 @@ NavigationCube::NavigationCube(QGLView *view)
   const QStringList names{tr("Roll counterclockwise"), tr("Roll clockwise"), tr("Rotate up"),
                           tr("Rotate down"), tr("Rotate left"), tr("Rotate right")};
   for (int i=0; i<6; ++i) {
-    auto button = new QToolButton(this);
+    auto button = new NavigationArrow(i,this);
     button->setText(symbols[i]);
     button->setToolTip(names[i]);
     button->setAccessibleName(names[i]);
     button->setAutoRaise(true);
-    button->setStyleSheet("QToolButton { border: 0; padding: 0; background: transparent; }"
-                         "QToolButton:hover { background: palette(midlight); }");
+    button->setStyleSheet("QToolButton { border: 0; padding: 0; background: transparent; }");
     button->setAutoRepeat(false);
     button->installEventFilter(this);
     connect(button, &QToolButton::clicked, this, [this,i] {
@@ -70,16 +108,19 @@ void NavigationCube::relayout()
   cancelGesture();
   const auto& s = navigation->settings;
   const double scale = std::clamp(s.scale, 0.35, 3.0);
-  resize(qRound(140*scale), qRound(184*scale));
+  resize(qRound(140*scale), qRound((184+std::max(0.0,s.arrowSize-20))*scale));
   move(std::clamp(qRound(view->width()-width()-s.cubeRight), 0, std::max(0,view->width()-width())),
        std::clamp(qRound(s.cubeTop), 0, std::max(0,view->height()-height())));
-  const QPoint points[] = {{32,0},{88,0},{60,20},{60,126},{0,72},{120,72}};
+  const QPoint centers[] = {{42,10},{98,10},{70,30},{70,136},{10,82},{130,82}};
+  const int arrowSide=std::max(1,qRound(s.arrowSize*scale));
   for (int i=0; i<6; ++i) {
-    QFont arrowFont=font();
-    arrowFont.setPixelSize(std::max(10,qRound(14*scale)));
-    arrows[i]->setFont(arrowFont);
-    arrows[i]->setGeometry(qRound(points[i].x()*scale), qRound(points[i].y()*scale),
-                           qRound(s.arrowSize*scale), qRound(s.arrowSize*scale));
+    const QPointF offset=QPointF(centers[i])-QPointF(70,80);
+    const double distance=std::hypot(offset.x(),offset.y());
+    const double inset=std::clamp(i<2 ? s.rollInset : s.arrowInset,0.0,25.0);
+    const QPointF center=QPointF(70,80)+offset*(1-inset/distance);
+    arrows[i]->setGeometry(std::clamp(qRound(center.x()*scale-arrowSide/2.0),0,std::max(0,width()-arrowSide)),
+                           std::clamp(qRound(center.y()*scale-arrowSide/2.0),0,std::max(0,height()-arrowSide)),
+                           arrowSide,arrowSide);
   }
   const int side = qRound(24*scale);
   triangle->setGeometry(std::clamp(qRound(view->width()-side-s.menuRight),0,std::max(0,view->width()-side)),
@@ -147,7 +188,7 @@ void NavigationCube::paintEvent(QPaintEvent *)
       painter.restore();
     }
   }
-  const QPointF origin = QPointF(70,155)*scale;
+  const QPointF origin = QPointF(70,155+std::max(0.0,navigation->settings.arrowSize-20))*scale;
   const QColor colors[] = {QColor(210,55,55),QColor(35,155,65),QColor(40,110,235)};
   for (int i=0; i<3; ++i) {
     const Eigen::Vector3d p = rotation.col(i);

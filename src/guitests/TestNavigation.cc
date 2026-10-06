@@ -37,7 +37,7 @@ void TestNavigation::settingsOnStartup()
   QCOMPARE(settings.duration,345);
   QVERIFY(settings.showInformation);
   QCOMPARE(settings.cubeRight,10);
-  QCOMPARE(settings.scale,0.75);
+  QCOMPARE(settings.scale,1.1);
 }
 
 void TestNavigation::settingsBeforeExit()
@@ -465,6 +465,18 @@ void TestNavigation::popupAndTuning()
   auto settings=&view->navigation()->settings;
   auto popup=view->findChild<ViewportPopup *>();
   QVERIFY(popup);
+  auto triangle=view->navigationCube()->menuTriangle();
+  for (int cycle=0; cycle<3; ++cycle) {
+    QTest::mouseClick(window->windowHandle(),Qt::LeftButton,Qt::NoModifier,
+                      triangle->mapTo(window,triangle->rect().center()));
+    QTRY_VERIFY(popup->isVisible());
+    QTest::mouseClick(window->windowHandle(),Qt::LeftButton,Qt::NoModifier,
+                      triangle->mapTo(window,triangle->rect().center()));
+    QTRY_VERIFY(!popup->isVisible());
+    // A replay is posted; checking only the synchronous hide misses reopening.
+    QTest::qWait(50);
+    QVERIFY(!popup->isVisible());
+  }
   popup->toggle();
   QTRY_VERIFY(popup->isVisible());
   QVERIFY(popup->windowFlags().testFlag(Qt::FramelessWindowHint));
@@ -484,22 +496,100 @@ void TestNavigation::popupAndTuning()
   popup->toggle();
   QTest::keyClick(popup,Qt::Key_Escape);
   QVERIFY(!popup->isVisible());
+  auto cube=view->navigationCube();
+  const auto arrows=cube->findChildren<QToolButton *>(QString(),Qt::FindDirectChildrenOnly);
+  QCOMPARE(arrows.size(),6);
+  const auto cubePosition=cube->pos();
+  const auto rollPosition=arrows[0]->pos();
+  const auto arrowPosition=arrows[2]->pos();
+  settings->setTemporary("arrowInset",10.0);
+  QCOMPARE(arrows[0]->pos(),rollPosition);
+  QVERIFY(arrows[2]->y()>arrowPosition.y());
+  const auto insetArrowPosition=arrows[2]->pos();
+  settings->setTemporary("rollInset",10.0);
+  QVERIFY(arrows[0]->y()>rollPosition.y());
+  QCOMPARE(arrows[2]->pos(),insetArrowPosition);
+  QCOMPARE(cube->pos(),cubePosition);
+  QVERIFY(settings->description().contains("arrowInset = 10 logical px"));
+  QVERIFY(settings->description().contains("rollInset = 10 logical px"));
+  if (!output.isEmpty()) QVERIFY(cube->grab().save(output+"/arrow-insets.png"));
+  settings->setTemporary("arrowInset",0.0);
+  settings->setTemporary("rollInset",0.0);
+  QImage scaleSheet(880,2320,QImage::Format_ARGB32_Premultiplied);
+  scaleSheet.fill(window->palette().color(QPalette::Window));
+  QPainter scalePainter(&scaleSheet);
+  int row=0;
+  for (double scale : {0.35,0.75,1.5,3.0}) {
+    settings->setTemporary("scale",scale);
+    int smallerButton=0,column=0;
+    for (double size : {12.0,30.0}) {
+      settings->setTemporary("arrowSize",size);
+      for (auto arrow : arrows) {
+        QVERIFY2(cube->rect().contains(arrow->geometry()),"Scaled arrows must not extend outside the navigation widget");
+      }
+      if (size==12) smallerButton=arrows.first()->width();
+      else QVERIFY(arrows.first()->width()>smallerButton);
+      scalePainter.drawPixmap(column*440,row*580,cube->grab());
+      ++column;
+    }
+    ++row;
+  }
+  scalePainter.end();
+  if (!output.isEmpty()) QVERIFY(scaleSheet.save(output+"/arrow-scales.png"));
+  settings->setTemporary("arrowSize",20.0);
   settings->setTemporary("scale",1.2);
   settings->setTemporary("cubeRight",25.0);
   settings->setTemporary("menuRight",17.0);
   QCOMPARE(view->navigationCube()->width(),168);
   QCOMPARE(view->navigationCube()->menuTriangle()->x(),view->width()-qRound(24*1.2)-17);
+  settings->setTemporary("idleOpacity",1.0);
+  settings->setTemporary("activeOpacity",1.0);
+  for (auto arrow : arrows) {
+    arrow->clearFocus();
+    // Render both hover states deterministically without competing with the user's desktop pointer.
+    arrow->setAttribute(Qt::WA_UnderMouse,false);
+    const auto normal=arrow->grab().toImage();
+    arrow->setAttribute(Qt::WA_UnderMouse,true);
+    const auto hover=arrow->grab().toImage();
+    QVERIFY2(hover!=normal,"Hover must visibly highlight the arrow glyph");
+    for (const auto point : {QPoint(0,0),QPoint(normal.width()-1,0),
+                            QPoint(0,normal.height()-1),QPoint(normal.width()-1,normal.height()-1)})
+      QCOMPARE(hover.pixelColor(point),normal.pixelColor(point));
+    arrow->setAttribute(Qt::WA_UnderMouse,false);
+  }
+  arrows.last()->setAttribute(Qt::WA_UnderMouse,true);
+  if (!output.isEmpty()) QVERIFY(window->grab().save(output+"/arrow-hover.png"));
+  arrows.last()->setAttribute(Qt::WA_UnderMouse,false);
   const auto originalDuration=NavigationSettings::persistent("duration",200).toInt();
   settings->setTemporary("duration",480);
   NavigationSettings::setPersistent("duration",320);
   QCOMPARE(settings->duration,320);
   NavigationSettings fresh;
   QCOMPARE(fresh.duration,320);
-  QCOMPARE(fresh.scale,0.75);
+  QCOMPARE(fresh.scale,1.1);
 #ifdef ENABLE_NAVIGATION_CUBE_TUNING
   auto tuning=window->findChild<NavigationTuning *>();
   QVERIFY(tuning);
-  tuning->show();
+  QVERIFY(window->menuWindow->actions().contains(tuning->toggleViewAction()));
+  QVERIFY(!window->menu_View->actions().contains(tuning->toggleViewAction()));
+  tuning->toggleViewAction()->trigger();
+  QTRY_VERIFY(tuning->isVisible());
+  const auto tuningValues=settings->values();
+  for (auto it=tuningValues.cbegin();it!=tuningValues.cend();++it) {
+    auto help=tuning->findChild<QToolButton *>("help_"+it.key());
+    QVERIFY2(help,qPrintable("Missing help icon for "+it.key()));
+    QVERIFY(!help->icon().isNull());
+    QVERIFY2(!help->toolTip().isEmpty(),qPrintable("Missing help text for "+it.key()));
+    auto control=tuning->findChild<QWidget *>("tune_"+it.key());
+    QVERIFY(control);
+    QCOMPARE(control->whatsThis(),help->toolTip());
+    QCOMPARE(control->accessibleDescription(),help->toolTip());
+  }
+  tuning->setFloating(false);
+  QCOMPARE(window->dockWidgetArea(tuning),Qt::RightDockWidgetArea);
+  QVERIFY(!tuning->isFloating());
+  tuning->setFloating(true);
+  QVERIFY(tuning->isFloating());
   QTest::qWait(20);
   auto copy=tuning->findChild<QPushButton *>("copyNavigationSettings");
   QVERIFY(copy);
@@ -515,10 +605,14 @@ void TestNavigation::popupAndTuning()
     QFile settingsFile(output+"/copied-settings.txt");
     QVERIFY(settingsFile.open(QIODevice::WriteOnly)); settingsFile.write(text.toUtf8());
   }
+  tuning->close();
+  QVERIFY(!tuning->toggleViewAction()->isChecked());
+  tuning->toggleViewAction()->trigger();
+  QTRY_VERIFY(tuning->isVisible());
   tuning->hide();
 #endif
   settings->resetOverrides();
-  QCOMPARE(settings->scale,0.75);
+  QCOMPARE(settings->scale,1.1);
   QCOMPARE(settings->duration,320);
   NavigationSettings::setPersistent("visible",false);
   QVERIFY(!view->navigationCube()->isVisible());

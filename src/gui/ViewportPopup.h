@@ -19,6 +19,7 @@ public:
   QPushButton *addView, *removeView, *renameView;
   QLabel *documentLabel;
 protected:
+  void mousePressEvent(QMouseEvent *) override;
   void hideEvent(QHideEvent *) override;
   void keyPressEvent(QKeyEvent *) override;
 private:

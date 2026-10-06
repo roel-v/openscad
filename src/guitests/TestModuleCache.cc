@@ -55,7 +55,7 @@ void TestModuleCache::testBasicCache()
   QTRY_VERIFY(completed.count() > secondCount);
   QVERIFY2(previousFile == currentFile,
            "The file should be the same as the file cache should have done its work.");
-  QTest::qSleep(1000);
+  QTest::qWait(1000);
 
   // Content-based document reload intentionally ignores timestamp-only changes.
   // Change the temporary model as well so this exercises actual cache invalidation.

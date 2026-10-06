@@ -1,4 +1,5 @@
 #include "openscad.h"
+#include "core/insertion/InsertionPreviewWorker.h"
 
 #ifndef OPENSCAD_NOGUI
 #include <QtCore/qresource.h>  // Bring in Q_INIT_RESOURCE
@@ -7,6 +8,7 @@
 // Windows note:  wmain() is called first, translates from UTF-16 to UTF-8, and calls main().
 int main(int argc, char **argv)
 {
+  if(argc>1 && std::string(argv[1])=="--insertion-preview-worker")return Insertion::previewWorkerMain(argc,argv);
   // Note: when compiled directly into an executable, the static assignment causes these to be
   // initialized. But that doesn't get called when included in a library. So we must manually add an
   // entry for every qrc added as a target library.

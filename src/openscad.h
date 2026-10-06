@@ -41,3 +41,6 @@ void localization_init();
 std::pair<std::string, std::string> customSyntax(const std::string& s);
 
 int openscad_main(int argc, char **argv);
+// Shared native setup; no GUI, settings, HTTP, parser configuration or file output.
+void initializeNativeRuntime();
+void initializeNativeEvaluator();

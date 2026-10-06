@@ -17,9 +17,10 @@
 #include "TestSemanticHierarchy.h"
 #include "TestAnchors.h"
 #include "TestInspectionDraft.h"
+#include "TestContextualInsertion.h"
 
 template <typename TestClass>
-int runTests(MainWindow *window)
+int runTests(MainWindow *window, const QStringList& filters = {})
 {
   TestClass tc;
   tc.setWindow(window);
@@ -29,6 +30,7 @@ int runTests(MainWindow *window)
     QStringList arguments{"gui-tests", "-o", log + ",txt"};
     const auto functions=qEnvironmentVariable("OPENSCAD_GUI_TEST_FUNCTIONS");
     if(!functions.isEmpty())arguments.append(functions.split(',',Qt::SkipEmptyParts));
+    arguments.append(filters);
     return QTest::qExec(&tc, arguments);
   }
   const auto log = qEnvironmentVariable("OPENSCAD_ANNOTATION_TEST_LOG");
@@ -38,6 +40,10 @@ int runTests(MainWindow *window)
 
 int runAllTest(MainWindow *window)
 {
+  if(qEnvironmentVariableIsSet("OPENSCAD_INSERTION_TESTS_ONLY")){
+    const auto filter=qEnvironmentVariable("OPENSCAD_INSERTION_TEST_FUNCTION");
+    return runTests<TestContextualInsertion>(window,filter.isEmpty()?QStringList{}:QStringList{filter});
+  }
   if(qEnvironmentVariableIsSet("OPENSCAD_INSPECTION_DRAFT_TESTS_ONLY"))return runTests<TestInspectionDraft>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_VIM_PERSISTENCE_ONLY")) return runTests<TestVimPersistence>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_VIM_TESTS_ONLY")) return runTests<TestVimMode>(window);
@@ -76,6 +82,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestSemanticHierarchy>(window);
   totalTestFailures += runTests<TestAnchors>(window);
   totalTestFailures += runTests<TestInspectionDraft>(window);
+  totalTestFailures += runTests<TestContextualInsertion>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;
   std::cout << "Failures: " << totalTestFailures << std::endl;

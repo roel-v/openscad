@@ -1083,6 +1083,11 @@ set(CORE_SOURCES
   src/core/semantic/SemanticVisibility.cc
   src/core/semantic/SemanticSourceEdits.cc
   src/core/semantic/SemanticCollector.cc
+  src/core/insertion/InsertionPreviewProtocol.cc
+  src/core/insertion/SourceInventory.cc
+  src/core/insertion/InsertionPlanner.cc
+  src/core/insertion/PlacementDraft.cc
+  src/core/insertion/InsertionPreviewWorker.cc
   src/Feature.cc
   src/glview/ClippingState.cc
   src/FontCache.cc
@@ -1437,6 +1442,8 @@ set(GUI_SOURCES
   src/gui/semantic/SemanticTargetService.cc
   src/gui/semantic/ModelTreeModel.cc
   src/gui/semantic/SemanticMeshJob.cc
+  src/gui/insertion/InsertionPreviewProcess.cc
+  src/gui/insertion/InsertionController.cc
   src/gui/semantic/SemanticController.cc
   src/gui/anchors/AnchorController.cc
   src/gui/anchors/AnchorInspectorContribution.cc
@@ -1572,6 +1579,7 @@ set(GUI_HEADERS
   src/gui/design/DesignDocument.h
   src/gui/design/SavedViewContribution.h
   src/gui/anchors/AnchorController.h
+  src/gui/insertion/InsertionController.h
   src/gui/selection/SelectionService.h
   src/gui/InspectionPresentationController.h
   src/gui/selection/ViewportToolRouter.h
@@ -1763,6 +1771,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestProvenance.h
     src/guitests/TestSemanticHierarchy.h
     src/guitests/TestAnchors.h
+    src/guitests/TestContextualInsertion.h
     src/guitests/UXTest.h
   )
 
@@ -1783,6 +1792,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestProvenance.cc
     src/guitests/TestSemanticHierarchy.cc
     src/guitests/TestAnchors.cc
+    src/guitests/TestContextualInsertion.cc
     src/guitests/UXTest.cc
   )
 
@@ -1964,6 +1974,7 @@ if(NOT APPLE OR APPLE_UNIX)
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/templates DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}" FILES_MATCHING PATTERN "*.json")
   install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/providers DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}")
   install(FILES ${CMAKE_CURRENT_LIST_DIR}/doc/component-providers.md DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}/doc")
+  install(FILES ${CMAKE_CURRENT_LIST_DIR}/doc/contextual-insertion.md DESTINATION "${OPENSCAD_INSTALL_RESOURCEDIR}/doc")
 
   if(ENABLE_GUI_TESTS)
     install(DIRECTORY ${CMAKE_CURRENT_LIST_DIR}/tests/data/ DESTINATION ${OPENSCAD_INSTALL_RESOURCEDIR}/tests/data)
@@ -2088,6 +2099,7 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${PROVIDER_RESOUR
 if(APPLE AND NOT APPLE_UNIX)
   file(COPY providers DESTINATION "${BUNDLE_RESOURCES_DIR}")
   file(COPY doc/component-providers.md DESTINATION "${BUNDLE_RESOURCES_DIR}/doc")
+  file(COPY doc/contextual-insertion.md DESTINATION "${BUNDLE_RESOURCES_DIR}/doc")
 else()
   file(COPY providers DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
 endif()

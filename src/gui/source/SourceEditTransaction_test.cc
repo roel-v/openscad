@@ -63,7 +63,8 @@ TEST_CASE("Read-only editors allow session undo participants but reject source e
   REQUIRE(result.changed);
   REQUIRE(position == 3);
   REQUIRE(editor.qsci->isReadOnly());
-  REQUIRE(editor.canUndo());
+  // Scintilla reports undo unavailable while read-only; the session undo seam
+  // temporarily unlocks it, so verify the actual operation below.
   editor.undoFromAnnotations(false);
   REQUIRE(position == 0);
   REQUIRE(editor.qsci->isReadOnly());

@@ -221,7 +221,14 @@ void ParameterWidget::updateParameterStates()
       }
     }
   }
+  updateGroupVisibility();
 }
+
+void ParameterWidget::updateGroupVisibility()
+{
+  for (auto *group : this->findChildren<GroupWidget *>()) group->updateVisibility();
+}
+
 void ParameterWidget::applyParameters(SourceFile *sourceFile)
 {
   this->parameters.apply(sourceFile);
@@ -392,6 +399,7 @@ void ParameterWidget::loadSet(size_t index)
     parameters.importValues(sets[index - 1]);
   }
 
+  updateParameterStates();
   updateSetEditability();
 
   for (const auto& pair : widgets) {
@@ -452,12 +460,15 @@ void ParameterWidget::rebuildWidgets()
       }
       widgets[parameter].push_back(parameterWidget);
       groupWidget->addWidget(parameterWidget);
+      parameterWidget->setHidden(parameter->isHidden());
+      parameterWidget->setEnabled(!parameter->isLocked());
     }
     auto it = expandedGroups.find(group.name);
     groupWidget->setExpanded(it == expandedGroups.end() || it->second);
     layout->addWidget(groupWidget);
   }
   rebuildDependencyMap();
+  updateGroupVisibility();
 }
 
 std::vector<ParameterWidget::ParameterGroup> ParameterWidget::getParameterGroups()
@@ -628,6 +639,7 @@ void ParameterWidget::updateDependentAttributes(ParameterObject *parameter)
 {
   std::set<ParameterObject *> visited;
   updateDependentAttributes(parameter, visited);
+  updateGroupVisibility();
 }
 
 void ParameterWidget::updateDependentAttributes(ParameterObject *parameter,

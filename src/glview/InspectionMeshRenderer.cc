@@ -19,6 +19,8 @@ InspectionMeshRenderer::InspectionMeshRenderer(std::shared_ptr<const InspectionM
 }
 void InspectionMeshRenderer::prepare(const ShaderUtils::ShaderInfo *shader)
 {
+  // Color updates may arrive without a current GL context. Release/rebuild VBOs here.
+  if(colorsDirty){containers.clear();colorsDirty=false;}
   if (!containers.empty() || meshes->pieces.empty()) return;
   for (const auto& piece : meshes->pieces) {
     auto container=std::make_unique<VertexStateContainer>();
@@ -35,6 +37,12 @@ void InspectionMeshRenderer::prepare(const ShaderUtils::ShaderInfo *shader)
     builder.createInterleavedVBOs();
     containers.push_back(std::move(container));
   }
+}
+void InspectionMeshRenderer::setColorScheme(const ColorScheme& scheme)
+{
+  const auto previous=colormap_;
+  Renderer::setColorScheme(scheme);
+  if(previous!=colormap_)colorsDirty=true;
 }
 void InspectionMeshRenderer::draw(bool edges,const ShaderUtils::ShaderInfo *shader) const
 {
@@ -65,7 +73,9 @@ Renderer::SurfaceContext InspectionMeshRenderer::prepareSurfacePick(const Shader
   for (size_t index=0;index<meshes->pieces.size();++index) {
     const auto& piece=meshes->pieces[index];
     if (!visible.count(piece.drawId) || piece.role==InspectionPiece::Role::Background || piece.mesh->isEmpty()) continue;
-    result.objects.push_back({piece.drawId,piece.nodeIndex,piece.localToWorld,static_cast<uint32_t>(index+1)});
+    const Transform3d drawFrame=Transform3d(Eigen::Translation3d(-origin))*piece.localToWorld;
+    result.objects.push_back({piece.drawId,piece.nodeIndex,piece.localToWorld,static_cast<uint32_t>(index+1),
+      piece.mesh->getBoundingBox().transformed(drawFrame)});
   }
   return result;
 }

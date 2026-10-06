@@ -42,11 +42,6 @@
         <layout class="QGridLayout" name="gridLayout_10">
          <item row="7" column="2">
           <widget class="QLabel" name="labelAxisTrim3">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>
@@ -64,11 +59,6 @@
          </item>
          <item row="0" column="2">
           <widget class="QLabel" name="labelAxisTrim0">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>
@@ -175,11 +165,6 @@
          </item>
          <item row="0" column="1">
           <widget class="QLabel" name="labelAxisDeadzone0">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -389,11 +374,6 @@
          </item>
          <item row="10" column="2">
           <widget class="QLabel" name="labelAxisTrim6">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>
@@ -401,11 +381,6 @@
          </item>
          <item row="7" column="1">
           <widget class="QLabel" name="labelAxisDeadzone3">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -413,11 +388,6 @@
          </item>
          <item row="10" column="1">
           <widget class="QLabel" name="labelAxisDeadzone6">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -425,11 +395,6 @@
          </item>
          <item row="10" column="4">
           <widget class="QLabel" name="labelAxisDeadzone7">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -437,11 +402,6 @@
          </item>
          <item row="10" column="5">
           <widget class="QLabel" name="labelAxisTrim7">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>
@@ -449,11 +409,6 @@
          </item>
          <item row="10" column="7">
           <widget class="QLabel" name="labelAxisDeadzone8">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -461,11 +416,6 @@
          </item>
          <item row="10" column="8">
           <widget class="QLabel" name="labelAxisTrim8">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>
@@ -473,11 +423,6 @@
          </item>
          <item row="7" column="7">
           <widget class="QLabel" name="labelAxisDeadzone5">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -485,11 +430,6 @@
          </item>
          <item row="7" column="8">
           <widget class="QLabel" name="labelAxisTrim5">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>
@@ -497,11 +437,6 @@
          </item>
          <item row="7" column="4">
           <widget class="QLabel" name="labelAxisDeadzone4">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -509,11 +444,6 @@
          </item>
          <item row="7" column="5">
           <widget class="QLabel" name="labelAxisTrim4">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>
@@ -521,11 +451,6 @@
          </item>
          <item row="0" column="7">
           <widget class="QLabel" name="labelAxisDeadzone2">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -533,11 +458,6 @@
          </item>
          <item row="0" column="8">
           <widget class="QLabel" name="labelAxisTrim2">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>
@@ -689,11 +609,6 @@
          </item>
          <item row="0" column="4">
           <widget class="QLabel" name="labelAxisDeadzone1">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>DeadZone</string>
            </property>
@@ -701,11 +616,6 @@
          </item>
          <item row="0" column="5">
           <widget class="QLabel" name="labelAxisTrim1">
-           <property name="font">
-            <font>
-             <pointsize>8</pointsize>
-            </font>
-           </property>
            <property name="text">
             <string>Trim</string>
            </property>

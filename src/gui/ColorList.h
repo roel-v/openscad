@@ -38,6 +38,11 @@ class ColorList : public QWidget, public InitConfigurator
 public:
   explicit ColorList(QWidget *parent = 0);
   ~ColorList() override;
+protected:
+  void changeEvent(QEvent *event) override;
+private:
+  void updateChannelWidths();
+public:
 
 private:
   void addColor(const QString& mapName, const QString& name, const QColor& color);

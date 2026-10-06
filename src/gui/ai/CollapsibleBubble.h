@@ -7,6 +7,7 @@
 #include <QFrame>
 #include <QPalette>
 #include <QApplication>
+#include <QFontDatabase>
 #include <vector>
 #include <QString>
 
@@ -23,11 +24,8 @@ public:
     QFrame *bubbleFrame = new QFrame(this);
     bubbleFrame->setFrameShape(QFrame::StyledPanel);
 
-    bool dark = isDarkTheme();
-    QString frameStyle =
-      dark ? "QFrame { background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; }"
-           : "QFrame { background-color: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 8px; }";
-    bubbleFrame->setStyleSheet(frameStyle);
+    bubbleFrame->setAutoFillBackground(true);
+    bubbleFrame->setBackgroundRole(QPalette::AlternateBase);
 
     QVBoxLayout *frameLayout = new QVBoxLayout(bubbleFrame);
     frameLayout->setContentsMargins(8, 8, 8, 8);
@@ -36,19 +34,17 @@ public:
     toggleButton->setCheckable(true);
     toggleButton->setChecked(false);
     toggleButton->setFlat(true);
-    toggleButton->setStyleSheet(dark ? "QPushButton { text-align: left; font-weight: bold; color: "
-                                       "#9ca3af; padding: 0; border: none; font-size: 9pt; }"
-                                       "QPushButton:hover { color: #f3f4f6; }"
-                                     : "QPushButton { text-align: left; font-weight: bold; color: "
-                                       "#4b5563; padding: 0; border: none; font-size: 9pt; }"
-                                       "QPushButton:hover { color: #1f2937; }");
+    QFont heading;
+    heading.setWeight(QFont::Medium);
+    toggleButton->setFont(heading);
 
     detailsLabel = new QLabel(this);
     detailsLabel->setWordWrap(true);
     detailsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    detailsLabel->setStyleSheet(
-      dark ? "QLabel { color: #d1d5db; padding-top: 6px; font-size: 9pt; font-family: monospace; }"
-           : "QLabel { color: #4b5563; padding-top: 6px; font-size: 9pt; font-family: monospace; }");
+    QFont codeFont;
+    codeFont.setFamily(QFontDatabase::systemFont(QFontDatabase::FixedFont).family());
+    detailsLabel->setFont(codeFont);
+    detailsLabel->setForegroundRole(QPalette::Text);
     detailsLabel->hide();
 
     frameLayout->addWidget(toggleButton);

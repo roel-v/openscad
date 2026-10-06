@@ -12,8 +12,7 @@ int main(int argc, char **argv)
   // entry for every qrc added as a target library.
 #ifndef OPENSCAD_NOGUI
   Q_INIT_RESOURCE(common);
-  Q_INIT_RESOURCE(icons_chokusen);
-  Q_INIT_RESOURCE(icons_chokusen_dark);
+  Q_INIT_RESOURCE(icons_tabler);
 #ifdef __APPLE__
   Q_INIT_RESOURCE(mac);
 #endif

@@ -1,3 +1,4 @@
+#include "gui/Icons.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2014 Clifford Wolf <clifford@clifford.at> and
@@ -46,11 +47,14 @@ ButtonConfigWidget::ButtonConfigWidget(QWidget *parent) : QWidget(parent)
 
 void ButtonConfigWidget::updateButtonState(int nr, bool pressed) const
 {
-  QString style = pressed ? ButtonConfigWidget::ActiveStyleString : ButtonConfigWidget::EmptyString;
-
   auto label = this->findChild<QLabel *>(QString("labelInputButton%1").arg(nr));
   if (label == nullptr) return;
-  label->setStyleSheet(style);
+  label->setAutoFillBackground(pressed);
+  label->setBackgroundRole(QPalette::Highlight);
+  label->setForegroundRole(pressed ? QPalette::HighlightedText : QPalette::WindowText);
+  QFont emphasis;
+  emphasis.setWeight(pressed ? QFont::DemiBold : QFont::Normal);
+  label->setFont(emphasis);
 }
 
 void ButtonConfigWidget::init()
@@ -225,7 +229,8 @@ void ButtonConfigWidget::updateComboBox(QComboBox *comboBox, const Settings::Set
   if (index >= 0) {
     comboBox->setCurrentIndex(index);
   } else {
-    comboBox->addItem(QIcon::fromTheme("emblem-unreadable"), value + " " + ("(not supported)"), value);
+    comboBox->addItem(Icons::icon("emblem-unreadable", comboBox), value + " " + ("(not supported)"),
+                      value);
     comboBox->setCurrentIndex(comboBox->count() - 1);
   }
 }
@@ -267,9 +272,7 @@ void ButtonConfigWidget::updateStates()
   for (size_t i = 0; i < InputEventMapper::getMaxButtons(); ++i) {
     auto label = this->findChild<QLabel *>(QString("labelInputButton%1").arg(i));
     if (label) {
-      QString style =
-        (cnt <= i) ? ButtonConfigWidget::DisabledStyleString : ButtonConfigWidget::EmptyString;
-      label->setStyleSheet(style);
+      label->setEnabled(cnt > i);
     }
   }
 }

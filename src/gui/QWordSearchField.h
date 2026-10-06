@@ -16,6 +16,7 @@ public:
 
 protected:
   void resizeEvent(QResizeEvent *) override;
+  void changeEvent(QEvent *) override;
   void resizeSearchField();
 
 private slots:

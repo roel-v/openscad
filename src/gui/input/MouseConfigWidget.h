@@ -48,9 +48,6 @@ private:
   void applyComboBox(QComboBox *comboBox, int val, Settings::SettingsEntryInt& entry);
   void writeSettings();
 
-  const QString EmptyString = QString("");
-  const QString ActiveStyleString = QString("font-weight: bold; color: red");
-  const QString DisabledStyleString = QString("color: gray");
 
   bool initialized = false;
 

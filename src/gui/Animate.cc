@@ -18,6 +18,7 @@
 
 #include "gui/MainWindow.h"
 #include "gui/UIUtils.h"
+#include "gui/Icons.h"
 #include "openscad_gui.h"
 #include "utils/printutils.h"
 
@@ -53,9 +54,9 @@ void Animate::initGUI()
   this->animDumping = false;
   this->animDumpStartStep = 0;
 
-  this->iconRun = QIcon::fromTheme("chokusen-animate-play");
-  this->iconPause = QIcon::fromTheme("chokusen-animate-pause");
-  this->iconDisabled = QIcon::fromTheme("chokusen-animate-disabled");
+  this->iconRun = Icons::icon("animate-play", this);
+  this->iconPause = Icons::icon("animate-pause", this);
+  this->iconDisabled = Icons::icon("animate-disabled", this);
 
   animateTimer = new QTimer(this);
   connect(animateTimer, &QTimer::timeout, this, &Animate::incrementTVal);

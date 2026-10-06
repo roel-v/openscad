@@ -1,3 +1,4 @@
+#include "gui/Icons.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -130,7 +131,9 @@ void configureOpenGLContext()
 
 void setGlobalTheme()
 {
-  QIcon::setThemeName(isDarkMode() ? "chokusen-dark" : "chokusen");
+  QIcon::setThemeName("openscad");
+  Icons::install();
+  Icons::refresh();
 }
 
 namespace {
@@ -274,9 +277,9 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
 #endif
 
   registerDefaultIcon(app.applicationFilePath());
-  app.setApplicationFont(
-    GlobalPreferences::inst()->getValue("advanced/applicationFontFamily").toString(),
-    GlobalPreferences::inst()->getValue("advanced/applicationFontSize").toUInt());
+  QObject::connect(GlobalPreferences::inst(), &Preferences::applicationFontChanged, &app,
+                   &OpenSCADApp::setApplicationFont);
+  GlobalPreferences::inst()->fireApplicationFontChanged();
 
 #ifdef OPENSCAD_UPDATER
   AutoUpdater *updater = new SparkleAutoUpdater;
@@ -285,8 +288,6 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
   updater->init();
 #endif
 
-  QObject::connect(GlobalPreferences::inst(), &Preferences::applicationFontChanged, &app,
-                   &OpenSCADApp::setApplicationFont);
   QObject::connect(GlobalPreferences::inst(), &Preferences::renderBackend3DChanged, &app,
                    &OpenSCADApp::setRenderBackend3D);
 

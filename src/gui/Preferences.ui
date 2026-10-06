@@ -1264,11 +1264,6 @@
               <property name="enabled">
                <bool>false</bool>
               </property>
-              <property name="font">
-               <font>
-                <pointsize>11</pointsize>
-               </font>
-              </property>
               <property name="text">
                <string>Last checked: </string>
               </property>
@@ -1805,7 +1800,7 @@
                     <string/>
                    </property>
                    <property name="icon">
-                    <iconset theme="chokusen-down"/>
+                    <iconset theme="openscad-down"/>
                    </property>
                   </widget>
                  </item>
@@ -1815,7 +1810,7 @@
                     <string/>
                    </property>
                    <property name="icon">
-                    <iconset theme="chokusen-add"/>
+                    <iconset theme="openscad-add"/>
                    </property>
                   </widget>
                  </item>
@@ -1834,7 +1829,7 @@
                     <string/>
                    </property>
                    <property name="icon">
-                    <iconset theme="chokusen-up"/>
+                    <iconset theme="openscad-up"/>
                    </property>
                   </widget>
                  </item>
@@ -1853,7 +1848,7 @@
                     <string/>
                    </property>
                    <property name="icon">
-                    <iconset theme="chokusen-remove"/>
+                    <iconset theme="openscad-remove"/>
                    </property>
                   </widget>
                  </item>
@@ -3273,8 +3268,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefs3DView.png</normaloff>:/icons/prefs3DView.png</iconset>
+    <iconset theme="openscad-prefs3DView"/>
    </property>
    <property name="text">
     <string>3D View</string>
@@ -3285,8 +3279,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsAdvanced.png</normaloff>:/icons/prefsAdvanced.png</iconset>
+    <iconset theme="openscad-prefsAdvanced"/>
    </property>
    <property name="text">
     <string comment="preferences">Advanced</string>
@@ -3297,8 +3290,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsEditor.png</normaloff>:/icons/prefsEditor.png</iconset>
+    <iconset theme="openscad-prefsEditor"/>
    </property>
    <property name="text">
     <string>Editor</string>
@@ -3309,8 +3301,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsUpdate.png</normaloff>:/icons/prefsUpdate.png</iconset>
+    <iconset theme="openscad-prefsUpdate"/>
    </property>
    <property name="text">
     <string>Update</string>
@@ -3321,8 +3312,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsFeatures.png</normaloff>:/icons/prefsFeatures.png</iconset>
+    <iconset theme="openscad-prefsFeatures"/>
    </property>
    <property name="text">
     <string>Experimental</string>
@@ -3336,8 +3326,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsInputAxis.png</normaloff>:/icons/prefsInputAxis.png</iconset>
+    <iconset theme="openscad-prefsInputAxis"/>
    </property>
    <property name="text">
     <string>Axes</string>
@@ -3351,8 +3340,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsInputButtons.png</normaloff>:/icons/prefsInputButtons.png</iconset>
+    <iconset theme="openscad-prefsInputButtons"/>
    </property>
    <property name="text">
     <string>Buttons</string>
@@ -3363,8 +3351,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsInput.png</normaloff>:/icons/prefsInput.png</iconset>
+    <iconset theme="openscad-prefsInput"/>
    </property>
    <property name="text">
     <string>Mouse</string>
@@ -3375,8 +3362,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefs3DPrint.png</normaloff>:/icons/prefs3DPrint.png</iconset>
+    <iconset theme="openscad-prefs3DPrint"/>
    </property>
    <property name="text">
     <string>3D Print</string>
@@ -3390,8 +3376,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsDialogs.png</normaloff>:/icons/prefsDialogs.png</iconset>
+    <iconset theme="openscad-prefsDialogs"/>
    </property>
    <property name="text">
     <string>Dialogs</string>
@@ -3402,8 +3387,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsFeatures.png</normaloff>:/icons/prefsFeatures.png</iconset>
+    <iconset theme="openscad-prefsAI"/>
    </property>
    <property name="text">
     <string>AI</string>
@@ -3414,7 +3398,7 @@
   </action>
   <action name="actionLocalAppParameterDir">
    <property name="icon">
-    <iconset theme="chokusen-folder"/>
+    <iconset theme="openscad-folder"/>
    </property>
    <property name="text">
     <string>Directory of the output file</string>
@@ -3422,7 +3406,7 @@
   </action>
   <action name="actionLocalAppParameterExtension">
    <property name="icon">
-    <iconset theme="chokusen-parameter"/>
+    <iconset theme="openscad-parameter"/>
    </property>
    <property name="text">
     <string>Extension of the output file without leading dot</string>
@@ -3430,7 +3414,7 @@
   </action>
   <action name="actionLocalAppParameterSource">
    <property name="icon">
-    <iconset theme="chokusen-file"/>
+    <iconset theme="openscad-file"/>
    </property>
    <property name="text">
     <string>Full path to the main source file</string>
@@ -3438,7 +3422,7 @@
   </action>
   <action name="actionLocalAppParameterSourceDir">
    <property name="icon">
-    <iconset theme="chokusen-folder"/>
+    <iconset theme="openscad-folder"/>
    </property>
    <property name="text">
     <string>Directory of the main source file</string>
@@ -3446,7 +3430,7 @@
   </action>
   <action name="actionLocalAppParameterFile">
    <property name="icon">
-    <iconset theme="chokusen-orthogonal"/>
+    <iconset theme="openscad-orthogonal"/>
    </property>
    <property name="text">
     <string>Full path to the output file</string>

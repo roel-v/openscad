@@ -2,7 +2,9 @@
 #include "gui/LibraryInfoDialog.h"
 
 #include <QString>
-#include <QStringRef>
+#include <QTextBlock>
+#include <QTextCursor>
+#include <QTextBlockFormat>
 #include <QTextEdit>
 
 #include "LibraryInfo.h"
@@ -24,31 +26,19 @@ void LibraryInfoDialog::updateLibraryInfo(const QString& rendererInfo)
   QString info(LibraryInfo::info().c_str());
   info += rendererInfo;
 
-  // Parse infos and make it html
-  info = info.replace("<", "&lt;").replace(">", "&gt;").replace("\n", "<br/>");
-
-  auto end = false;
-  int startIndex = 0;
-  while (!end) {
-    int endIndex = info.indexOf(":", startIndex);
-    if (endIndex != -1) {
-      // add bold to property name
-      info = info.insert(startIndex, "<b>");
-      endIndex += 3;
-      info = info.replace(endIndex, 1, ":</b>");
-      startIndex = info.indexOf("<br/>", endIndex);
-
-      // handle property with multiple lines
-      auto endInd = info.indexOf(":", startIndex);
-      if (endInd != -1) {
-        QStringRef lines(&info, startIndex, endInd - startIndex);
-        auto lastIndex = lines.lastIndexOf("<br/>");
-        startIndex = lastIndex != -1 ? lastIndex + startIndex : startIndex;
-      }
-    } else {
-      end = true;
+  // Keep copied text literal, with modest label emphasis and native-font row spacing.
+  infoTextBox->setPlainText(info);
+  for (auto block = infoTextBox->document()->begin(); block.isValid(); block = block.next()) {
+    QTextCursor cursor(block);
+    QTextBlockFormat spacing;
+    spacing.setBottomMargin(infoTextBox->fontMetrics().height() / 6.0);
+    cursor.setBlockFormat(spacing);
+    const int colon = block.text().indexOf(':');
+    if (colon >= 0) {
+      cursor.setPosition(block.position() + colon + 1, QTextCursor::KeepAnchor);
+      QTextCharFormat emphasis;
+      emphasis.setFontWeight(QFont::Medium);
+      cursor.mergeCharFormat(emphasis);
     }
   }
-
-  this->infoTextBox->setHtml(info);
 }

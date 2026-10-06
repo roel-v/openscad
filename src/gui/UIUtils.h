@@ -89,4 +89,10 @@ void dumpSaveState(const QByteArray& data);
 
 void dumpPalette(const QPalette& p);
 
+// A usable native layout gap, including styles which return the -1 sentinel.
+int layoutSpacing(const QWidget *widget, Qt::Orientation orientation);
+
+// Display-only capitalization; preserve mixed-case first words and all remaining text.
+QString sentenceCaseLabel(QString text);
+
 }  // namespace UIUtils

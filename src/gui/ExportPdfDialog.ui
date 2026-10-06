@@ -543,7 +543,7 @@
                <string>...</string>
               </property>
               <property name="icon">
-               <iconset theme="chokusen-undo">
+               <iconset theme="openscad-undo">
                 <normaloff>.</normaloff>.</iconset>
               </property>
              </widget>
@@ -603,7 +603,7 @@
                <string>...</string>
               </property>
               <property name="icon">
-               <iconset theme="chokusen-undo">
+               <iconset theme="openscad-undo">
                 <normaloff>.</normaloff>.</iconset>
               </property>
              </widget>
@@ -660,7 +660,7 @@
                <string>...</string>
               </property>
               <property name="icon">
-               <iconset theme="chokusen-undo">
+               <iconset theme="openscad-undo">
                 <normaloff>.</normaloff>.</iconset>
               </property>
              </widget>

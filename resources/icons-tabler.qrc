@@ -1,0 +1,167 @@
+<RCC>
+  <qresource>
+    <file>icons/tabler/mapping.json</file>
+    <file alias="icons/openscad/index.theme">icons/tabler/index.theme</file>
+    <file>icons/tabler/custom/axes.svg</file>
+    <file>icons/tabler/custom/export-3mf.svg</file>
+    <file>icons/tabler/custom/export-csg.svg</file>
+    <file>icons/tabler/custom/export-dxf.svg</file>
+    <file>icons/tabler/custom/export-obj.svg</file>
+    <file>icons/tabler/custom/export-off.svg</file>
+    <file>icons/tabler/custom/export-pov.svg</file>
+    <file>icons/tabler/custom/export-stl.svg</file>
+    <file>icons/tabler/custom/export-wrl.svg</file>
+    <file>icons/tabler/custom/orthogonal.svg</file>
+    <file>icons/tabler/custom/perspective.svg</file>
+    <file>icons/tabler/custom/preview.svg</file>
+    <file>icons/tabler/custom/render.svg</file>
+    <file>icons/tabler/custom/reset-view.svg</file>
+    <file>icons/tabler/custom/scalemarkers.svg</file>
+    <file>icons/tabler/custom/show-edges.svg</file>
+    <file>icons/tabler/custom/surface.svg</file>
+    <file>icons/tabler/custom/throwntogether.svg</file>
+    <file>icons/tabler/custom/vcr-control-end.svg</file>
+    <file>icons/tabler/custom/vcr-control-start.svg</file>
+    <file>icons/tabler/custom/vcr-control-step-back.svg</file>
+    <file>icons/tabler/custom/vcr-control-step-forward.svg</file>
+    <file>icons/tabler/custom/view-back.svg</file>
+    <file>icons/tabler/custom/view-bottom.svg</file>
+    <file>icons/tabler/custom/view-front.svg</file>
+    <file>icons/tabler/custom/view-left.svg</file>
+    <file>icons/tabler/custom/view-right.svg</file>
+    <file>icons/tabler/custom/view-top.svg</file>
+    <file>icons/tabler/custom/wireframe.svg</file>
+    <file>icons/tabler/stock/adjustments-horizontal.svg</file>
+    <file>icons/tabler/stock/alert-triangle.svg</file>
+    <file>icons/tabler/stock/angle.svg</file>
+    <file>icons/tabler/stock/app-window.svg</file>
+    <file>icons/tabler/stock/arrow-back-up.svg</file>
+    <file>icons/tabler/stock/arrow-down.svg</file>
+    <file>icons/tabler/stock/arrow-forward-up.svg</file>
+    <file>icons/tabler/stock/arrow-up.svg</file>
+    <file>icons/tabler/stock/arrows-move.svg</file>
+    <file>icons/tabler/stock/ban.svg</file>
+    <file>icons/tabler/stock/circle-check.svg</file>
+    <file>icons/tabler/stock/circle-x.svg</file>
+    <file>icons/tabler/stock/code.svg</file>
+    <file>icons/tabler/stock/copy.svg</file>
+    <file>icons/tabler/stock/crosshair.svg</file>
+    <file>icons/tabler/stock/cube.svg</file>
+    <file>icons/tabler/stock/device-floppy.svg</file>
+    <file>icons/tabler/stock/file-plus.svg</file>
+    <file>icons/tabler/stock/file-type-pdf.svg</file>
+    <file>icons/tabler/stock/file-type-png.svg</file>
+    <file>icons/tabler/stock/file-type-svg.svg</file>
+    <file>icons/tabler/stock/file.svg</file>
+    <file>icons/tabler/stock/flask.svg</file>
+    <file>icons/tabler/stock/folder-open.svg</file>
+    <file>icons/tabler/stock/folder.svg</file>
+    <file>icons/tabler/stock/help-circle.svg</file>
+    <file>icons/tabler/stock/indent-decrease.svg</file>
+    <file>icons/tabler/stock/indent-increase.svg</file>
+    <file>icons/tabler/stock/info-circle.svg</file>
+    <file>icons/tabler/stock/keyboard.svg</file>
+    <file>icons/tabler/stock/loader-2.svg</file>
+    <file>icons/tabler/stock/minus.svg</file>
+    <file>icons/tabler/stock/mouse.svg</file>
+    <file>icons/tabler/stock/player-pause.svg</file>
+    <file>icons/tabler/stock/player-play.svg</file>
+    <file>icons/tabler/stock/player-stop.svg</file>
+    <file>icons/tabler/stock/plus.svg</file>
+    <file>icons/tabler/stock/printer.svg</file>
+    <file>icons/tabler/stock/refresh.svg</file>
+    <file>icons/tabler/stock/ruler-measure.svg</file>
+    <file>icons/tabler/stock/send.svg</file>
+    <file>icons/tabler/stock/settings.svg</file>
+    <file>icons/tabler/stock/sparkles.svg</file>
+    <file>icons/tabler/stock/text-decrease.svg</file>
+    <file>icons/tabler/stock/text-increase.svg</file>
+    <file>icons/tabler/stock/x.svg</file>
+    <file>icons/tabler/stock/zoom-in.svg</file>
+    <file>icons/tabler/stock/zoom-out.svg</file>
+    <file>icons/tabler/stock/zoom-scan.svg</file>
+    <file alias="icons/openscad/svg/openscad-add.svg">icons/tabler/stock/plus.svg</file>
+    <file alias="icons/openscad/svg/openscad-animate-disabled.svg">icons/tabler/stock/ban.svg</file>
+    <file alias="icons/openscad/svg/openscad-animate-pause.svg">icons/tabler/stock/player-pause.svg</file>
+    <file alias="icons/openscad/svg/openscad-animate-play.svg">icons/tabler/stock/player-play.svg</file>
+    <file alias="icons/openscad/svg/openscad-axes.svg">icons/tabler/custom/axes.svg</file>
+    <file alias="icons/openscad/svg/openscad-circle-checkmark.svg">icons/tabler/stock/circle-check.svg</file>
+    <file alias="icons/openscad/svg/openscad-circle-error.svg">icons/tabler/stock/circle-x.svg</file>
+    <file alias="icons/openscad/svg/openscad-crosshairs.svg">icons/tabler/stock/crosshair.svg</file>
+    <file alias="icons/openscad/svg/openscad-down.svg">icons/tabler/stock/arrow-down.svg</file>
+    <file alias="icons/openscad/svg/openscad-edit-copy.svg">icons/tabler/stock/copy.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-3mf.svg">icons/tabler/custom/export-3mf.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-csg.svg">icons/tabler/custom/export-csg.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-dxf.svg">icons/tabler/custom/export-dxf.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-obj.svg">icons/tabler/custom/export-obj.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-off.svg">icons/tabler/custom/export-off.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-pdf.svg">icons/tabler/stock/file-type-pdf.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-png.svg">icons/tabler/stock/file-type-png.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-pov.svg">icons/tabler/custom/export-pov.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-stl.svg">icons/tabler/custom/export-stl.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-svg.svg">icons/tabler/stock/file-type-svg.svg</file>
+    <file alias="icons/openscad/svg/openscad-export-wrl.svg">icons/tabler/custom/export-wrl.svg</file>
+    <file alias="icons/openscad/svg/openscad-file.svg">icons/tabler/stock/file.svg</file>
+    <file alias="icons/openscad/svg/openscad-folder.svg">icons/tabler/stock/folder.svg</file>
+    <file alias="icons/openscad/svg/openscad-indent.svg">icons/tabler/stock/indent-increase.svg</file>
+    <file alias="icons/openscad/svg/openscad-loading.svg">icons/tabler/stock/loader-2.svg</file>
+    <file alias="icons/openscad/svg/openscad-measure-angle.svg">icons/tabler/stock/angle.svg</file>
+    <file alias="icons/openscad/svg/openscad-measure-distance.svg">icons/tabler/stock/ruler-measure.svg</file>
+    <file alias="icons/openscad/svg/openscad-new.svg">icons/tabler/stock/file-plus.svg</file>
+    <file alias="icons/openscad/svg/openscad-open.svg">icons/tabler/stock/folder-open.svg</file>
+    <file alias="icons/openscad/svg/openscad-orthogonal.svg">icons/tabler/custom/orthogonal.svg</file>
+    <file alias="icons/openscad/svg/openscad-parameter.svg">icons/tabler/stock/adjustments-horizontal.svg</file>
+    <file alias="icons/openscad/svg/openscad-perspective.svg">icons/tabler/custom/perspective.svg</file>
+    <file alias="icons/openscad/svg/openscad-preview.svg">icons/tabler/custom/preview.svg</file>
+    <file alias="icons/openscad/svg/openscad-redo.svg">icons/tabler/stock/arrow-forward-up.svg</file>
+    <file alias="icons/openscad/svg/openscad-remove.svg">icons/tabler/stock/minus.svg</file>
+    <file alias="icons/openscad/svg/openscad-render.svg">icons/tabler/custom/render.svg</file>
+    <file alias="icons/openscad/svg/openscad-reset-view.svg">icons/tabler/custom/reset-view.svg</file>
+    <file alias="icons/openscad/svg/openscad-save.svg">icons/tabler/stock/device-floppy.svg</file>
+    <file alias="icons/openscad/svg/openscad-scalemarkers.svg">icons/tabler/custom/scalemarkers.svg</file>
+    <file alias="icons/openscad/svg/openscad-send.svg">icons/tabler/stock/send.svg</file>
+    <file alias="icons/openscad/svg/openscad-show-edges.svg">icons/tabler/custom/show-edges.svg</file>
+    <file alias="icons/openscad/svg/openscad-surface.svg">icons/tabler/custom/surface.svg</file>
+    <file alias="icons/openscad/svg/openscad-throwntogether.svg">icons/tabler/custom/throwntogether.svg</file>
+    <file alias="icons/openscad/svg/openscad-undo.svg">icons/tabler/stock/arrow-back-up.svg</file>
+    <file alias="icons/openscad/svg/openscad-unindent.svg">icons/tabler/stock/indent-decrease.svg</file>
+    <file alias="icons/openscad/svg/openscad-up.svg">icons/tabler/stock/arrow-up.svg</file>
+    <file alias="icons/openscad/svg/openscad-vcr-control-end.svg">icons/tabler/custom/vcr-control-end.svg</file>
+    <file alias="icons/openscad/svg/openscad-vcr-control-pause.svg">icons/tabler/stock/player-pause.svg</file>
+    <file alias="icons/openscad/svg/openscad-vcr-control-play.svg">icons/tabler/stock/player-play.svg</file>
+    <file alias="icons/openscad/svg/openscad-vcr-control-start.svg">icons/tabler/custom/vcr-control-start.svg</file>
+    <file alias="icons/openscad/svg/openscad-vcr-control-step-back.svg">icons/tabler/custom/vcr-control-step-back.svg</file>
+    <file alias="icons/openscad/svg/openscad-vcr-control-step-forward.svg">icons/tabler/custom/vcr-control-step-forward.svg</file>
+    <file alias="icons/openscad/svg/openscad-view-back.svg">icons/tabler/custom/view-back.svg</file>
+    <file alias="icons/openscad/svg/openscad-view-bottom.svg">icons/tabler/custom/view-bottom.svg</file>
+    <file alias="icons/openscad/svg/openscad-view-front.svg">icons/tabler/custom/view-front.svg</file>
+    <file alias="icons/openscad/svg/openscad-view-left.svg">icons/tabler/custom/view-left.svg</file>
+    <file alias="icons/openscad/svg/openscad-view-right.svg">icons/tabler/custom/view-right.svg</file>
+    <file alias="icons/openscad/svg/openscad-view-top.svg">icons/tabler/custom/view-top.svg</file>
+    <file alias="icons/openscad/svg/openscad-wireframe.svg">icons/tabler/custom/wireframe.svg</file>
+    <file alias="icons/openscad/svg/openscad-zoom-all.svg">icons/tabler/stock/zoom-scan.svg</file>
+    <file alias="icons/openscad/svg/openscad-zoom-in.svg">icons/tabler/stock/zoom-in.svg</file>
+    <file alias="icons/openscad/svg/openscad-zoom-out.svg">icons/tabler/stock/zoom-out.svg</file>
+    <file alias="icons/openscad/svg/openscad-zoom-text-in.svg">icons/tabler/stock/text-increase.svg</file>
+    <file alias="icons/openscad/svg/openscad-zoom-text-out.svg">icons/tabler/stock/text-decrease.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefs3DView.svg">icons/tabler/stock/cube.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsAdvanced.svg">icons/tabler/stock/settings.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsEditor.svg">icons/tabler/stock/code.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsUpdate.svg">icons/tabler/stock/refresh.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsFeatures.svg">icons/tabler/stock/flask.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsInputAxis.svg">icons/tabler/stock/arrows-move.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsInputButtons.svg">icons/tabler/stock/keyboard.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsInput.svg">icons/tabler/stock/mouse.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefs3DPrint.svg">icons/tabler/stock/printer.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsDialogs.svg">icons/tabler/stock/app-window.svg</file>
+    <file alias="icons/openscad/svg/openscad-close.svg">icons/tabler/stock/x.svg</file>
+    <file alias="icons/openscad/svg/openscad-stopbutton.svg">icons/tabler/stock/player-stop.svg</file>
+    <file alias="icons/openscad/svg/openscad-information-icons-warning.svg">icons/tabler/stock/alert-triangle.svg</file>
+    <file alias="icons/openscad/svg/openscad-information-icons-error.svg">icons/tabler/stock/circle-x.svg</file>
+    <file alias="icons/openscad/svg/openscad-information-icons-info.svg">icons/tabler/stock/info-circle.svg</file>
+    <file alias="icons/openscad/svg/openscad-information-icons-question.svg">icons/tabler/stock/help-circle.svg</file>
+    <file alias="icons/openscad/svg/openscad-emblem-unreadable.svg">icons/tabler/stock/alert-triangle.svg</file>
+    <file alias="icons/openscad/svg/openscad-help.svg">icons/tabler/stock/help-circle.svg</file>
+    <file alias="icons/openscad/svg/openscad-prefsAI.svg">icons/tabler/stock/sparkles.svg</file>
+  </qresource>
+</RCC>

@@ -16,7 +16,7 @@
 #include <QFileDialog>
 #include <QClipboard>
 #include <QDateTime>
-#include <QMessageBox>
+#include "gui/MessageBox.h"
 #include <fstream>
 #include "json/json.hpp"
 #include "gui/MainWindow.h"
@@ -39,35 +39,17 @@ MessageBubble::MessageBubble(const QString& text, bool isUser,
   QFrame *bubbleFrame = new QFrame(this);
   bubbleFrame->setFrameShape(QFrame::StyledPanel);
 
-  bool dark = isDarkTheme();
-  QString frameStyle;
-  QString labelStyle;
-
+  bubbleFrame->setAutoFillBackground(true);
+  bubbleFrame->setBackgroundRole(isUser ? QPalette::AlternateBase : QPalette::Base);
+  bubbleFrame->setForegroundRole(QPalette::Text);
   if (isUser) {
-    // User bubble: vibrant blue
-    if (dark) {
-      frameStyle = "QFrame { background-color: #2563eb; border: none; border-radius: 12px; }";
-      labelStyle = "QLabel { color: #ffffff; font-size: 10pt; }";
-    } else {
-      frameStyle = "QFrame { background-color: #3b82f6; border: none; border-radius: 12px; }";
-      labelStyle = "QLabel { color: #ffffff; font-size: 10pt; }";
-    }
     layout->addStretch(1);
     layout->addWidget(bubbleFrame);
   } else {
-    // AI bubble: slate/gray
-    if (dark) {
-      frameStyle = "QFrame { background-color: #374151; border: none; border-radius: 12px; }";
-      labelStyle = "QLabel { color: #f3f4f6; font-size: 10pt; }";
-    } else {
-      frameStyle = "QFrame { background-color: #f3f4f6; border: none; border-radius: 12px; }";
-      labelStyle = "QLabel { color: #1f2937; font-size: 10pt; }";
-    }
     layout->addWidget(bubbleFrame);
     layout->addStretch(1);
   }
 
-  bubbleFrame->setStyleSheet(frameStyle);
 
   QVBoxLayout *frameLayout = new QVBoxLayout(bubbleFrame);
   frameLayout->setContentsMargins(10, 8, 10, 8);
@@ -75,7 +57,7 @@ MessageBubble::MessageBubble(const QString& text, bool isUser,
   this->label = new QLabel(text, bubbleFrame);
   this->label->setWordWrap(true);
   this->label->setTextInteractionFlags(Qt::TextSelectableByMouse);
-  this->label->setStyleSheet(labelStyle);
+  this->label->setForegroundRole(QPalette::Text);
 
   frameLayout->addWidget(this->label);
 
@@ -90,7 +72,6 @@ MessageBubble::MessageBubble(const QString& text, bool isUser,
         QPixmap pixmap =
           QPixmap::fromImage(qimg).scaled(120, 120, Qt::KeepAspectRatio, Qt::SmoothTransformation);
         imgLabel->setPixmap(pixmap);
-        imgLabel->setStyleSheet("border-radius: 6px;");
         imgLayout->addWidget(imgLabel);
       }
     }
@@ -216,25 +197,15 @@ ChatWidget::ChatWidget(QWidget *parent) : QWidget(parent)
   bannerLayout->addWidget(bannerLabel);
 
   QPushButton *reviewBtn = new QPushButton(_("Review & Apply"), diffBannerWidget);
-  reviewBtn->setStyleSheet(
-    "background-color: #2563eb; color: white; border-radius: 4px; padding: 4px 8px; font-weight: bold;");
   bannerLayout->addWidget(reviewBtn);
 
   QPushButton *discardBtn = new QPushButton(_("Discard"), diffBannerWidget);
-  discardBtn->setStyleSheet(
-    "background-color: #ef4444; color: white; border-radius: 4px; padding: 4px 8px; font-weight: bold;");
   bannerLayout->addWidget(discardBtn);
 
-  bool dark = isDarkTheme();
-  if (dark) {
-    bannerLabel->setStyleSheet("font-weight: bold; color: #93c5fd;");
-    diffBannerWidget->setStyleSheet(
-      "background-color: #1e293b; border-top: 1px solid #334155; border-bottom: 1px solid #334155;");
-  } else {
-    bannerLabel->setStyleSheet("font-weight: bold; color: #1e3a8a;");
-    diffBannerWidget->setStyleSheet(
-      "background-color: #eff6ff; border-top: 1px solid #bfdbfe; border-bottom: 1px solid #bfdbfe;");
-  }
+  QFont heading;
+  heading.setWeight(QFont::Medium);
+  bannerLabel->setFont(heading);
+  bannerLabel->setWordWrap(true);
 
   diffBannerWidget->hide();
 
@@ -478,14 +449,14 @@ void ChatWidget::onAnalyzeScreenPressed()
   }
 
   if (!mw || !mw->qglview) {
-    QMessageBox::warning(this, _("Viewport Error"),
+    StatusMessageBox::warning(this, _("Viewport Error"),
                          _("Could not find active 3D Viewport to grab screen."));
     return;
   }
 
   std::string base64_img = ViewportGrabber::captureViewportBase64(mw->qglview, 1024);
   if (base64_img.empty()) {
-    QMessageBox::warning(this, _("Viewport Error"), _("Failed to capture 3D viewport frame."));
+    StatusMessageBox::warning(this, _("Viewport Error"), _("Failed to capture 3D viewport frame."));
     return;
   }
 
@@ -514,7 +485,7 @@ void ChatWidget::onAttachImagePressed()
 
   QFile file(filePath);
   if (!file.open(QIODevice::ReadOnly)) {
-    QMessageBox::warning(this, _("File Error"), _("Could not open the selected image file."));
+    StatusMessageBox::warning(this, _("File Error"), _("Could not open the selected image file."));
     return;
   }
 
@@ -578,17 +549,12 @@ void ChatWidget::updateAttachmentPreviewBar()
     }
 
     QPushButton *removeBtn = new QPushButton("X", itemWidget);
-    removeBtn->setFixedSize(20, 20);
     removeBtn->setToolTip(_("Remove attachment"));
     connect(removeBtn, &QPushButton::clicked, this, [this, i]() { removeAttachment(i); });
 
     itemLayout->addWidget(thumbLabel);
     itemLayout->addWidget(removeBtn);
 
-    itemWidget->setStyleSheet(
-      "QWidget { background-color: #374151; border-radius: 6px; } QLabel { color: white; } QPushButton "
-      "{ background-color: #ef4444; color: white; border: none; border-radius: 4px; font-weight: bold; "
-      "}");
 
     attachmentPreviewLayout->addWidget(itemWidget);
   }
@@ -935,12 +901,12 @@ void ChatWidget::exportChat()
 
   std::ofstream file(fileName.toStdString());
   if (!file.is_open()) {
-    QMessageBox::warning(this, _("Export Warning"), _("Could not write to the chosen file."));
+    StatusMessageBox::warning(this, _("Export Warning"), _("Could not write to the chosen file."));
     return;
   }
 
   file << j.dump(2);
-  QMessageBox::information(this, _("Export Successful"), _("Chat history exported successfully."));
+  StatusMessageBox::information(this, _("Export Successful"), _("Chat history exported successfully."));
 }
 
 void ChatWidget::importChat()
@@ -954,7 +920,7 @@ void ChatWidget::importChat()
 
   std::ifstream file(fileName.toStdString());
   if (!file.is_open()) {
-    QMessageBox::warning(this, _("Import Warning"), _("Could not open the selected file."));
+    StatusMessageBox::warning(this, _("Import Warning"), _("Could not open the selected file."));
     return;
   }
 
@@ -962,12 +928,12 @@ void ChatWidget::importChat()
   try {
     file >> j;
   } catch (const std::exception& e) {
-    QMessageBox::warning(this, _("Import Warning"), tr("Failed to parse JSON file: %1").arg(e.what()));
+    StatusMessageBox::warning(this, _("Import Warning"), tr("Failed to parse JSON file: %1").arg(e.what()));
     return;
   }
 
   if (!j.is_object() || !j.contains("history") || !j["history"].is_array()) {
-    QMessageBox::warning(this, _("Import Warning"),
+    StatusMessageBox::warning(this, _("Import Warning"),
                          _("Selected file does not contain a valid chat history array."));
     return;
   }
@@ -1009,11 +975,11 @@ void ChatWidget::importChat()
   rebuildChatUI();
 
   if (skipped_count > 0) {
-    QMessageBox::warning(
+    StatusMessageBox::warning(
       this, _("Import Warning"),
       tr("Imported chat history with warnings: %1 invalid entries were skipped.").arg(skipped_count));
   } else {
-    QMessageBox::information(this, _("Import Successful"), _("Chat history imported successfully."));
+    StatusMessageBox::information(this, _("Import Successful"), _("Chat history imported successfully."));
   }
 }
 
@@ -1048,7 +1014,7 @@ void ChatWidget::copyAsMarkdown()
   }
 
   QApplication::clipboard()->setText(QString::fromStdString(markdown));
-  QMessageBox::information(this, _("Chat Copied"),
+  StatusMessageBox::information(this, _("Chat Copied"),
                            _("Chat conversation copied to clipboard as Markdown."));
 }
 

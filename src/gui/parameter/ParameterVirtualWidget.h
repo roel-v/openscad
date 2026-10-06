@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QWidget>
+#include <QTimer>
 #include <boost/optional.hpp>
 #include <vector>
 
@@ -17,6 +18,16 @@ class ParameterDescriptionWidget : public QWidget, public Ui::ParameterDescripti
 public:
   ParameterDescriptionWidget(QWidget *parent);
   void setDescription(ParameterObject *parameter, DescriptionStyle descriptionStyle);
+
+protected:
+  void changeEvent(QEvent *event) override;
+  bool eventFilter(QObject *object, QEvent *event) override;
+
+private:
+  QLabel *helpIcon = nullptr;
+  QTimer helpTimer;
+  void showHelp();
+  void updateSpacing();
 };
 
 class ParameterVirtualWidget : public QWidget
@@ -41,6 +52,7 @@ private:
   ParameterObject *parameter;
 
 protected:
+  bool event(QEvent *event) override;
   static int decimalsRequired(double value);
   static int decimalsRequired(const std::vector<double>& values);
 };

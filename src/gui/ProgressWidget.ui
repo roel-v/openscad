@@ -51,8 +51,7 @@
       </size>
      </property>
      <property name="icon">
-      <iconset resource="../../resources/common.qrc">
-       <normaloff>:/icons/stopbutton.png</normaloff>:/icons/stopbutton.png</iconset>
+      <iconset theme="openscad-stopbutton"/>
      </property>
      <property name="iconSize">
       <size>

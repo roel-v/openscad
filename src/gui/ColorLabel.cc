@@ -132,57 +132,25 @@ void ColorLabel::setColorInfo(const QString& name, const QColor& color)
   bgColor = color.toRgb();
   const auto dark = bgColor.toHsl().lightnessF() < 0.5;
   fgColor = QColor(dark ? Qt::GlobalColor::white : Qt::GlobalColor::black).toRgb();
-  updateStyleSheet();
+  updateAppearance();
 }
 
 void ColorLabel::setSelected(const bool selected)
 {
   this->selected = selected;
-  updateStyleSheet();
+  updateAppearance();
 }
 
-QString ColorLabel::calculateBorderColor(const QColor& ref, const bool selected)
+void ColorLabel::updateAppearance()
 {
-  if (selected) {
-    int r = 0, g = 0, b = 0;
-    if (ref.red() <= std::min(ref.green(), ref.blue())) {
-      r = 255;
-    } else if (ref.green() <= std::min(ref.red(), ref.blue())) {
-      g = 255;
-    } else {
-      b = 255;
-    }
-    return QString("rgb(%1, %2, %3)").arg(r).arg(g).arg(b);
-  } else {
-    // Calculate brightness using NTSC formula (weighted average)
-    // Coefficients: 299 (red), 587 (green), 114 (blue) → sum to 1000
-    int brightness = (ref.red() * 299 + ref.green() * 587 + ref.blue() * 114) / 1000;
-    return (brightness < 128) ? "white" : "black";
-  }
-}
-
-void ColorLabel::updateStyleSheet()
-{
-  const auto border = selected ? "5px solid" : "1px solid";
-  const auto borderColor = calculateBorderColor(bgColor, selected);
-  const auto borderRadius = selected ? "0" : "0.6";
-  const auto padding = selected ? "4" : "6";
-  const auto margin = selected ? "0" : "2";
-  const auto tmpl = QString(R"(
-        QLabel {
-            color: %1;
-            background-color: %2;
-            border: %3 %4;
-            border-radius: %5em;
-            padding: %6px;
-            margin: %7px;
-        })");
-  const auto styleSheet = tmpl.arg(fgColor.name())
-                            .arg(bgColor.name())
-                            .arg(border)
-                            .arg(borderColor)
-                            .arg(borderRadius)
-                            .arg(padding)
-                            .arg(margin);
-  setStyleSheet(styleSheet);
+  // Swatch colors are content, not application theme colors.
+  auto colors = palette();
+  colors.setColor(QPalette::Window, bgColor);
+  colors.setColor(QPalette::WindowText, fgColor);
+  setPalette(colors);
+  setAutoFillBackground(true);
+  setFrameStyle(QFrame::Box | QFrame::Plain);
+  setIndent(0);
+  setLineWidth(selected ? 3 : 1);
+  setMargin(selected ? 4 : 6);
 }

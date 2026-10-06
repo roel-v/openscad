@@ -129,7 +129,10 @@ void Console::addHtml(const QString& html)
 
 void Console::setConsoleFont(const QString& fontFamily, uint ptSize)
 {
-  this->document()->setDefaultFont(QFont(fontFamily, ptSize));
+  // Pin the widget font as well: QPlainTextEdit propagates inherited FontChange events
+  // to its document, which would otherwise replace the independently selected font.
+  setFont(QFont(fontFamily, ptSize));
+  this->document()->setDefaultFont(font());
 }
 
 void Console::update()

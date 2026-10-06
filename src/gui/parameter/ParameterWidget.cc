@@ -26,10 +26,12 @@
 #include "gui/parameter/ParameterWidget.h"
 
 #include <QAction>
+#include <QEvent>
+#include <QSignalBlocker>
 #include <QInputDialog>
 #include <QLayoutItem>
 #include <QMenu>
-#include <QMessageBox>
+#include "gui/MessageBox.h"
 #include <QString>
 #include <QToolButton>
 #include <QWidget>
@@ -46,6 +48,7 @@
 
 #include "core/customizer/ParameterObject.h"
 #include "gui/Preferences.h"
+#include "gui/UIUtils.h"
 #include "gui/parameter/GroupWidget.h"
 #include "gui/parameter/ParameterCheckBox.h"
 #include "gui/parameter/ParameterComboBox.h"
@@ -58,6 +61,12 @@
 ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
 {
   setupUi(this);
+  // Keep the existing mode positions; compact hover help is the initial presentation.
+  {
+    const QSignalBlocker blocker(comboBoxDetails);
+    comboBoxDetails->setCurrentIndex(static_cast<int>(DescriptionStyle::HideDetails));
+  }
+  updateSpacing();
   scrollAreaWidgetContents->layout()->setAlignment(Qt::AlignTop);
 
   autoPreviewTimer.setInterval(1000);
@@ -69,10 +78,10 @@ ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
   auto *customizer_menu = new QMenu(this);
   parameterMenuButton->setMenu(customizer_menu);
 
-  QAction *collapseAction = customizer_menu->addAction(_("Collapse All"));
+  QAction *collapseAction = customizer_menu->addAction(_("Collapse all"));
   connect(collapseAction, &QAction::triggered, this, &ParameterWidget::onCollapseAll);
 
-  QAction *expandAction = customizer_menu->addAction(_("Expand All"));
+  QAction *expandAction = customizer_menu->addAction(_("Expand all"));
   connect(expandAction, &QAction::triggered, this, &ParameterWidget::onExpandAll);
 
   QString fontfamily = GlobalPreferences::inst()->getValue("advanced/customizerFontFamily").toString();
@@ -81,6 +90,22 @@ ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
 
   connect(GlobalPreferences::inst(), &Preferences::customizerFontChanged, this,
           &ParameterWidget::setFontFamilySize);
+}
+
+void ParameterWidget::updateSpacing()
+{
+  const int horizontal = UIUtils::layoutSpacing(this, Qt::Horizontal);
+  const int vertical = UIUtils::layoutSpacing(this, Qt::Vertical);
+  layout()->setContentsMargins(horizontal, vertical, horizontal, vertical);
+  layout()->setSpacing(vertical);
+  scrollAreaWidgetContents->layout()->setContentsMargins(0, 0, 0, 0);
+  scrollAreaWidgetContents->layout()->setSpacing(vertical);
+}
+
+void ParameterWidget::changeEvent(QEvent *event)
+{
+  QWidget::changeEvent(event);
+  if (event->type() == QEvent::FontChange || event->type() == QEvent::StyleChange) updateSpacing();
 }
 
 // Can only be called before the initial setParameters().
@@ -112,7 +137,7 @@ void ParameterWidget::saveFile(const QString& scadFile)
 
   QString jsonFile = getJsonFile(scadFile);
   if (jsonFile == this->invalidJsonFile) {
-    QMessageBox msgBox;
+    StatusMessageBox msgBox;
     msgBox.setWindowTitle(_("Saving presets"));
     msgBox.setText(QString(_("%1 was found, but was unreadable. Do you want to overwrite %1?"))
                      .arg(this->invalidJsonFile));
@@ -471,5 +496,5 @@ void ParameterWidget::cleanSets()
 
 void ParameterWidget::setFontFamilySize(const QString& fontFamily, uint fontSize)
 {
-  scrollArea->setFont(QFont(fontFamily, fontSize));
+  setFont(QFont(fontFamily, fontSize));
 }

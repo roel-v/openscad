@@ -31,6 +31,8 @@
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QFont>
+#include <QGroupBox>
+#include "gui/UIUtils.h"
 #include <QFontComboBox>
 #include <QFontDatabase>
 #include <QKeyEvent>
@@ -45,11 +47,12 @@
 #include "platform/PlatformUtils.h"
 #include <QMainWindow>
 #include <QMenu>
-#include <QMessageBox>
+#include "gui/MessageBox.h"
 #include <QObject>
 #include <QRegularExpression>
 #include <QRegularExpressionValidator>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QSpacerItem>
 #include <QString>
@@ -84,6 +87,7 @@
 #include "gui/NavigationSettings.h"
 #include "gui/SettingsWriter.h"
 #include "gui/ShortcutConfigurator.h"
+#include "gui/Icons.h"
 
 static const char *featurePropertyName = "FeatureProperty";
 
@@ -146,6 +150,20 @@ Preferences::Preferences(QWidget *parent) : QMainWindow(parent)
 {
   setupUi(this);
   page3DView->layout()->addWidget(NavigationSettings::preferenceControls(page3DView));
+  auto *iconRow = new QHBoxLayout;
+  auto *iconLabel = new QLabel(_("Status icon appearance"), groupBox_UI);
+  statusIconAppearance = new QComboBox(groupBox_UI);
+  statusIconAppearance->setObjectName("statusIconAppearance");
+  iconLabel->setBuddy(statusIconAppearance);
+  iconRow->addWidget(iconLabel);
+  iconRow->addWidget(statusIconAppearance);
+  iconRow->addStretch();
+  verticalLayout_13->insertLayout(1, iconRow);
+  connect(statusIconAppearance, QOverload<int>::of(&QComboBox::activated), this, [this](int index) {
+    Settings::Settings::statusIconAppearance.setIndex(index);
+    writeSettings();
+    Icons::refresh();
+  });
 
   std::list<std::string> names = ColorMap::instance().colorSchemeNames(true);
   QStringList renderColorSchemes;
@@ -178,15 +196,21 @@ void Preferences::init()
   this->defaultmap["editor/fontsize"] = 12;
   this->defaultmap["editor/syntaxhighlight"] = "For Light Background";
 
-  const QFont applicationFont = QTextDocument().defaultFont();
+  // Content fonts must not inherit the application's UI typography defaults.
+  const QFont platformFont = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+  QFont applicationFont = platformFont;
+#ifdef Q_OS_WIN
+  applicationFont.setFamily("Segoe UI");
+  applicationFont.setPointSize(10);
+#endif
   this->defaultmap["advanced/applicationFontFamily"] = applicationFont.family();
   this->defaultmap["advanced/applicationFontSize"] = applicationFont.pointSize();
 
   // Leave Console font with default if user has not chosen another.
-  this->defaultmap["advanced/consoleFontFamily"] = applicationFont.family();
-  this->defaultmap["advanced/consoleFontSize"] = applicationFont.pointSize();
+  this->defaultmap["advanced/consoleFontFamily"] = platformFont.family();
+  this->defaultmap["advanced/consoleFontSize"] = platformFont.pointSize();
 
-  // Leave Customizer font with default if user has not chosen another.
+  // getValue() resolves absent Customizer overrides against the current application settings.
   this->defaultmap["advanced/customizerFontFamily"] = applicationFont.family();
   this->defaultmap["advanced/customizerFontSize"] = applicationFont.pointSize();
 
@@ -372,6 +396,33 @@ void Preferences::init()
 
   connect(group, &QActionGroup::triggered, this, &Preferences::actionTriggered);
 
+  // Keep the established presentation order, which differs from page registration order.
+  categoryActions.clear();
+  for (auto *action : toolBar->actions()) {
+    if (prefPages.contains(action)) categoryActions.append(action);
+  }
+
+  categoryTabs = new QTabBar(centralwidget);
+  categoryTabs->setObjectName("categoryTabs");
+  categoryTabs->setExpanding(false);
+  categoryTabs->setUsesScrollButtons(true);
+  categoryTabs->setIconSize(QSize(32, 32));
+  categoryTabs->setAccessibleName(tr("Preferences categories"));
+  updatePageMetrics();
+  gridLayout_6->removeWidget(stackedWidget);
+  gridLayout_6->addWidget(categoryTabs, 0, 0);
+  gridLayout_6->addWidget(stackedWidget, 1, 0);
+  gridLayout_6->setRowStretch(1, 1);
+  // Retain the actions for existing programmatic navigation, not their toolbar presentation.
+  toolBar->hide();
+  rebuildCategoryTabs();
+  connect(categoryTabs, &QTabBar::currentChanged, this, [this](int index) {
+    if (index >= 0 && !rebuildingCategoryTabs) {
+      auto *action = categoryTabs->tabData(index).value<QAction *>();
+      if (action) action->trigger();
+    }
+  });
+
   prefsAction3DView->setChecked(true);
   this->actionTriggered(this->prefsAction3DView);
 
@@ -423,6 +474,10 @@ void Preferences::init()
   initComboBox(this->comboBoxLocalAppFileFormat, Settings::Settings::localAppFileFormat);
   initComboBox(this->comboBoxRenderBackend3D, Settings::Settings::renderBackend3D);
   initComboBox(this->comboBoxToolbarExport3D, Settings::Settings::toolbarExport3D);
+  initComboBox(statusIconAppearance, Settings::Settings::statusIconAppearance);
+  statusIconAppearance->setItemText(0, _("Monochrome"));
+  statusIconAppearance->setItemText(1, _("Native Qt status"));
+  statusIconAppearance->setItemText(2, _("Colored Tabler status"));
   initComboBox(this->comboBoxToolbarExport2D, Settings::Settings::toolbarExport2D);
 
   initListBox(this->listWidgetLocalAppParams, Settings::Settings::localAppParameterList);
@@ -492,6 +547,61 @@ void Preferences::addPrefPage(QActionGroup *group, QAction *action, QWidget *wid
 {
   group->addAction(action);
   prefPages[action] = widget;
+  categoryActions.append(action);
+  connect(action, &QAction::changed, this, &Preferences::rebuildCategoryTabs);
+}
+
+void Preferences::rebuildCategoryTabs()
+{
+  if (!categoryTabs || rebuildingCategoryTabs) return;
+  rebuildingCategoryTabs = true;
+  const QSignalBlocker blocker(categoryTabs);
+  QAction *current = nullptr;
+  for (auto *action : categoryActions)
+    if (prefPages.value(action) == stackedWidget->currentWidget()) current = action;
+  if (!current || !current->isVisible()) {
+    const int position = categoryActions.indexOf(current);
+    current = nullptr;
+    for (int i = position - 1; i >= 0; --i)
+      if (categoryActions[i]->isVisible()) { current = categoryActions[i]; break; }
+    if (!current)
+      for (auto *action : categoryActions)
+        if (action->isVisible()) { current = action; break; }
+  }
+  while (categoryTabs->count()) categoryTabs->removeTab(0);
+  for (auto *action : categoryActions) {
+    if (!action->isVisible()) continue;
+    const int index = categoryTabs->addTab(Icons::icon(action->icon().name(), categoryTabs), action->text());
+    categoryTabs->setTabData(index, QVariant::fromValue(action));
+    categoryTabs->setTabEnabled(index, action->isEnabled());
+    categoryTabs->setTabToolTip(index, action->toolTip());
+    if (action == current) categoryTabs->setCurrentIndex(index);
+  }
+  if (current) {
+    current->setChecked(true);
+    stackedWidget->setCurrentWidget(prefPages.value(current));
+  }
+  rebuildingCategoryTabs = false;
+}
+
+void Preferences::updatePageMetrics()
+{
+  const int horizontal = UIUtils::layoutSpacing(this, Qt::Horizontal);
+  const int vertical = UIUtils::layoutSpacing(this, Qt::Vertical);
+  gridLayout_6->setContentsMargins(horizontal, vertical, horizontal, vertical);
+  gridLayout_6->setSpacing(vertical);
+  pageDialogs->layout()->setAlignment(Qt::AlignTop);
+  for (auto *box : findChildren<QGroupBox *>()) {
+    if (pageAdvanced->isAncestorOf(box) || pageDialogs->isAncestorOf(box)) box->setFlat(true);
+    if (pageDialogs->isAncestorOf(box)) box->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    if (auto *layout = box->layout()) {
+      layout->setSpacing(vertical);
+      layout->setContentsMargins(horizontal, vertical, horizontal, vertical);
+    }
+  }
+  QFont heading;
+  heading.setWeight(QFont::Medium);
+  labelAIHeader->setFont(heading);
 }
 
 /**
@@ -501,7 +611,10 @@ void Preferences::addPrefPage(QActionGroup *group, QAction *action, QWidget *wid
  */
 void Preferences::actionTriggered(QAction *action)
 {
-  this->stackedWidget->setCurrentWidget(prefPages[action]);
+  if (!prefPages.contains(action) || !action->isVisible()) return;
+  this->stackedWidget->setCurrentWidget(prefPages.value(action));
+  action->setChecked(true);
+  rebuildCategoryTabs();
 }
 
 /**
@@ -572,7 +685,7 @@ void Preferences::setupFeaturesPage()
     row++;
 
     auto *cb = new QCheckBox(QString::fromStdString(feature->get_name()), pageFeatures);
-    QFont bold_font(cb->font());
+    QFont bold_font;
     bold_font.setBold(true);
     cb->setFont(bold_font);
     // synchronize Qt settings with the feature settings
@@ -664,7 +777,7 @@ void Preferences::on_syntaxHighlight_currentTextChanged(const QString& s)
 
 void unimplemented_msg()
 {
-  QMessageBox mbox;
+  StatusMessageBox mbox;
   mbox.setText("Sorry, this feature is not implemented on your Operating System");
   mbox.exec();
 }
@@ -921,9 +1034,22 @@ void Preferences::on_consoleMaxLinesEdit_textChanged(const QString& text)
 
 void Preferences::fireApplicationFontChanged() const
 {
+  // Qt can change QFontComboBox's selection when its own inherited font changes. Do not
+  // mistake those notifications for a user selecting an independent content font.
+  const QSignalBlocker applicationBlocker(fontComboBoxApplicationFontFamily);
+  const QSignalBlocker customizerBlocker(customizerFontChooser);
+  const QSignalBlocker consoleBlocker(consoleFontChooser);
+  const QSignalBlocker editorBlocker(fontChooser);
   const auto family = getValue("advanced/applicationFontFamily").toString();
   const auto size = getValue("advanced/applicationFontSize").toUInt();
   emit applicationFontChanged(family, size);
+  emit customizerFontChanged(getValue("advanced/customizerFontFamily").toString(),
+                             getValue("advanced/customizerFontSize").toUInt());
+  updateGUIFontFamily(fontComboBoxApplicationFontFamily, "advanced/applicationFontFamily");
+  updateGUIFontFamily(customizerFontChooser, "advanced/customizerFontFamily");
+  updateGUIFontSize(customizerFontSize, "advanced/customizerFontSize");
+  updateGUIFontFamily(consoleFontChooser, "advanced/consoleFontFamily");
+  updateGUIFontFamily(fontChooser, "editor/fontfamily");
 }
 
 void Preferences::on_fontComboBoxApplicationFontFamily_currentFontChanged(const QFont& font)
@@ -1369,7 +1495,7 @@ void Preferences::on_pushButtonOctoPrintCheckConnection_clicked()
     this->labelOctoPrintCheckConnection->setText(
       QString{_("Success: Server Version = %2, API Version = %1")}.arg(api_version).arg(server_version));
   } catch (const NetworkException& e) {
-    QMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
+    StatusMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
                           QMessageBox::Ok);
     this->labelOctoPrintCheckConnection->setText("");
   }
@@ -1394,7 +1520,7 @@ void Preferences::on_pushButtonOctoPrintSlicingEngine_clicked()
       this->comboBoxOctoPrintSlicingEngine->setCurrentIndex(idx);
     }
   } catch (const NetworkException& e) {
-    QMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
+    StatusMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
                           QMessageBox::Ok);
   }
 }
@@ -1433,7 +1559,7 @@ void Preferences::on_pushButtonOctoPrintSlicingProfile_clicked()
       this->comboBoxOctoPrintSlicingProfile->setCurrentIndex(idx);
     }
   } catch (const NetworkException& e) {
-    QMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
+    StatusMessageBox::critical(this, _("Error"), QString::fromStdString(e.getErrorMessage()),
                           QMessageBox::Ok);
   }
 }
@@ -1489,7 +1615,7 @@ void Preferences::on_pushButtonAINewProfile_clicked()
 
   const QString trimmed = name.trimmed();
   if (this->comboBoxAIProfile->findText(trimmed) >= 0) {
-    QMessageBox::warning(this, _("Duplicate Profile"), _("A profile with that name already exists."));
+    StatusMessageBox::warning(this, _("Duplicate Profile"), _("A profile with that name already exists."));
     return;
   }
 
@@ -1551,7 +1677,7 @@ void Preferences::on_pushButtonAIDeleteProfile_clicked()
   if (idx < 0) return;
 
   const QString profileName = this->comboBoxAIProfile->currentText();
-  const auto result = QMessageBox::question(this, _("Delete AI Profile"),
+  const auto result = StatusMessageBox::question(this, _("Delete AI Profile"),
                                             QString(_("Delete profile \"%1\"?")).arg(profileName),
                                             QMessageBox::Yes | QMessageBox::No);
   if (result != QMessageBox::Yes) return;
@@ -1813,6 +1939,8 @@ void Preferences::fireEditorConfigChanged() const
 // Make sure Ctrl-W isn't passed up to MainWindow and only affects Preferences
 bool Preferences::event(QEvent *e)
 {
+  if (categoryTabs && (e->type() == QEvent::FontChange || e->type() == QEvent::StyleChange))
+    updatePageMetrics();
   if (e->type() == QEvent::WindowDeactivate) {
     if (this->aiSaveTimer && this->aiSaveTimer->isActive()) {
       this->aiSaveTimer->stop();
@@ -1876,6 +2004,11 @@ void Preferences::removeDefaultSettings()
   QSettingsCached settings;
   for (QSettings::SettingsMap::const_iterator iter = this->defaultmap.begin();
        iter != this->defaultmap.end(); iter++) {
+    // An explicit UI font choice remains an override even if it currently equals the default.
+    if (iter.key() == "advanced/applicationFontFamily" || iter.key() == "advanced/applicationFontSize" ||
+        iter.key() == "advanced/customizerFontFamily" || iter.key() == "advanced/customizerFontSize") {
+      continue;
+    }
     if (settings.value(iter.key()) == iter.value()) {
       settings.remove(iter.key());
     }
@@ -1885,6 +2018,10 @@ void Preferences::removeDefaultSettings()
 QVariant Preferences::getValue(const QString& key) const
 {
   QSettingsCached settings;
+  if (!settings.contains(key)) {
+    if (key == "advanced/customizerFontFamily") return getValue("advanced/applicationFontFamily");
+    if (key == "advanced/customizerFontSize") return getValue("advanced/applicationFontSize");
+  }
   assert(settings.contains(key) || this->defaultmap.contains(key));
   return settings.value(key, this->defaultmap[key]);
 }
@@ -1963,6 +2100,8 @@ void Preferences::updateGUI()
   BlockSignals<QCheckBox *>(this->enableRangeCheckBox)
     ->setChecked(getValue("advanced/enableParameterRangeCheck").toBool());
   updateComboBox(this->comboBoxToolbarExport3D, Settings::Settings::toolbarExport3D);
+  updateComboBox(statusIconAppearance, Settings::Settings::statusIconAppearance);
+  Icons::refresh();
   updateComboBox(this->comboBoxToolbarExport2D, Settings::Settings::toolbarExport2D);
 
   BlockSignals<QCheckBox *>(this->checkBoxSummaryCamera)
@@ -2092,13 +2231,13 @@ void Preferences::createFontSizeMenu(QComboBox *boxarg, const QString& setting)
   box->setEditText(QString("%1").arg(savedsize));
 }
 
-void Preferences::updateGUIFontFamily(QFontComboBox *ffSelector, const QString& setting)
+void Preferences::updateGUIFontFamily(QFontComboBox *ffSelector, const QString& setting) const
 {
   const auto fontfamily = getValue(setting).toString();
   BlockSignals<QFontComboBox *>(ffSelector)->setCurrentFont(QFont(fontfamily));
 }
 
-void Preferences::updateGUIFontSize(QComboBox *fsSelector, const QString& setting)
+void Preferences::updateGUIFontSize(QComboBox *fsSelector, const QString& setting) const
 {
   const auto fontsize = getValue(setting).toString();
   const auto sidx = fsSelector->findText(fontsize);

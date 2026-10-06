@@ -1,0 +1,11 @@
+[Icon Theme]
+Name=OpenSCAD Tabler
+Comment=Tabler and matching CAD icons; application rendering follows the Qt palette
+Directories=svg
+
+[svg]
+Size=24
+Context=Applications
+MinSize=16
+MaxSize=512
+Type=Scalable

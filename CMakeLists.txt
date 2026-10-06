@@ -1407,6 +1407,7 @@ set(GUI_SOURCES
   src/gui/SettingsWriter.cc
   src/gui/TabManager.cc
   src/gui/UIUtils.cc
+  src/gui/Icons.cc
   src/gui/WindowManager.cc
   src/gui/ShortcutConfigurator.cc
   src/gui/IgnoreWheelWhenNotFocused.cc
@@ -1599,8 +1600,7 @@ else()
   # Every qrc file added to RESOURCE_FILES must have a matching Q_INIT_RESOURCE() call in main_wrapper.cc
   list(APPEND RESOURCE_FILES
     ${RESOURCE_DIR}/common.qrc
-    ${RESOURCE_DIR}/icons-chokusen.qrc
-    ${RESOURCE_DIR}/icons-chokusen-dark.qrc
+    ${RESOURCE_DIR}/icons-tabler.qrc
   )
   # GUI_UIS for .ui files to be indexed by Qt Creator despite AUTOUIC usage
   # GUI_HEADERS for .h files to be indexed by Qt Creator despite AUTOUIC usage
@@ -1882,7 +1882,15 @@ if(ENABLE_TESTS)
       add_executable(OpenSCADUnitTests ${TEST_SOURCES})
     else()
       add_executable(OpenSCADUnitTests ${TEST_SOURCES} ${GUI_TEST_SOURCES})
+      # Widget tests include the Designer-generated headers from the application library.
+      target_include_directories(OpenSCADUnitTests PRIVATE
+        "${CMAKE_CURRENT_BINARY_DIR}/OpenSCADLibInternal_autogen/include"
+        "${CMAKE_CURRENT_BINARY_DIR}/OpenSCADLibInternal_autogen/include_$<CONFIG>")
+      add_dependencies(OpenSCADUnitTests OpenSCADLibInternal_autogen)
     endif()
+    get_target_property(OPENSCAD_TEST_CXX_STANDARD OpenSCADLibInternal CXX_STANDARD)
+    set_target_properties(OpenSCADUnitTests PROPERTIES
+      CXX_STANDARD ${OPENSCAD_TEST_CXX_STANDARD} CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
     target_link_libraries(OpenSCADUnitTests PRIVATE Catch2::Catch2WithMain OpenSCADLibInternal svg)
     target_compile_definitions(OpenSCADUnitTests PRIVATE
       OPENSCAD_TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/tests/data")

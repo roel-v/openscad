@@ -19,7 +19,7 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QMessageBox>
+#include "gui/MessageBox.h"
 #include <QPoint>
 #include <QSaveFile>
 #include <QShortcut>
@@ -607,7 +607,7 @@ bool TabManager::maybeSave(int x)
 {
   auto *edt = (EditorInterface *)tabWidget->widget(x);
   if (edt->isContentModified() || edt->parameterWidget->isModified() || edt->hasViewChanges()) {
-    QMessageBox box(parent);
+    StatusMessageBox box(parent);
     box.setText(_("The document has been modified."));
     box.setInformativeText(_("Do you want to save your changes?"));
     box.setStandardButtons(QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
@@ -639,7 +639,7 @@ bool TabManager::shouldClose()
   foreach (EditorInterface *edt, editorList) {
     if (!(edt->isContentModified() || edt->parameterWidget->isModified() || edt->hasViewChanges())) continue;
 
-    QMessageBox box(parent);
+    StatusMessageBox box(parent);
     box.setText(_("Some tabs have unsaved changes."));
     box.setInformativeText(_("Do you want to save all your changes?"));
     box.setStandardButtons(QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel);
@@ -671,7 +671,7 @@ void TabManager::saveError(const QIODevice& file, const std::string& msg, const 
 
   const std::string dialogFormatStr = msg + "\n\"%1\"\n(%2)";
   const QString dialogFormat(dialogFormatStr.c_str());
-  QMessageBox::warning(parent, parent->windowTitle(),
+  StatusMessageBox::warning(parent, parent->windowTitle(),
                        dialogFormat.arg(filepath).arg(file.errorString()));
 }
 
@@ -773,7 +773,7 @@ bool TabManager::saveAs(EditorInterface *edt)
     if (info.exists()) {
       const auto text =
         QString(_("%1 already exists.\nDo you want to replace it?")).arg(info.fileName());
-      if (QMessageBox::warning(parent, parent->windowTitle(), text, QMessageBox::Yes | QMessageBox::No,
+      if (StatusMessageBox::warning(parent, parent->windowTitle(), text, QMessageBox::Yes | QMessageBox::No,
                                QMessageBox::No) != QMessageBox::Yes) {
         return false;
       }

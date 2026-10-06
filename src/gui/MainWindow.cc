@@ -837,8 +837,9 @@ void MainWindow::compile(bool reload, bool forcedone)
       shouldcompiletoplevel = true;
     }
 
-    if (evaluationInputs && !Selection::EvaluationBinding::inputsCurrent(*evaluationInputs, *this))
-      shouldcompiletoplevel = true;
+    // Disk dependency notifications require a new input snapshot. Dirty editor
+    // buffers only invalidate selection; they must not schedule an auto-preview.
+    if (reload && evaluationBinding->takeDiskChanges()) shouldcompiletoplevel = true;
 
     if (this->parsedFile) {
       auto mtime = this->parsedFile->includesChanged();
@@ -3898,12 +3899,6 @@ void MainWindow::setup3DView()
   connect(this->qglview, &QGLView::doLeftClick, this, &MainWindow::leftClick);
   connect(this->qglview, &QGLView::initialized, this, &MainWindow::updateViewModeAfterGLInit);
   new ViewportPopup(this);
-#ifdef ENABLE_NAVIGATION_CUBE_TUNING
-  auto tuning = new NavigationTuning(qglview);
-  auto tuningAction = menu_View->addAction(tr("Navigation tuning…"));
-  tuningAction->setObjectName("navigationTuningAction");
-  connect(tuningAction, &QAction::triggered, tuning, [tuning] { tuning->show(); tuning->raise(); });
-#endif
 }
 
 /**
@@ -3940,6 +3935,15 @@ void MainWindow::setupDocks()
     {aiDock,_("&AI Chat")}
   };
   // clang-format off
+
+#ifdef ENABLE_NAVIGATION_CUBE_TUNING
+  auto tuning = new NavigationTuning(qglview);
+  addDockWidget(Qt::RightDockWidgetArea, tuning);
+  tuning->setFloating(true);
+  tuning->resize(390,620);
+  tuning->hide();
+  docks.emplace_back(tuning, tr("Navigation tuning"));
+#endif
 
   // Connect the menu "Windows/Navigation" to slot that process it by opening in a pop menu
   // the navigationMenu.

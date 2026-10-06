@@ -64,6 +64,7 @@ void Bridge::stop(bool remember)
   info = {};
   starting = false;
   heartbeat.stop();
+  lastCameras = {};
   sources.clear();
   trees.clear();
   parseOutcomes.clear();
@@ -117,6 +118,7 @@ void Bridge::registerController(Controller *controller)
 {
   controllers.append(controller);
   connect(controller, &Controller::changed, this, &Bridge::publish);
+  connect(controller, &Controller::cameraStateChanged, this, &Bridge::publishCameras);
   connect(controller, &QObject::destroyed, this,
           [this] { QTimer::singleShot(0, this, &Bridge::publish); });
   auto widget = new QWidget;
@@ -155,6 +157,20 @@ void Bridge::registerController(Controller *controller)
   controller->setAccessWidget(widget);
   if (QSettings().value("agentServer/enabled", false).toBool()) start(false);
   publish();
+}
+void Bridge::publishCameras()
+{
+  if (info.isEmpty()) return;
+  QJsonArray cameras;
+  for (const auto& controller : controllers) if (controller) {
+    cameras.append(QJsonObject{{"viewport_id", controller->viewportId},
+      {"camera", controller->camera()}, {"view_revision", controller->viewRevision()}});
+  }
+  if (cameras == lastCameras) return;
+  lastCameras = cameras;
+  QMetaObject::invokeMethod(transport, [transport = transport, cameras] {
+    transport->publishCameras(cameras);
+  }, Qt::QueuedConnection);
 }
 void Bridge::publish()
 {

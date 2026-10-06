@@ -87,7 +87,7 @@ struct Effect {
 }
 void TestClipping::initTestCase() {
   window->designActionAutoReload->setChecked(false);
-  window->hide(); window->show(); window->raise(); window->activateWindow();
+  window->show(); window->raise(); window->activateWindow();
   QVERIFY(QTest::qWaitForWindowExposed(window)); QTRY_VERIFY(window->qglview->isValid());
   window->tabManager->actionNew();
   window->qglview->makeCurrent(); qInfo("Clipping renderer: %s",window->qglview->getRendererInfo().c_str()); window->qglview->doneCurrent();

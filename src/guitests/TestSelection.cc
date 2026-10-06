@@ -223,6 +223,13 @@ void TestSelection::visibleSelectionFeedback()
   window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!completed.empty(),15000);
   auto view=window->qglview;
   window->inspectorDock->show();window->inspectorDock->raise();
+  // Navigation fixtures may leave coplanar scale/crosshair lines enabled. Their
+  // depth ties are unrelated to selection feedback and are not pixel-stable.
+  const bool axes=view->showAxes(),scale=view->showScaleProportional(),crosshairs=view->showCrosshairs();
+  struct RestoreGuides {QGLView *view;bool axes,scale,crosshairs;
+    ~RestoreGuides(){view->setShowAxes(axes);view->setShowScaleProportional(scale);view->setShowCrosshairs(crosshairs);}
+  } restoreGuides{view,axes,scale,crosshairs};
+  view->setShowAxes(false);view->setShowScaleProportional(false);view->setShowCrosshairs(false);
   QTest::qWait(100);
   // Keep projection stable when Inspector's property text changes its size hint.
   const auto oldMinimum=view->minimumSize(),oldMaximum=view->maximumSize();

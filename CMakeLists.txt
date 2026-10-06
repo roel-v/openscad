@@ -1351,6 +1351,37 @@ set(INPUT_DRIVER_SOURCES
   ${INPUT_DRIVER_SPNAV_SOURCES}
   ${INPUT_DRIVER_DBUS_SOURCES})
 
+set(VIM_ENGINE_SOURCES
+  src/gui/vim/engine/Engine.cc
+  src/gui/vim/engine/CommandRunner.cc
+  src/gui/vim/engine/QtKey.cc
+  src/gui/vim/engine/ScintillaAccess.cc
+  src/gui/vim/engine/Motion.cc
+  src/gui/vim/engine/WordMotion.cc
+  src/gui/vim/engine/TextObjects.cc
+  src/gui/vim/engine/Edit.cc
+  src/gui/vim/engine/Modes.cc
+  src/gui/vim/engine/Undo.cc
+  src/gui/vim/engine/Search.cc)
+
+if(NOT HEADLESS)
+  # The patched engine has its own Qt/QScintilla closure. It does not inherit
+  # OpenSCAD's geometry, text-rendering or GLib dependencies.
+  add_library(OpenSCADVimEngine STATIC ${VIM_ENGINE_SOURCES})
+  target_include_directories(OpenSCADVimEngine PUBLIC "${CMAKE_SOURCE_DIR}/src")
+  if(USE_QT6)
+    target_include_directories(OpenSCADVimEngine SYSTEM PUBLIC "${QT6QSCINTILLA_INCLUDE_DIR}/..")
+    target_link_libraries(OpenSCADVimEngine PUBLIC Qt6::Widgets ${QT6QSCINTILLA_LIBRARY})
+  else()
+    target_include_directories(OpenSCADVimEngine SYSTEM PUBLIC "${QT5QSCINTILLA_INCLUDE_DIR}/..")
+    target_link_libraries(OpenSCADVimEngine PUBLIC Qt5::Widgets ${QT5QSCINTILLA_LIBRARY})
+  endif()
+  if(NOT MXECROSS)
+    target_compile_definitions(OpenSCADVimEngine PUBLIC QSCINTILLA_DLL)
+  endif()
+  target_link_libraries(OpenSCADLibInternal PRIVATE OpenSCADVimEngine)
+endif()
+
 set(GUI_SOURCES
   src/gui/selection/EvaluationBinding.cc
   src/gui/selection/SelectionService.cc
@@ -1358,6 +1389,9 @@ set(GUI_SOURCES
   src/gui/selection/ViewportToolRouter.cc
   src/gui/selection/ViewportOverlays.cc
   src/gui/selection/InspectorDock.cc
+  src/gui/vim/VimScintilla.cc
+  src/gui/vim/VimEditorController.cc
+  src/gui/vim/VimPrompt.cc
   src/gui/annotations/AgentSyntax.cc
   src/gui/annotations/AgentModel.cc
   src/gui/annotations/AnnotationTransport.cc
@@ -1650,6 +1684,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
     src/guitests/TestSourceTransactions.h
+    src/guitests/TestVimMode.h
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
     src/guitests/TestInspectionDraft.h
@@ -1664,6 +1699,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
     src/guitests/TestSourceTransactions.cc
+    src/guitests/TestVimMode.cc
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
     src/guitests/TestInspectionDraft.cc
@@ -1942,6 +1978,12 @@ if(ENABLE_TESTS)
     include(CTest)
     include(Catch)
     catch_discover_tests(OpenSCADUnitTests ADD_TAGS_AS_LABELS)
+    if(NOT HEADLESS)
+      # Small real-widget port boundary, without compiling geometry services first.
+      add_executable(VimEngineTests src/gui/vim/VimEngine_test.cc)
+      target_link_libraries(VimEngineTests PRIVATE Catch2::Catch2WithMain OpenSCADVimEngine)
+      catch_discover_tests(VimEngineTests ADD_TAGS_AS_LABELS TEST_PREFIX "vim-port:")
+    endif()
   else()
     message(WARNING "Catch2 3 was not found. OpenSCADUnitTests will not be built.")
   endif()

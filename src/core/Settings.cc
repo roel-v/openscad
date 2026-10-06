@@ -193,6 +193,7 @@ SettingsEntryBool Settings::highlightCurrentLine("editor", "highlightCurrentLine
 SettingsEntryBool Settings::enableBraceMatching("editor", "enableBraceMatching", true);
 SettingsEntryBool Settings::enableLineNumbers("editor", "enableLineNumbers", true);
 SettingsEntryBool Settings::enableNumberScrollWheel("editor", "enableNumberScrollWheel", true);
+SettingsEntryBool Settings::vimMode("editor", "vimMode", false);
 SettingsEntryEnum<std::string> Settings::modifierNumberScrollWheel(
   "editor", "modifierNumberScrollWheel",
   {{"Alt", "alt", _("Alt")},

@@ -6,6 +6,7 @@
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
 #include "TestSourceTransactions.h"
+#include "TestVimMode.h"
 #include "TestAnnotations.h"
 #include "TestNavigation.h"
 #include "TestSelection.h"
@@ -29,6 +30,8 @@ int runTests(MainWindow *window)
 int runAllTest(MainWindow *window)
 {
   if(qEnvironmentVariableIsSet("OPENSCAD_INSPECTION_DRAFT_TESTS_ONLY"))return runTests<TestInspectionDraft>(window);
+  if (qEnvironmentVariableIsSet("OPENSCAD_VIM_PERSISTENCE_ONLY")) return runTests<TestVimPersistence>(window);
+  if (qEnvironmentVariableIsSet("OPENSCAD_VIM_TESTS_ONLY")) return runTests<TestVimMode>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_NAVIGATION_TESTS_ONLY")) {
     TestNavigation test;
     test.setWindow(window);
@@ -44,6 +47,7 @@ int runAllTest(MainWindow *window)
             << std::endl;
   totalTestFailures += runTests<TestTabManager>(window);
   totalTestFailures += runTests<TestSourceTransactions>(window);
+  totalTestFailures += runTests<TestVimMode>(window);
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
   totalTestFailures += runTests<TestAnnotations>(window);

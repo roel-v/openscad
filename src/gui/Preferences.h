@@ -28,9 +28,11 @@
 
 class GlobalPreferences;
 class QTimer;
+class QCheckBox;
 class Preferences : public QMainWindow, public Ui::Preferences, public InitConfigurator
 {
   Q_OBJECT;
+  QCheckBox *vimModeCheckBox;
 
 public:
   ~Preferences() override;

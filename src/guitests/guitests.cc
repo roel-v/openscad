@@ -6,10 +6,7 @@
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
 #include "TestSourceTransactions.h"
-<<<<<<< HEAD
 #include "TestDesignObjects.h"
-=======
->>>>>>> feature/source-editing-foundation
 #include "TestAnnotations.h"
 #include "TestNavigation.h"
 #include "TestSelection.h"
@@ -47,10 +44,7 @@ int runAllTest(MainWindow *window)
             << std::endl;
   totalTestFailures += runTests<TestTabManager>(window);
   totalTestFailures += runTests<TestSourceTransactions>(window);
-<<<<<<< HEAD
   totalTestFailures += runTests<TestDesignObjects>(window);
-=======
->>>>>>> feature/source-editing-foundation
   totalTestFailures += runTests<TestMainWindow>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
   totalTestFailures += runTests<TestAnnotations>(window);

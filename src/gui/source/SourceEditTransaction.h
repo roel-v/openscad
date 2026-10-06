@@ -4,10 +4,7 @@
 #include <QString>
 #include <QVector>
 #include <memory>
-<<<<<<< HEAD
-=======
 #include <functional>
->>>>>>> feature/source-editing-foundation
 
 class EditorInterface;
 
@@ -23,17 +20,11 @@ struct EditRequest {
   QString sourceFingerprint;
   QVector<ByteEdit> edits;
   std::shared_ptr<const UndoParticipant> participant;
-<<<<<<< HEAD
-};
-enum class EditError {
-  None, WrongDocument, StaleSource, ReadOnly, InvalidRange, InvalidUtf8, Overlap, ExpectedTextMismatch, InvalidParticipant
-=======
   // Rechecked after synchronous external-edit observers, before the undo group.
   std::function<bool()> contextCurrent;
 };
 enum class EditError {
   None, WrongDocument, StaleSource, ReadOnly, InvalidRange, InvalidUtf8, Overlap, ExpectedTextMismatch, InvalidParticipant, StaleContext
->>>>>>> feature/source-editing-foundation
 };
 struct EditResult {
   EditError error = EditError::None;

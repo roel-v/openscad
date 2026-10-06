@@ -30,8 +30,6 @@ EditRequest requestFor(ScintillaEditor& editor, QVector<ByteEdit> edits)
 }
 }
 
-<<<<<<< HEAD
-=======
 TEST_CASE("Source transaction context is rechecked after synchronous external edit observers", "[source-editing]")
 {
   ensureApplication();ScintillaEditor editor(nullptr);editor.setPlainText("width=30;");editor.clearUndoHistory();
@@ -42,7 +40,6 @@ TEST_CASE("Source transaction context is rechecked after synchronous external ed
   QObject::disconnect(connection);
 }
 
->>>>>>> feature/source-editing-foundation
 TEST_CASE("Source transactions reject invalid original snapshots atomically", "[source-editing]")
 {
   const auto source = QString::fromUtf8("// \xc3\xa9 \xf0\x9f\x98\x80\na=10; b=20;\n").toUtf8();

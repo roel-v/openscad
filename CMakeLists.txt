@@ -1442,13 +1442,7 @@ set(GUI_SOURCES
   src/gui/ScadApi.cc
   src/gui/ScadLexer.cc
   src/gui/ScintillaEditor.cc
-<<<<<<< HEAD
   src/gui/source/SourceEditTransaction.cc
-=======
-  src/gui/source/EditorUndoRegistry.cc
-  src/gui/source/SourceEditTransaction.cc
-  src/gui/source/EditorUndoRegistry.h
->>>>>>> feature/source-editing-foundation
   src/gui/source/SourceEditTransaction.h
   src/gui/source/DiskSourceState.cc
   src/gui/source/DiskSourceState.h
@@ -1675,10 +1669,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestModuleCache.h
     src/guitests/TestTabManager.h
     src/guitests/TestSourceTransactions.h
-<<<<<<< HEAD
     src/guitests/TestDesignObjects.h
-=======
->>>>>>> feature/source-editing-foundation
     src/guitests/TestMainWindow.h
     src/guitests/TestNavigation.h
     src/guitests/TestSelection.h
@@ -1692,10 +1683,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestModuleCache.cc
     src/guitests/TestTabManager.cc
     src/guitests/TestSourceTransactions.cc
-<<<<<<< HEAD
     src/guitests/TestDesignObjects.cc
-=======
->>>>>>> feature/source-editing-foundation
     src/guitests/TestMainWindow.cc
     src/guitests/TestNavigation.cc
     src/guitests/TestSelection.cc

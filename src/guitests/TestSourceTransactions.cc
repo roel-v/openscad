@@ -186,6 +186,7 @@ void TestSourceTransactions::conflictsCancelSaveAsCopyAndPersistence()
   QVERIFY(!QFile::exists(SavedViews::companion(path)));
   const auto destination = dir.filePath("save-as.scad");
   bool saveAsChosen = false;
+  QString pickerState;
   DialogChoice chooseSaveAs([&](QWidget *widget) {
     if (auto box = qobject_cast<QMessageBox *>(widget)) {
       if (box->objectName() != "sourceSaveConflict" || saveAsChosen) return false;
@@ -198,15 +199,17 @@ void TestSourceTransactions::conflictsCancelSaveAsCopyAndPersistence()
       // selectFile() can retain the current selection while the visible filename
       // editor has focus. Drive that editor and verify the actual save target.
       auto filename = dialog->findChild<QLineEdit *>("fileNameEdit");
-      if (!filename) return false;
+      if (!filename) { pickerState = "filename editor missing"; return false; }
       filename->setText(destination);
+      pickerState = dialog->selectedFiles().join(" | ") + " expected " + destination;
       if (dialog->selectedFiles() != QStringList{destination}) return false;
       QMetaObject::invokeMethod(dialog, "accept");
       return true;
     }
     return false;
   });
-  QVERIFY(window->tabManager->save(editor));
+  const bool saved = window->tabManager->save(editor);
+  QVERIFY2(saved, qPrintable(pickerState));
   QVERIFY(saveAsChosen && chooseSaveAs.seen && !chooseSaveAs.timedOut);
   QCOMPARE(editor->filepath, destination);
   QVERIFY(editor->sourceDiskBaseline->matches(SourceEditing::DiskSourceState::capture(destination)));

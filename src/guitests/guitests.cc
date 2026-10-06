@@ -40,6 +40,7 @@ int runTests(MainWindow *window, const QStringList& filters = {})
 
 int runAllTest(MainWindow *window)
 {
+  if (qEnvironmentVariableIsSet("OPENSCAD_SOURCE_TESTS_ONLY")) return runTests<TestSourceTransactions>(window);
   if(qEnvironmentVariableIsSet("OPENSCAD_INSERTION_TESTS_ONLY")){
     const auto filter=qEnvironmentVariable("OPENSCAD_INSERTION_TEST_FUNCTION");
     return runTests<TestContextualInsertion>(window,filter.isEmpty()?QStringList{}:QStringList{filter});

@@ -205,6 +205,7 @@ int gui(std::vector<std::string>& inputFiles, const std::filesystem::path& origi
 {
   configureOpenGLContext();
 #ifdef ENABLE_GUI_TESTS
+  if (gui_test != "none") QCoreApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
   const auto testSettings = qEnvironmentVariable("OPENSCAD_TEST_SETTINGS_DIR");
   if (!testSettings.isEmpty()) {
     QStandardPaths::setTestModeEnabled(true);

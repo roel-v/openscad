@@ -361,6 +361,15 @@ void TestSemanticHierarchy::sourceNavigationAndSection(){
   auto key=Semantic::TargetKey{Semantic::TargetRole::Instance,"/pair/right"};QTRY_VERIFY(controller->targetService()->resolve(key).state==Design::ResolutionState::Resolved);
   auto *section=window->inspectorDock->findChild<QPushButton *>("semanticCreateSection");QVERIFY(section);QVERIFY(section->isEnabled());section->click();
   auto *document=Design::DesignDocument::forEditor(*window->activeEditor,*window);QCOMPARE(document->transientRecords().size(),size_t(1));QVERIFY(window->activeEditor->toPlainText().contains("@{type:Component"));QVERIFY(!window->activeEditor->toPlainText().contains("type:Section"));
+  const auto sectionRecord=document->transientRecords().begin()->second;
+  QVERIFY(sectionRecord->dependencies.empty());
+  QVERIFY(!sectionRecord->definition.toObject().contains("target"));
+  QVERIFY(!sectionRecord->definition.toObject().contains("frame"));
+  const auto target=controller->targetService()->resolve(key);
+  const auto pose=Design::sectionFrame(*sectionRecord,{});
+  QVERIFY(pose.frame);QVERIFY(target.localBounds);
+  QVERIFY(pose.frame->translation().isApprox(target.localToWorld*target.localBounds->center()));
+  QVERIFY(pose.frame->linear().col(2).isApprox(target.localToWorld.linear()*Vector3d::UnitZ()));
   auto *call=window->inspectorDock->findChild<QPushButton *>("semanticGoToCall");QVERIFY(call);call->click();auto *editor=qobject_cast<ScintillaEditor *>(window->activeEditor);QVERIFY(editor);QVERIFY(editor->qsci->selectedText().contains("bracket"));
   QVERIFY(controller->select({Semantic::TargetRole::Definition,"bracket"}));auto *definition=window->inspectorDock->findChild<QPushButton *>("semanticGoToDefinition");QVERIFY(definition);definition->click();QVERIFY(editor->qsci->selectedText().contains("bracket"));
 }

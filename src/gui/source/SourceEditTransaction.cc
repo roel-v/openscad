@@ -20,6 +20,10 @@ EditResult validate(const QByteArray& source, const QString& documentId, quint64
   if (request.sourceRevision != revision || request.sourceFingerprint != fingerprint)
     return failure(EditError::StaleSource, "Source revision or fingerprint changed");
   if (readOnly) return failure(EditError::ReadOnly, "Document is read-only");
+<<<<<<< D:\openscad\runs\20261006-ancestry-migration\merge-current
+=======
+  if (request.contextCurrent && !request.contextCurrent()) return failure(EditError::StaleContext,"Edit context changed");
+>>>>>>> D:\openscad\runs\20261006-ancestry-migration\merge-incoming
   if (request.participant && !request.participant->valid()) return failure(EditError::InvalidParticipant,"Lifecycle owner is no longer live");
   auto ordered = request.edits;
   std::sort(ordered.begin(), ordered.end(), [](const ByteEdit& a, const ByteEdit& b) { return a.begin < b.begin; });

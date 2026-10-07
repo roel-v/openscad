@@ -100,6 +100,7 @@ bool fileEnded=false;
   class Expression *expr;
   class Vector *vec;
   class Object *obj;
+  class GeometryLiteral *geometry;
   class ModuleInstantiation *inst;
   class IfElseModuleInstantiation *ifelse;
   class Assignment *arg;
@@ -148,6 +149,7 @@ bool fileEnded=false;
 %type <expr> exponent
 %type <expr> unary
 %type <expr> primary
+%type <geometry> geometry_start
 %type <vec> vector_elements
 %type <expr> vector_element
 %type <expr> list_comprehension_elements
@@ -530,6 +532,14 @@ call
             }
 		;
 
+geometry_start
+        : '{' '{'
+            {
+              $$ = new GeometryLiteral(LOCD("geometry", @$));
+              scope_stack.push(&$$->body->scope);
+            }
+        ;
+
 primary
         : TOK_TRUE
             {
@@ -584,6 +594,11 @@ primary
         | '{' object_elements optional_trailing_comma '}'
             {
               $$ = $2;
+            }
+        | geometry_start inner_input '}' '}'
+            {
+              scope_stack.pop();
+              $$ = $1;
             }
 		;
 

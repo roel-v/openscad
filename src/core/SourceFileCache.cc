@@ -166,6 +166,8 @@ void SourceFileCache::clear()
 
 SourceFile *SourceFileCache::lookup(const std::string& filename)
 {
+  // An unresolved use directive has no cache entry, including in a captured session.
+  if (filename.empty()) return nullptr;
   const std::string *key = &filename;
   if (inputs) {
     // Library resolution already supplies absolute filenames. Keep a cache hit free

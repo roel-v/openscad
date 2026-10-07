@@ -1041,6 +1041,7 @@ void MainWindow::compileEnded()
   clearCurrentOutput();
   GuiLocker::unlock();
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
+  emit evaluationBinding->evaluationFinished(activeEditor);
 #ifdef ENABLE_GUI_TESTS
   emit compilationDone(this->rootFile.get());
 #endif
@@ -1105,6 +1106,7 @@ void MainWindow::instantiateRoot()
     NativeEvaluationScope inputScope(*evaluationInputs, *evaluationBacking->libraries);
     AbstractNode::resetIndexCounter();
     evaluationBacking->session = std::make_shared<EvaluationSession>(doc.parent_path().string());
+    evaluationBacking->session->capturedInputs = evaluationInputs;
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(evaluationBacking->session.get())};
     evaluationBacking->builtin = *builtin_context;
     setRenderVariables(builtin_context);
@@ -1137,6 +1139,7 @@ void MainWindow::instantiateRoot()
       this->tree.setRoot(this->rootNode);
       evaluationInputs->freeze();
       auto scene = std::make_shared<Selection::EvaluatedScene>();
+      scene->inspectionPrepared = true; // This owner has no optional source tracing.
       scene->backing = evaluationBacking;
       scene->inputs = evaluationInputs;
       scene->root = rootNode;

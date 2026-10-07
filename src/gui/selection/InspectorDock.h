@@ -9,6 +9,7 @@ class MainWindow;
 class QLabel;
 class QVBoxLayout;
 class QAction;
+class EditorInterface;
 namespace Selection {
 struct InspectorContribution {
   QString id;
@@ -57,6 +58,13 @@ private:
   QVBoxLayout *panels;
   QAction *selectAction;
   uint64_t tool=0;
+  QPointer<EditorInterface> preparingEditor;
+  uint64_t preparingRevision = 0;
+  uint64_t preparationSerial = 0;
+  void selectPreparedGeometry();
+  void preparationFinished(EditorInterface *editor);
+  void finishInspection();
+  void hideEvent(QHideEvent *event) override;
   ViewportOverlays::Token selectionOverlay;
   void drawSelection(const OverlayContext& context);
   std::map<QString,Entry> entries;

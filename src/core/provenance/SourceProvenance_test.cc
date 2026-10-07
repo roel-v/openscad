@@ -107,6 +107,22 @@ struct ProvenanceFixture {
 };
 using SourceProvenance::SiteKind;
 using SourceProvenance::Confidence;
+
+TEST_CASE("Provenance path identities retain captured bytes across separate evaluations", "[provenance]") {
+  ProvenanceFixture fixture;
+  REQUIRE(fixture.parseText("cube(1);"));
+  auto retained = fixture.syntax;
+  const auto location = fixture.parsed->scope->moduleInstantiations.at(0)->location();
+  const auto original = retained->span(location);
+  REQUIRE(original);
+  REQUIRE(fixture.parseText("cube(2);"));
+  const auto updated = fixture.syntax->span(location);
+  REQUIRE(updated);
+  REQUIRE(original->fileKey == updated->fileKey);
+  REQUIRE(original->fingerprint != updated->fingerprint);
+  REQUIRE(retained->span(location)->fingerprint == original->fingerprint);
+  REQUIRE(retained->original(*original) != fixture.syntax->original(*updated));
+}
 }
 
 TEST_CASE("Provenance exact UTF8 expression and whole spans preserve LF and CRLF", "[source-provenance]") {

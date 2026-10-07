@@ -17,6 +17,7 @@
 class Value;
 class ContextFrame;
 namespace SourceProvenance { class ProvenanceCollector; }
+class EvaluationInputs;
 
 enum class NativeCapability { ExternalInput, FontInput, UnseededRandom, ExternalCallback };
 class EvaluationCapabilityError : public std::runtime_error {
@@ -28,6 +29,8 @@ class EvaluationSession
 {
 public:
   std::shared_ptr<SourceProvenance::ProvenanceCollector> provenanceCollector;
+  // Shared captured inputs remain available even when source tracing is disabled.
+  std::shared_ptr<const EvaluationInputs> capturedInputs;
   std::function<void(NativeCapability)> capabilityGuard;
   void requireCapability(NativeCapability capability) const { if (capabilityGuard) capabilityGuard(capability); }
   EvaluationSession(std::string documentRoot) : document_root(std::move(documentRoot)) {}

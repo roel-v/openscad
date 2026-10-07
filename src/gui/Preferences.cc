@@ -222,6 +222,18 @@ void Preferences::init()
   this->defaultmap["launcher/showOnStartup"] = true;
   this->defaultmap["advanced/localization"] = true;
   this->defaultmap["advanced/autoReloadRaise"] = false;
+  this->defaultmap["advanced/alwaysPrepareInspector"] = false;
+  auto inspector = new QCheckBox(tr("Always prepare Inspector data"), page3DView);
+  inspector->setObjectName("alwaysPrepareInspector");
+  inspector->setToolTip(tr("Collect source-to-geometry information during every preview. "
+    "When off, selecting geometry in Inspector prepares it on demand. "
+    "Models with explicit part or assembly structure still collect the information they need."));
+  inspector->setChecked(getValue("advanced/alwaysPrepareInspector").toBool());
+  page3DView->layout()->addWidget(inspector);
+  connect(inspector, &QCheckBox::toggled, this, [](bool enabled) {
+    QSettingsCached settings;
+    settings.setValue("advanced/alwaysPrepareInspector", enabled);
+  });
   this->defaultmap["advanced/enableSoundNotification"] = true;
   this->defaultmap["advanced/timeThresholdOnRenderCompleteSound"] = 0;
   this->defaultmap["advanced/consoleMaxLines"] = 5000;

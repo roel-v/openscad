@@ -7,7 +7,9 @@
 #include "gui/parameter/ParameterWidget.h"
 #include "gui/annotations/AnnotationStore.h"
 #include "gui/annotations/AnnotationController.h"
+#include "gui/QSettingsCached.h"
 #include <QSet>
+#include <algorithm>
 
 namespace {
 QSet<EditorInterface *> openEditors(MainWindow& current)
@@ -28,6 +30,30 @@ SourceInput editorInput(EditorInterface& editor)
 }
 
 namespace Selection {
+bool EvaluationBinding::inspectionRequested(EditorInterface *editor) const
+{
+  if (QSettingsCached().value("advanced/alwaysPrepareInspector", false).toBool()) return true;
+  return editor && std::any_of(inspectionRequests.begin(), inspectionRequests.end(),
+    [editor](const auto& entry) { return entry.second.editor == editor; });
+}
+bool EvaluationBinding::inspectionReady() const
+{
+  return retainedScene && retainedScene->inspectionPrepared && validate(installedStamp);
+}
+void EvaluationBinding::requestInspection(QObject *consumer, EditorInterface *editor)
+{
+  if (!consumer || !editor) return;
+  releaseInspection(consumer);
+  inspectionRequests.emplace(consumer, InspectionRequest{editor,
+    connect(consumer, &QObject::destroyed, this, [this, consumer] { releaseInspection(consumer); })});
+}
+void EvaluationBinding::releaseInspection(QObject *consumer)
+{
+  const auto found = inspectionRequests.find(consumer);
+  if (found == inspectionRequests.end()) return;
+  disconnect(found->second.destroyed);
+  inspectionRequests.erase(found);
+}
 EvaluationBinding::EvaluationBinding(MainWindow *window) : QObject(window), window(window)
 {
   if (auto app = qobject_cast<OpenSCADApp *>(QCoreApplication::instance()))

@@ -1047,6 +1047,7 @@ void MainWindow::compileEnded()
   clearCurrentOutput();
   GuiLocker::unlock();
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
+  emit evaluationBinding->evaluationFinished(activeEditor);
 #ifdef ENABLE_GUI_TESTS
   emit compilationDone(this->rootFile.get());
 #endif
@@ -1116,6 +1117,7 @@ void MainWindow::instantiateRoot()
     evaluationBacking->session = std::make_shared<EvaluationSession>(doc.parent_path().string());
     if (evaluationBacking->syntax)
       evaluationBacking->session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(evaluationBacking->syntax);
+    evaluationBacking->session->capturedInputs = evaluationInputs;
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(evaluationBacking->session.get())};
     evaluationBacking->builtin = *builtin_context;
     setRenderVariables(builtin_context);

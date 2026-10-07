@@ -26,6 +26,8 @@
 
 #include <algorithm>
 #include <boost/format.hpp>
+#include "core/Tree.h"
+#include "geometry/GeometryEvaluator.h"
 #include <cmath>
 #include <cstdint>
 #include <ctime>
@@ -547,6 +549,55 @@ static std::string builtin_object_unnamed(ObjectType& result, const Value& value
     set to the object being created. When we parse the parameters in Parameters
     we will skip the this when the context already has it.
 */
+Value builtin_geometry_bounds(Arguments arguments, const Location& loc)
+{
+  auto *session = arguments.session();
+  if (!check_arguments("geometry_bounds", arguments, loc, 1)) return Value::undefined.clone();
+  auto parameters = Parameters::parse(std::move(arguments), loc, {"shape"});
+  parameters.set_caller("geometry_bounds");
+  if (!parameters.valid_required("shape", Value::Type::GEOMETRY)) return Value::undefined.clone();
+  const auto& shape = parameters["shape"].toGeometry();
+  if (!shape->evaluationComplete) {
+    Tree tree(shape->root, shape->documentPath);
+    GeometryEvaluator evaluator(tree, false, true);
+    try {
+      shape->evaluated = evaluator.evaluateGeometry(*shape->root, true);
+      shape->evaluationComplete = true;
+    } catch (const GeometryEvaluator::InvalidGeometry& e) {
+      LOG(message_group::Warning, loc, parameters.documentRoot(), "geometry_bounds(): %1$s", e.what());
+      return Value::undef(e.what());
+    }
+    // Cancellation and evaluation-limit exceptions deliberately propagate to the caller.
+  }
+  if (!shape->evaluated || shape->evaluated->isEmpty()) {
+    LOG(message_group::Warning, loc, parameters.documentRoot(),
+        "geometry_bounds(): the captured shape is empty; no bounding box exists");
+    return Value::undef("geometry_bounds() requires non-empty geometry");
+  }
+  auto bounds = shape->evaluated->getBoundingBox();
+  if (bounds.isEmpty() || !bounds.min().allFinite() || !bounds.max().allFinite()) {
+    LOG(message_group::Warning, loc, parameters.documentRoot(), "geometry_bounds(): non-finite or invalid bounds");
+    return Value::undef("geometry_bounds() requires finite bounds");
+  }
+  if (shape->evaluated->getDimension() == 2) {
+    bounds.min().z() = 0;
+    bounds.max().z() = 0;
+  }
+  const Vector3d size = bounds.sizes();
+  const Vector3d center = bounds.min() * 0.5 + bounds.max() * 0.5;
+  if (!size.allFinite() || !center.allFinite()) {
+    LOG(message_group::Warning, loc, parameters.documentRoot(), "geometry_bounds(): bounds exceed numeric range");
+    return Value::undef("geometry_bounds() result exceeds numeric range");
+  }
+  ObjectType result(session);
+  const auto vector = [session](const Vector3d& v) { return Value(VectorType(session, v.x(), v.y(), v.z())); };
+  result.set("min", vector(bounds.min()));
+  result.set("max", vector(bounds.max()));
+  result.set("size", vector(size));
+  result.set("center", vector(center));
+  return result;
+}
+
 Value builtin_object(const std::shared_ptr<const Context>& context, const FunctionCall *call)
 {
   ObjectType result(context->session());
@@ -1352,6 +1403,9 @@ void register_builtin_functions()
                  {
                    "is_object(arg) -> boolean",
                  });
+
+  Builtins::init("geometry_bounds", new BuiltinFunction(&builtin_geometry_bounds, &Feature::ExperimentalObjectFunction),
+    {"geometry_bounds(shape)"});
 
   Builtins::init("object", new BuiltinFunction(&builtin_object, &Feature::ExperimentalObjectFunction),
                  {

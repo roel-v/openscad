@@ -63,8 +63,8 @@ class Geometry;
 class Polygon2d;
 class Tree;
 
-GeometryEvaluator::GeometryEvaluator(const Tree& tree, bool includeBackgroundRoot)
-  : tree(tree), includeBackgroundRoot(includeBackgroundRoot)
+GeometryEvaluator::GeometryEvaluator(const Tree& tree, bool includeBackgroundRoot, bool strictGeometry)
+  : tree(tree), includeBackgroundRoot(includeBackgroundRoot), strictGeometry(strictGeometry)
 {
 }
 
@@ -120,8 +120,8 @@ bool GeometryEvaluator::isValidDim(const Geometry::GeometryItem& item, unsigned 
   if (!item.first->modinst->isBackground() && item.second) {
     if (!dim) dim = item.second->getDimension();
     else if (dim != item.second->getDimension() && !item.second->isEmpty()) {
-      LOG(message_group::Warning, item.first->modinst->location(), this->tree.getDocumentPath(),
-          "Mixing 2D and 3D objects is not supported");
+      if (strictGeometry) throw InvalidGeometry("cannot mix 2D and 3D geometry in a bounds query");
+      LOG(message_group::Warning, item.first->modinst->location(), this->tree.getDocumentPath(), "Mixing 2D and 3D objects is not supported");
       return false;
     }
   }
@@ -319,9 +319,9 @@ std::vector<std::shared_ptr<const Polygon2d>> GeometryEvaluator::collectChildren
 
     if (chgeom) {
       if (chgeom->getDimension() == 3) {
-        LOG(message_group::Warning, item.first->modinst->location(), this->tree.getDocumentPath(),
-            "Ignoring 3D child object for 2D operation");
-        children.push_back(nullptr);  // replace 3D geometry with empty geometry
+        if (strictGeometry) throw InvalidGeometry("3D child in a 2D operation");
+        LOG(message_group::Warning, item.first->modinst->location(), this->tree.getDocumentPath(), "Ignoring 3D child object for 2D operation");
+        children.push_back(nullptr); // replace 3D geometry with empty geometry
       } else {
         if (chgeom->isEmpty()) {
           children.push_back(nullptr);
@@ -346,7 +346,7 @@ std::vector<std::shared_ptr<const Polygon2d>> GeometryEvaluator::collectChildren
 void GeometryEvaluator::smartCacheInsert(const AbstractNode& node,
                                          const std::shared_ptr<const Geometry>& geom)
 {
-  const std::string& key = this->tree.getIdString(node);
+  const std::string key = (strictGeometry ? "geometry_bounds:" : "") + this->tree.getIdString(node);
 
   if (CGALCache::acceptsGeometry(geom)) {
     if (!CGALCache::instance()->contains(key)) {
@@ -367,14 +367,14 @@ void GeometryEvaluator::smartCacheInsert(const AbstractNode& node,
 
 bool GeometryEvaluator::isSmartCached(const AbstractNode& node)
 {
-  const std::string& key = this->tree.getIdString(node);
+  const std::string key = (strictGeometry ? "geometry_bounds:" : "") + this->tree.getIdString(node);
   return GeometryCache::instance()->contains(key) || CGALCache::instance()->contains(key);
 }
 
 std::shared_ptr<const Geometry> GeometryEvaluator::smartCacheGet(const AbstractNode& node,
                                                                  bool preferNef)
 {
-  const std::string& key = this->tree.getIdString(node);
+  const std::string key = (strictGeometry ? "geometry_bounds:" : "") + this->tree.getIdString(node);
   const bool hasgeom = GeometryCache::instance()->contains(key);
   const bool hascgal = CGALCache::instance()->contains(key);
   if (hascgal && (preferNef || !hasgeom)) return CGALCache::instance()->get(key);
@@ -401,10 +401,9 @@ Geometry::Geometries GeometryEvaluator::collectChildren3D(const AbstractNode& no
     smartCacheInsert(*chnode, chgeom);
 
     if (chgeom && chgeom->getDimension() == 2) {
-      LOG(message_group::Warning, item.first->modinst->location(), this->tree.getDocumentPath(),
-          "Ignoring 2D child object for 3D operation");
-      children.push_back(
-        std::make_pair(item.first, nullptr));  // replace 2D geometry with empty geometry
+      if (strictGeometry) throw InvalidGeometry("2D child in a 3D operation");
+      LOG(message_group::Warning, item.first->modinst->location(), this->tree.getDocumentPath(), "Ignoring 2D child object for 3D operation");
+      children.push_back(std::make_pair(item.first, nullptr)); // replace 2D geometry with empty geometry
     } else {
       // Add children if geometry is 3D OR null/empty
       children.push_back(item);
@@ -744,8 +743,8 @@ Response GeometryEvaluator::visit(State& state, const TransformNode& node)
     if (!isSmartCached(node)) {
       if (matrix_contains_infinity(node.matrix) || matrix_contains_nan(node.matrix)) {
         // due to the way parse/eval works we can't currently distinguish between NaN and Inf
-        LOG(message_group::Warning, node.modinst->location(), this->tree.getDocumentPath(),
-            "Transformation matrix contains Not-a-Number and/or Infinity - removing object.");
+        if (strictGeometry) throw InvalidGeometry("non-finite transform in captured geometry");
+        LOG(message_group::Warning, node.modinst->location(), this->tree.getDocumentPath(), "Transformation matrix contains Not-a-Number and/or Infinity - removing object.");
       } else {
         // First union all children
         ResultObject res = applyToChildren(node, OpenSCADOperator::UNION);

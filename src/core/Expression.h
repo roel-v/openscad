@@ -29,6 +29,15 @@ public:
   virtual void collectDependencies(std::set<std::string>& deps) const {}
 };
 
+class GeometryLiteral : public Expression
+{
+public:
+  explicit GeometryLiteral(const Location& loc);
+  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
+  std::shared_ptr<class ModuleInstantiation> body;
+};
+
 class UnaryOp : public Expression
 {
   friend class AgentSyntaxBuilder;

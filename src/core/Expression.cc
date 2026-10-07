@@ -40,6 +40,9 @@
 #include <typeinfo>
 #include <utility>
 #include <variant>
+#include "core/ScopeContext.h"
+#include "core/CsgOpNode.h"
+#include "core/ModuleInstantiation.h"
 
 #include "Feature.h"
 #include "core/AST.h"
@@ -68,8 +71,31 @@ bool Expression::isLiteral() const
   return false;
 }
 
-UnaryOp::UnaryOp(UnaryOp::Op op, Expression *expr, const Location& loc)
-  : Expression(loc), op(op), expr(expr)
+GeometryLiteral::GeometryLiteral(const Location& loc) :
+  Expression(loc), body(std::make_shared<ModuleInstantiation>("geometry", AssignmentList{}, loc))
+{
+}
+
+Value GeometryLiteral::evaluate(const std::shared_ptr<const Context>& context) const
+{
+  auto captured = std::make_shared<GeometryValue>();
+  captured->literal = body;
+  captured->documentPath = context->documentRoot();
+  auto scope = Context::create<ScopeContext>(context, &body->scope);
+  // An explicit union evaluates all literal children even when lazy-union is enabled.
+  captured->root = body->scope.instantiateModules(*scope,
+    std::make_shared<CsgOpNode>(body.get(), OpenSCADOperator::UNION));
+  return captured;
+}
+
+void GeometryLiteral::print(std::ostream& stream, const std::string& indent) const
+{
+  stream << "{{\n";
+  body->scope.print(stream, indent + "  ");
+  stream << indent << "}}";
+}
+
+UnaryOp::UnaryOp(UnaryOp::Op op, Expression *expr, const Location& loc) : Expression(loc), op(op), expr(expr)
 {
 }
 

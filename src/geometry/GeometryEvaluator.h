@@ -12,6 +12,7 @@
 #include "core/node.h"
 #include "geometry/Geometry.h"
 #include "geometry/linalg.h"
+#include <stdexcept>
 
 class CGALNefGeometry;
 class Polygon2d;
@@ -23,7 +24,12 @@ class Tree;
 class GeometryEvaluator : public NodeVisitor
 {
 public:
-  GeometryEvaluator(const Tree& tree, bool includeBackgroundRoot = false);
+  // Strict callers must not reuse cached results that silently discarded invalid operands.
+  GeometryEvaluator(const Tree& tree, bool includeBackgroundRoot = false, bool strictGeometry = false);
+  class InvalidGeometry : public std::runtime_error {
+  public:
+    using std::runtime_error::runtime_error;
+  };
 
   std::shared_ptr<const Geometry> evaluateGeometry(const AbstractNode& node, bool allownef);
 
@@ -129,6 +135,7 @@ private:
   std::map<int, Geometry::Geometries> visitedchildren;
   const Tree& tree;
   bool includeBackgroundRoot;
+  bool strictGeometry;
   std::shared_ptr<const Geometry> root;
 
 public:

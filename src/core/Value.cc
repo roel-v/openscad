@@ -229,7 +229,8 @@ Value Value::clone() const
   case Type::VECTOR:    return std::get<VectorType>(this->value).clone();
   case Type::OBJECT:    return std::get<ObjectType>(this->value).clone();
   case Type::FUNCTION:  return std::get<FunctionPtr>(this->value).clone();
-  default:              assert(false && "unknown Value variant type"); return {};
+  case Type::GEOMETRY:  return std::get<GeometryPtr>(this->value);
+  default: assert(false && "unknown Value variant type"); return {};
   }
 }
 
@@ -249,7 +250,8 @@ std::string Value::typeName(Type type)
   case Type::RANGE:     return "range";
   case Type::OBJECT:    return "object";
   case Type::FUNCTION:  return "function";
-  default:              assert(false && "unknown Value variant type"); return "<unknown>";
+  case Type::GEOMETRY:  return "geometry";
+  default: assert(false && "unknown Value variant type"); return "<unknown>";
   }
 }
 
@@ -291,6 +293,7 @@ std::string getTypeName(const FunctionPtr&)
 {
   return "function";
 }
+std::string getTypeName(const GeometryPtr&) { return "geometry"; }
 
 bool Value::toBool() const
 {
@@ -304,7 +307,8 @@ bool Value::toBool() const
   case Type::RANGE:     return true;
   case Type::OBJECT:    return !std::get<ObjectType>(this->value).empty();
   case Type::FUNCTION:  return true;
-  default:              assert(false && "unknown Value variant type"); return false;
+  case Type::GEOMETRY:  return true;
+  default: assert(false && "unknown Value variant type"); return false;
   }
   // NOLINTEND(bugprone-branch-clone)
 }
@@ -380,6 +384,7 @@ const str_utf8_wrapper& Value::toStrUtf8Wrapper() const
 class tostream_visitor
 {
 public:
+  void operator()(const GeometryPtr&) const { stream << "<geometry>"; }
   std::ostringstream& stream;
   mutable char buffer[DC_BUFFER_SIZE];
   mutable double_conversion::StringBuilder builder;
@@ -446,9 +451,8 @@ public:
 class tostring_visitor
 {
 public:
-  template <typename T>
-  std::string operator()(const T& op1) const
-  {
+  std::string operator()(const GeometryPtr&) const { return "<geometry>"; }
+  template <typename T> std::string operator()(const T& op1) const {
     assert(false && "unhandled tostring_visitor type");
     return STR(op1);
   }

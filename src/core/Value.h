@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "core/FunctionType.h"
+#include "core/GeometryValue.h"
 #include "core/RangeType.h"
 #include "core/UndefType.h"
 #include "core/str_utf8_wrapper.h"
@@ -78,7 +79,18 @@ using FunctionPtr = ValuePtr<FunctionType>;
 class Value
 {
 public:
-  enum class Type { UNDEFINED, BOOL, NUMBER, STRING, VECTOR, EMBEDDED_VECTOR, RANGE, FUNCTION, OBJECT };
+  enum class Type {
+    UNDEFINED,
+    BOOL,
+    NUMBER,
+    STRING,
+    VECTOR,
+    EMBEDDED_VECTOR,
+    RANGE,
+    FUNCTION,
+    OBJECT,
+    GEOMETRY
+  };
   // FIXME: eventually remove this in favor of specific messages for each undef usage
   static const Value undefined;
 
@@ -367,6 +379,7 @@ public:
   [[nodiscard]] const RangeType& toRange() const;
   [[nodiscard]] const FunctionType& toFunction() const;
   [[nodiscard]] const ObjectType& toObject() const;
+  [[nodiscard]] const GeometryPtr& toGeometry() const { return std::get<GeometryPtr>(value); }
 
   // Other conversion utility functions
   bool getDouble(double& v) const;
@@ -415,8 +428,7 @@ public:
     return stream;
   }
 
-  using Variant = std::variant<UndefType, bool, double, str_utf8_wrapper, VectorType, EmbeddedVectorType,
-                               RangePtr, FunctionPtr, ObjectType>;
+  using Variant = std::variant<UndefType, bool, double, str_utf8_wrapper, VectorType, EmbeddedVectorType, RangePtr, FunctionPtr, ObjectType, GeometryPtr>;
 
   static_assert(sizeof(Value::Variant) <= 24, "Memory size of Value too big");
   [[nodiscard]] const Variant& getVariant() const { return value; }

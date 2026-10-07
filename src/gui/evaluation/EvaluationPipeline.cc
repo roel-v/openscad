@@ -192,6 +192,7 @@ void evaluate(const Request& request, Result& result, Job& job)
     backing.session = std::make_shared<EvaluationSession>(directory);
     if (backing.syntax)
       backing.session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(backing.syntax);
+    backing.session->capturedInputs = backing.inputs;
     ContextHandle<BuiltinContext> builtin{Context::create<BuiltinContext>(backing.session.get())};
     backing.builtin = *builtin;
     request.variables.applyToContext(builtin);

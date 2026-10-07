@@ -652,7 +652,7 @@ geometry_start
         : '{' '{'
             {
               $$ = new GeometryLiteral(LOCD("geometry", @$));
-              scope_stack.push(&$$->body->scope);
+              scope_stack.push($$->body->scope);
             }
         ;
 

@@ -81,9 +81,9 @@ Value GeometryLiteral::evaluate(const std::shared_ptr<const Context>& context) c
   auto captured = std::make_shared<GeometryValue>();
   captured->literal = body;
   captured->documentPath = context->documentRoot();
-  auto scope = Context::create<ScopeContext>(context, &body->scope);
+  auto scope = Context::create<ScopeContext>(context, body->scope);
   // An explicit union evaluates all literal children even when lazy-union is enabled.
-  captured->root = body->scope.instantiateModules(*scope,
+  captured->root = body->scope->instantiateModules(*scope,
     std::make_shared<CsgOpNode>(body.get(), OpenSCADOperator::UNION));
   return captured;
 }
@@ -91,7 +91,7 @@ Value GeometryLiteral::evaluate(const std::shared_ptr<const Context>& context) c
 void GeometryLiteral::print(std::ostream& stream, const std::string& indent) const
 {
   stream << "{{\n";
-  body->scope.print(stream, indent + "  ");
+  body->scope->print(stream, indent + "  ");
   stream << indent << "}}";
 }
 

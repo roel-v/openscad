@@ -2,6 +2,7 @@
 #include "gui/evaluation/EvaluationService.h"
 #include "gui/evaluation/EvaluationPipeline.h"
 #include "gui/evaluation/EvaluationController.h"
+#include "gui/annotations/AnnotationController.h"
 #include "gui/QGLView.h"
 #include <QFile>
 #include <QTemporaryDir>
@@ -239,6 +240,10 @@ void TestBackgroundEvaluation::obsoleteQueuedPreviewRetainsLastDisplay()
   QTRY_VERIFY(started->load());
   completed.clear();
   window->on_designActionPreview_triggered();
+  // Queued background work must also block strict annotation/capture actions.
+  QVERIFY(window->backgroundEvaluation->busy());
+  QVERIFY(window->annotationController->busy());
+  QVERIFY(window->annotationController->status().value("busy_reasons").toArray().contains("background_evaluation"));
   editor->setPlainText("cube(3);\n");
   release.value->store(true);
   QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 10000);
@@ -271,6 +276,7 @@ void TestBackgroundEvaluation::failedPreviewRetainsLastDisplay()
   editor->setPlainText("cube(;\n");
   window->on_designActionPreview_triggered();
   QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty(), 10000);
+  QCOMPARE(window->lastCompiledDoc, QString("cube(;\n"));
   QCOMPARE(window->qglview->renderer, renderer);
   QCOMPARE(window->evaluatedScene, scene);
   QVERIFY(!window->evaluationBinding->current());

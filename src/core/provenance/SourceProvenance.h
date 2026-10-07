@@ -14,13 +14,22 @@ class Assignment;
 class EvaluationInputs;
 class Location;
 class CSGNode;
+class SourceFile;
 struct SourceInput;
 
 namespace SourceProvenance {
+// Consumers register predicates at startup. Called after dependencies are parsed,
+// inside the native evaluation scope; predicates must not evaluate model code.
+using ModelRequirement = bool (*)(const SourceFile&);
+bool registerModelRequirement(ModelRequirement requirement);
+bool modelRequiresInspection(const SourceFile& root);
 // Every range refers to exact captured UTF-8, with an exclusive end.
 struct Span {
   std::string fileKey, fingerprint;
   uint64_t begin = 0, end = 0;
+  bool operator==(const Span& other) const {
+    return fileKey == other.fileKey && fingerprint == other.fingerprint && begin == other.begin && end == other.end;
+  }
 };
 struct SyntaxKey {
   std::string fileKey;
@@ -39,6 +48,10 @@ struct Argument {
   std::optional<Span> nameSpan;
   std::string originalExpression;
   bool hasExpression = true;
+  bool operator==(const Argument& other) const {
+    return name == other.name && position == other.position && whole == other.whole && expression == other.expression &&
+      nameSpan == other.nameSpan && originalExpression == other.originalExpression && hasExpression == other.hasExpression;
+  }
 };
 enum class SiteKind { ModuleCall, ModuleDefinition, FunctionDefinition, Assignment };
 struct Site {
@@ -49,6 +62,10 @@ struct Site {
   SiteKind kind = SiteKind::ModuleCall;
   std::optional<Span> head;
   bool wholeComplete = true;
+  bool operator==(const Site& other) const {
+    return syntax == other.syntax && whole == other.whole && callable == other.callable && arguments == other.arguments &&
+      kind == other.kind && head == other.head && wholeComplete == other.wholeComplete;
+  }
 };
 struct InstanceSegment { SyntaxKey call; uint64_t invocation = 0; };
 struct Instance {
@@ -69,7 +86,9 @@ struct Mapping {
   int boundaryPolarity = 1;
 };
 
-// Mutable only during native parsing. Publication uses a const copy; no AST pointers escape.
+// Mutable only during native parsing. Published copies share immutable per-file records;
+// parser writes overlay individual sites, then discard identical completed writes.
+// No AST pointers escape, and reuse never chains earlier table generations.
 class SyntaxTable {
 public:
   explicit SyntaxTable(std::shared_ptr<const EvaluationInputs> inputs);
@@ -81,7 +100,9 @@ public:
   void updateWhole(const ASTNode& node, const Location& whole);
   const Site *site(SyntaxKey key) const;
   const Site *site(const ASTNode& node) const;
-  const std::map<SyntaxKey, Site>& sites() const { return records; }
+  const std::map<SyntaxKey, Site>& sites() const;
+  // The caller has verified the complete previous parse input and lookup context.
+  std::shared_ptr<SyntaxTable> reuseForParse(std::shared_ptr<const EvaluationInputs> inputs) const;
   std::shared_ptr<const EvaluationInputs> inputs() const { return capturedInputs; }
 private:
   friend class ProvenanceCollector;
@@ -92,7 +113,11 @@ private:
   // Per-snapshot identities, never shared between evaluations. Sealed copies only read this map.
   mutable std::map<std::string, std::string> resolvedPaths;
   std::string fileKey(const std::filesystem::path& path) const;
-  std::map<SyntaxKey, Site> records;
+  using Records = std::map<SyntaxKey, Site>;
+  std::map<std::string, std::shared_ptr<Records>> records;
+  Records overrides;
+  mutable std::shared_ptr<const Records> allRecords;
+  void store(Site site);
   std::map<std::string, uint64_t> ordinals;
   mutable std::map<std::string, std::vector<uint64_t>> lineStarts;
   const SourceInput *source(const Location& location) const;

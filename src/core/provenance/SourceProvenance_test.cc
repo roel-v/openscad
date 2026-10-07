@@ -240,6 +240,72 @@ TEST_CASE("Provenance Unicode identifier spans preserve the lexer spelling", "[s
   REQUIRE(cube[0]->arguments[0].originalExpression == name + " / 2");
 }
 
+TEST_CASE("Published syntax shares records without accepting subsequent parser mutations", "[source-provenance]") {
+  ProvenanceFixture fixture;
+  REQUIRE(fixture.parseText("cube(1);"));
+  fixture.evaluate();
+  const auto& published=fixture.result->syntaxTable();
+  auto& call=*fixture.parsed->scope->moduleInstantiations.front();
+  const auto originalKey=published.site(call)->syntax;
+  const auto originalWhole=published.site(originalKey)->whole;
+  fixture.syntax->updateWhole(call,Location::NONE);
+  REQUIRE(published.site(originalKey)->wholeComplete);
+  REQUIRE(published.site(originalKey)->whole.begin==originalWhole.begin);
+  fixture.syntax->record(call,SourceProvenance::SiteKind::ModuleCall,"later-parser-work");
+  REQUIRE(fixture.syntax->sites().size()==2);
+  REQUIRE(published.sites().size()==1);
+  REQUIRE(published.site(originalKey)->callable=="cube");
+  REQUIRE_FALSE(fixture.syntax->site(originalKey)->wholeComplete);
+}
+
+TEST_CASE("Unchanged reparsing shares completed syntax including nested includes", "[source-provenance]") {
+  ProvenanceFixture fixture;
+  fixture.write("nested/shared.scad", "size=2; function twice(x)=2*x; module part(s){translate([0,0,1]) cube(s);}");
+  const std::string text="include <nested/shared.scad> part(twice(size));";
+  REQUIRE(fixture.parseText(text));
+  fixture.evaluate();
+  const auto& published=fixture.result->syntaxTable();
+  const auto expected=published.sites();
+  for (int iteration=0; iteration<3; ++iteration) {
+    auto reused=fixture.syntax->reuseForParse(fixture.inputs);
+    SourceFileCache cache(fixture.inputs.get());
+    cache.seedCapturedLibraries(*fixture.cache);
+    NativeEvaluationScope native(*fixture.inputs,cache);
+    SourceProvenance::ParseScope recording(reused.get());
+    SourceFile *parsed=nullptr;
+    const bool success=parse(parsed,text,fixture.root.string(),fixture.root.string(),false);
+    const std::unique_ptr<SourceFile> owner(parsed);
+    REQUIRE(success);
+    REQUIRE(reused->sites()==expected);
+    for (const auto& [key,value]:expected) {
+      // Pointer identity proves that reparsing did not clone these immutable records.
+      REQUIRE(reused->site(key)==published.site(key));
+    }
+  }
+}
+
+TEST_CASE("Provisional syntax overlays preserve published versions and collapse on completion", "[source-provenance]") {
+  ProvenanceFixture fixture; REQUIRE(fixture.parseText("cube(1);")); fixture.evaluate();
+  auto& call=*fixture.parsed->scope->moduleInstantiations.front();
+  const auto original=fixture.result->syntaxTable().site(call);
+  REQUIRE(original);
+  auto replay=fixture.syntax->reuseForParse(fixture.inputs);
+  replay->record(call,SourceProvenance::SiteKind::ModuleCall,"cube",call.arguments);
+  REQUIRE_FALSE(replay->site(original->syntax)->wholeComplete);
+  REQUIRE(original->wholeComplete);
+  SourceProvenance::ProvenanceCollector collector(replay);
+  const auto pending=collector.finish(*fixture.treeRoot);
+  REQUIRE_FALSE(pending->syntax(original->syntax)->wholeComplete);
+  replay->updateWhole(call,Location(1,1,1,9,std::make_shared<std::filesystem::path>(fixture.root)));
+  REQUIRE(replay->site(original->syntax)==original);
+  REQUIRE(replay->sites()==fixture.result->syntaxTable().sites());
+  REQUIRE_FALSE(pending->syntax(original->syntax)->wholeComplete);
+  replay->updateWhole(call,Location::NONE);
+  REQUIRE_FALSE(replay->site(original->syntax)->wholeComplete);
+  REQUIRE(original->wholeComplete);
+  REQUIRE_FALSE(replay->sites().at(original->syntax).wholeComplete);
+}
+
 TEST_CASE("Provenance native parsing remains independent of HTTP inspection token limits", "[source-provenance]") {
   ProvenanceFixture fixture;
   std::string text;

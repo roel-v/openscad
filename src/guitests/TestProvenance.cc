@@ -3,13 +3,20 @@
 #include "gui/selection/EvaluationBinding.h"
 #include "gui/selection/SelectionService.h"
 #include "gui/selection/InspectorDock.h"
+#include "gui/selection/ViewportToolRouter.h"
+#include "gui/QSettingsCached.h"
 #include "gui/ScintillaEditor.h"
 #include "gui/CameraNavigation.h"
 #include "gui/QGLView.h"
 #include "glview/RenderSettings.h"
+#include "core/SourceFileCache.h"
+#include "core/parsersettings.h"
+#include "core/provenance/SourceProvenance.h"
+#include <filesystem>
 #include <QTest>
 #include <QSignalSpy>
 #include <QFile>
+#include <QDir>
 #include <QTemporaryDir>
 #include <QLabel>
 #include <QComboBox>
@@ -51,6 +58,8 @@ void TestProvenance::initTestCase() {
   QTRY_VERIFY(window->qglview->isValid());
 }
 void TestProvenance::init() {
+  previousInspectorPreference = QSettingsCached().value("advanced/alwaysPrepareInspector");
+  QSettingsCached().setValue("advanced/alwaysPrepareInspector", true);
   for (auto editor : window->tabManager->editorList) editor->setContentModified(false);
   QTimer discard; discardDialogs(discard); restoreWindowInitialState();
   window->show(); window->raise(); window->activateWindow();
@@ -62,6 +71,8 @@ void TestProvenance::init() {
   window->viewActionPreview->setChecked(true);
 }
 void TestProvenance::cleanup() {
+  if (previousInspectorPreference.isValid()) QSettingsCached().setValue("advanced/alwaysPrepareInspector", previousInspectorPreference);
+  else QSettingsCached().remove("advanced/alwaysPrepareInspector");
   RenderSettings::inst()->backend3D = static_cast<RenderBackend3D>(previousBackend);
   for (auto editor : window->tabManager->editorList) {
     if (auto scintilla = qobject_cast<ScintillaEditor *>(editor)) scintilla->qsci->setReadOnly(false);
@@ -76,6 +87,59 @@ bool TestProvenance::compile(const QString& source, bool final) {
   if (final) window->designActionRender->trigger(); else window->actionRenderPreview();
   if (completed.empty() && !completed.wait(15000)) return false;
   return window->evaluationBinding->current();
+}
+void TestProvenance::inspectionOnDemand() {
+  QSettingsCached().setValue("advanced/alwaysPrepareInspector", false);
+  QTemporaryDir directory; QVERIFY(directory.isValid());
+  const auto library = directory.path()+"/inspection-library.scad";
+  QVERIFY(write(library,"module inspection_part(){cube(10,center=true);}"));
+  const QString source="use <"+library+">\ninspection_part();";
+  QVERIFY(compile(source));
+  auto binding=window->evaluationBinding;
+  auto lean=binding->scene(binding->stamp());
+  QVERIFY(lean); QVERIFY(!lean->provenance); QVERIFY(!lean->backing->syntax);
+  QVERIFY(!binding->inspectionReady());
+  const auto leanId=binding->stamp().resultId;
+  window->inspectorDock->beginSelection();
+  QTRY_VERIFY_WITH_TIMEOUT(binding->inspectionReady(),15000);
+  QTRY_VERIFY(window->viewportTools->active()!=0);
+  QVERIFY(binding->stamp().resultId!=leanId);
+  auto prepared=binding->scene(binding->stamp());
+  QVERIFY(prepared->provenance); QVERIFY(prepared->backing->syntax);
+  QVERIFY(!prepared->backing->syntax->sites().empty());
+  QVERIFY(!lean->provenance); // Publication never mutates an older lean result.
+  const auto hit=pick({0,-5,0}); QVERIFY(hit);
+  const auto resolved=ProvenanceService::forWindow(window)->resolve(*hit);
+  QVERIFY(ancestor(resolved,"inspection_part")); // Libraries were reparsed too.
+  window->inspectorDock->hide();
+  QVERIFY(!binding->inspectionRequested(window->activeEditor));
+  const auto preparedId=binding->stamp().resultId;
+  window->inspectorDock->beginSelection();
+  QCOMPARE(binding->stamp().resultId,preparedId); // Reopening reuses current data.
+  QVERIFY(window->viewportTools->active()!=0);
+  window->inspectorDock->hide();
+  QVERIFY(compile(source));
+  QVERIFY(!binding->inspectionReady());
+  QVERIFY(!binding->scene(binding->stamp())->provenance);
+  QVERIFY(prepared->provenance); // Lean evaluation does not invalidate retained ownership.
+  QSettingsCached().setValue("advanced/alwaysPrepareInspector",true);
+  QVERIFY(compile(source));
+  QVERIFY(binding->inspectionReady());
+}
+void TestProvenance::inspectionPreparationFailure() {
+  QSettingsCached().setValue("advanced/alwaysPrepareInspector",false);
+  QVERIFY(compile("cube(2);"));
+  window->activeEditor->setPlainText("cube(");
+  window->inspectorDock->beginSelection();
+  QTRY_VERIFY_WITH_TIMEOUT(!window->evaluationBinding->inspectionRequested(window->activeEditor),15000);
+  QVERIFY(!window->viewportTools->active());
+  QVERIFY(!window->evaluationBinding->inspectionReady());
+  auto feedback=window->inspectorDock->findChild<QLabel *>("selectionFeedback"); QVERIFY(feedback);
+  QVERIFY(feedback->text().contains("did not complete"));
+  window->activeEditor->setPlainText("cube(3);");
+  window->inspectorDock->beginSelection();
+  QTRY_VERIFY_WITH_TIMEOUT(window->evaluationBinding->inspectionReady(),15000);
+  window->inspectorDock->hide();
 }
 std::optional<Selection::Hit> TestProvenance::pick(const Vector3d& point) {
   auto view = window->qglview;
@@ -214,4 +278,69 @@ void TestProvenance::closedSource() {
   editor->setContentModified(false); window->tabManager->closeCurrentTab(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
   QVERIFY(!editor); QVERIFY(!target->editor); QVERIFY(!service->validateTarget(*target));
   QCOMPARE(service->resolve(*hit).mapping.confidence,Confidence::Stale); QVERIFY(!service->navigate(resolved,instance->id,NavigationSite::Call));
+}
+
+void TestProvenance::cachedLibrariesAndSourceVersions() {
+  QTemporaryDir directory; QVERIFY(directory.isValid());
+  const auto root = directory.filePath("root.scad"), library = directory.filePath("library.scad");
+  const auto dimensions = directory.filePath("dimensions.scad");
+  QVERIFY(write(root, "use <library.scad> part();"));
+  QVERIFY(write(library, "include <dimensions.scad> module part(){cube(n,center=true);}"));
+  QVERIFY(write(dimensions, "n=10;"));
+  window->tabManager->open(root);
+  QVERIFY(compile(window->activeEditor->toPlainText()));
+  auto original = window->evaluatedScene;
+  auto scope = window->evaluationBacking->libraries->lookup(library.toStdString())->scope;
+  const auto originalCSG = window->tree.getString(*window->rootNode, "  ");
+  const auto syntaxCount = original->provenance->syntaxTable().sites().size();
+  for (int i=0; i<3; ++i) {
+    window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+    QCOMPARE(window->evaluationBacking->libraries->lookup(library.toStdString())->scope.get(), scope.get());
+    QCOMPARE(window->tree.getString(*window->rootNode, "  "), originalCSG);
+    QCOMPARE(window->evaluatedScene->provenance->syntaxTable().sites().size(), syntaxCount);
+    auto hit=pick({0,-5,0}); QVERIFY(hit);
+    auto resolved=ProvenanceService::forWindow(window)->resolve(*hit);
+    const auto instance=ancestor(resolved,"part"); QVERIFY(instance && instance->definition);
+    QCOMPARE(QString::fromStdString(instance->definition->whole.fileKey), QString::fromStdString(EvaluationInputs::fileKey(library.toStdString())));
+  }
+  // Same size and timestamp, different bytes: mtime-only cache reuse is invalid.
+  const auto stamp=std::filesystem::last_write_time(dimensions.toStdString());
+  QVERIFY(write(dimensions,"n=12;"));
+  std::filesystem::last_write_time(dimensions.toStdString(),stamp);
+  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  QVERIFY(window->evaluationBacking->libraries->lookup(library.toStdString())->scope.get()!=scope.get());
+  QVERIFY(window->tree.getString(*window->rootNode,"  ")!=originalCSG);
+  QCOMPARE(original->provenance->syntaxTable().sites().size(),syntaxCount);
+  QCOMPARE(original->inputs->consumed().at(EvaluationInputs::fileKey(dimensions.toStdString())).utf8,std::string("n=10;"));
+
+  window->tabManager->open(dimensions); auto dimensionEditor=window->activeEditor;
+  dimensionEditor->setPlainText("n=14;");
+  window->tabManager->open(root);
+  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  const auto dirtyCSG=window->tree.getString(*window->rootNode,"  ");
+  auto dirtyScope=window->evaluationBacking->libraries->lookup(library.toStdString())->scope;
+  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  QCOMPARE(window->evaluationBacking->libraries->lookup(library.toStdString())->scope.get(),dirtyScope.get());
+  dimensionEditor->setPlainText("n=16;");
+  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  QVERIFY(window->tree.getString(*window->rootNode,"  ")!=dirtyCSG);
+  QCOMPARE(EvaluationInputs::diskBytes(dimensions.toStdString()),std::string("n=12;"));
+}
+
+void TestProvenance::cachedLookupShadowing() {
+  QTemporaryDir directory; QVERIFY(directory.isValid());
+  QVERIFY(QDir(directory.path()).mkdir("libraries"));
+  const auto root=directory.filePath("root.scad"), remote=directory.filePath("libraries/shared.scad");
+  QVERIFY(write(root,"use <shared.scad> part();"));
+  QVERIFY(write(remote,"module part(){cube(10,center=true);}"));
+  const auto paths=get_library_path();
+  auto restore=sg::make_scope_guard([&]() noexcept {set_library_path(paths);});
+  auto altered=paths; altered.insert(altered.begin(),directory.filePath("libraries").toStdString());
+  set_library_path(altered);
+  window->tabManager->open(root); QVERIFY(compile(window->activeEditor->toPlainText()));
+  const auto before=window->tree.getString(*window->rootNode,"  ");
+  QVERIFY(write(directory.filePath("shared.scad"),"module part(){sphere(5);}"));
+  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  QVERIFY(window->tree.getString(*window->rootNode,"  ")!=before);
+  QVERIFY(window->evaluationBacking->libraries->lookup(directory.filePath("shared.scad").toStdString()));
 }

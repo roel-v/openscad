@@ -42,6 +42,18 @@ void SourceFileCache::seedCaptured(const std::string& key, const SourceFile& fil
   entries.emplace(key, std::move(entry));
   clone.release();
 }
+void SourceFileCache::seedCapturedLibraries(const SourceFileCache& previous) {
+  if (!inputs || !previous.inputs) throw EvaluationInputError("Library reuse requires captured caches");
+  for (const auto& [key, input] : previous.inputs->consumed()) {
+    const auto current = inputs->consumed().find(key);
+    if (current == inputs->consumed().end() || current->second.fingerprint != input.fingerprint)
+      throw EvaluationInputError("Library reuse requires the same captured parse closure: " + key);
+  }
+  for (const auto& [key, entry] : previous.entries) {
+    if (!entry.file) throw EvaluationInputError("Cannot reuse a failed library parse");
+    seedCaptured(key, *entry.file);
+  }
+}
 
 /*!
    Reprocess the given file and all its dependencies and reparse anything

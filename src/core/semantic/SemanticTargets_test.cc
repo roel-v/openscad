@@ -37,11 +37,17 @@ TEST_CASE("Semantic references reject malformed roles fields paths and collision
   Fixture collision; collision.evaluate(SemanticTest::part + "@{type:Part,id:\"bracket\"} module other(){}"); Semantic::Targets invalid("result",collision.scene,{});
   REQUIRE((invalid.resolve(Semantic::targetToken({Semantic::TargetRole::Definition,"bracket"}),"result").state == Design::ResolutionState::Invalid));
 }
-TEST_CASE("Semantic nonrigid frames remain affine and Section consumers reject them", "[semantic-targets][design-references]") {
-  Fixture fixture; fixture.evaluate(SemanticTest::part + "scale([2,3,4]) @{type:Component,id:\"a\"} bracket(); @{type:Section} s={id:\"section\",origin:[0,0,0],normal:[0,0,1],target:{domain:\"semantic\",id:\"/a\",data:{role:\"instance\"}},frame:{domain:\"semantic\",id:\"/a\",data:{role:\"instance\"}}};"); REQUIRE(fixture.scene->valid());
+TEST_CASE("Semantic nonrigid frames remain affine and cross sections stay in world space", "[semantic-targets][design-references]") {
+  Fixture fixture; fixture.evaluate(SemanticTest::part + "scale([2,3,4]) @{type:Component,id:\"a\"} bracket(); @{type:Section} s={id:\"section\",origin:[1,2,3],normal:[0,0,1]};"); REQUIRE(fixture.scene->valid());
   auto targets=std::make_shared<Semantic::Targets>("affine",fixture.scene,std::function<void(Semantic::TargetKey)>{}); auto ready=std::make_shared<Semantic::PreparedTarget>(Semantic::prepareTarget(fixture.scene,{Semantic::TargetRole::Instance,"/a"},"affine",fixture.directory.string())); REQUIRE(targets->install(ready)); Semantic::publishTargets(targets);
   auto records=fixture.session->designCollector->finish()->records; Design::ResolveContext context{"affine","inputs","config",BoundingBox(),records,{}};
-  auto frame=Design::sectionFrame(*records.at("section"),context); INFO(frame.diagnostic); REQUIRE((frame.state == Design::ResolutionState::Invalid)); REQUIRE(frame.diagnostic.find("rigid") != std::string::npos); Semantic::removeTargets("affine");
+  auto target=Design::resolve(Semantic::targetToken({Semantic::TargetRole::Instance,"/a"}),context);
+  REQUIRE((target.state == Design::ResolutionState::Resolved)); REQUIRE(target.frame);
+  REQUIRE(target.frame->linear().isApprox(Vector3d(2,3,4).asDiagonal().toDenseMatrix()));
+  auto frame=Design::sectionFrame(*records.at("section"),context); INFO(frame.diagnostic);
+  REQUIRE((frame.state == Design::ResolutionState::Resolved)); REQUIRE(frame.frame);
+  REQUIRE(frame.frame->translation().isApprox(Vector3d(1,2,3))); REQUIRE(frame.frame->linear().isIdentity());
+  Semantic::removeTargets("affine");
 }
 TEST_CASE("Semantic cancelled target preparation cannot install an apparently ready target", "[semantic-targets]") {
   Fixture fixture; fixture.evaluate(SemanticTest::pair);

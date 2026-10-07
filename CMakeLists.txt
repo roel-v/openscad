@@ -1778,6 +1778,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestSemanticHierarchy.h
     src/guitests/TestAnchors.h
     src/guitests/TestContextualInsertion.h
+    src/guitests/TestExportImage.h
     src/guitests/UXTest.h
   )
 
@@ -1799,6 +1800,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestSemanticHierarchy.cc
     src/guitests/TestAnchors.cc
     src/guitests/TestContextualInsertion.cc
+    src/guitests/TestExportImage.cc
     src/guitests/UXTest.cc
   )
 

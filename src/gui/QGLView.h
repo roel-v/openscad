@@ -59,7 +59,9 @@ public:
   float getDPI() override { return this->devicePixelRatio(); }
 
   enum class CaptureContent { ModelOnly, ModelAndAnnotations };
-  const QImage& grabFrame(CaptureContent content=CaptureContent::ModelAndAnnotations);
+  // Transparency affects only the capture; restore all live viewport state afterwards.
+  const QImage& grabFrame(CaptureContent content=CaptureContent::ModelAndAnnotations,
+                         bool transparent=false);
   // Optional composition hook. Model pixels are already clean and the camera has stopped.
   std::function<void(QImage&)> composeAnnotations;
   std::optional<Camera> annotationCameraLock;
@@ -78,7 +80,7 @@ public slots:
   void setMouseCentricZoom(bool var) { this->mouseCentricZoom = var; }
   void setMouseActions(int mouseAction, std::array<float, MouseConfig::ACTION_DIMENSION> var)
   {
-    // Load an array defining the behaviour for a single mouse action.
+    // Load an array defining the behavior for a single mouse action.
     for (int i = 0; i < MouseConfig::ACTION_DIMENSION; i++) {
       this->mouseActions[MouseConfig::ACTION_DIMENSION * mouseAction + i] = var[i];
     }

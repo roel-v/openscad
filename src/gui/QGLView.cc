@@ -77,6 +77,7 @@
 
 #include "gui/qt-obsolete.h"
 #include "gui/Measurement.h"
+#include "Feature.h"
 
 namespace {
 
@@ -87,6 +88,10 @@ QSurfaceFormat compatibleWidgetFormat()
   format.setProfile(QSurfaceFormat::CompatibilityProfile);
   if (format.depthBufferSize() < 24) format.setDepthBufferSize(24);
   if (format.stencilBufferSize() < 8) format.setStencilBufferSize(8);
+  // An alpha channel is needed for transparent image export: grabFramebuffer() only keeps alpha
+  // if the surface format has it. This does not make the window itself translucent, because
+  // GLView::paintGL scrubs alpha back to 1 at the end of every ordinary paint (issue #3689).
+  if (format.alphaBufferSize() < 8) format.setAlphaBufferSize(8);
   return format;
 }
 
@@ -487,21 +492,34 @@ void QGLView::mouseReleaseEvent(QMouseEvent *event)
   mouse_drag_moved = false;
 }
 
-const QImage& QGLView::grabFrame(CaptureContent content)
+const QImage& QGLView::grabFrame(CaptureContent content, bool transparent)
 {
   cameraNavigation->cancel();
   const bool axes=showaxes,scale=showscale,crosshairs=showcrosshairs;
+  const bool previousTransparency=transparentBackground();
   auto restore=sg::make_scope_guard([&] {
     showaxes=axes; showscale=scale; showcrosshairs=crosshairs;
     capturing=false;
+    setTransparentBackground(previousTransparency);
     update();
   });
   capturing=true;
   showaxes=showscale=showcrosshairs=false;
+  setTransparentBackground(transparent);
   makeCurrent();
   paintGL();
   // QOpenGLWidget reads its framebuffer, excluding all child widgets and popup windows.
-  frame=grabFramebuffer();
+  if (transparent) {
+    // grabFramebuffer() repaints into its own framebuffer object, so this picks up the flag.
+    // A transparent render always leaves the buffer premultiplied. Reinterpret it as such and let
+    // Qt undo the premultiplication, since PNG stores straight alpha.
+    QImage grabbed = grabFramebuffer().convertToFormat(QImage::Format_RGBA8888);
+    grabbed.reinterpretAsFormat(QImage::Format_RGBA8888_Premultiplied);
+    this->frame = grabbed.convertToFormat(QImage::Format_RGBA8888);
+  } else {
+    // Default exports remain opaque, even though the surface format carries alpha.
+    this->frame = grabFramebuffer().convertToFormat(QImage::Format_RGB32);
+  }
   if (content==CaptureContent::ModelAndAnnotations && composeAnnotations) composeAnnotations(frame);
   return this->frame;
 }

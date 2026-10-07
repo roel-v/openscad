@@ -3,6 +3,7 @@
 #include <QDockWidget>
 #include <iostream>
 
+#include "TestExportImage.h"
 #include "TestMainWindow.h"
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
@@ -84,6 +85,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestAnchors>(window);
   totalTestFailures += runTests<TestInspectionDraft>(window);
   totalTestFailures += runTests<TestContextualInsertion>(window);
+  totalTestFailures += runTests<TestExportImage>(window);
   std::cout << "********************************** RESULTS *********************************"
             << std::endl;
   std::cout << "Failures: " << totalTestFailures << std::endl;

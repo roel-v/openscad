@@ -166,6 +166,7 @@ void evaluate(const Request& request, Result& result, Job& job)
     stage("Evaluating language");
     AbstractNode::resetIndexCounter();
     backing.session = std::make_shared<EvaluationSession>(directory);
+    backing.session->capturedInputs = backing.inputs;
     ContextHandle<BuiltinContext> builtin{Context::create<BuiltinContext>(backing.session.get())};
     backing.builtin = *builtin;
     request.variables.applyToContext(builtin);
@@ -231,6 +232,7 @@ void evaluate(const Request& request, Result& result, Job& job)
     result.inspection = AgentAnnotations::inspectModel(result.absoluteRoot.get(), result.root.get(), parsed,
                                                      request.metadata);
     result.scene = std::make_shared<Selection::EvaluatedScene>();
+    result.scene->inspectionPrepared = true; // No optional tracing in this owner.
     result.scene->backing = result.backing;
     result.scene->designObjects = backing.session->designCollector->finish();
     result.scene->inputs = backing.inputs;

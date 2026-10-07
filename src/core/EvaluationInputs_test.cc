@@ -65,6 +65,19 @@ TEST_CASE("Input observation follows consumed dependencies and ends when frozen"
   REQUIRE(observed.size() == 2);
 }
 
+TEST_CASE("Unresolved library lookups do not consume captured inputs", "[evaluation-inputs]")
+{
+  InputFixture fixture;
+  const auto root = fixture.write("root.scad", "use <>\ncube(1);");
+  EvaluationInputs inputs(fixture.input(root, "use <>\ncube(1);"));
+  SourceFileCache cache(&inputs);
+  const auto consumed = inputs.consumed().size();
+  REQUIRE(cache.lookup("") == nullptr);
+  inputs.freeze();
+  REQUIRE(cache.lookup("") == nullptr);
+  REQUIRE(inputs.consumed().size() == consumed);
+}
+
 TEST_CASE("Library lookup aliases stay within their captured evaluation", "[evaluation-inputs]")
 {
   InputFixture fixture;

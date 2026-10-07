@@ -38,6 +38,7 @@
 #include "core/parsersettings.h"
 #include "core/ParserInspection.h"
 #include "core/EvaluationInputs.h"
+#include "core/EvaluationCancellation.h"
 #include "core/Assignment.h"
 #include "parser.hxx"
 #include "core/SourceFile.h"
@@ -57,7 +58,8 @@ extern const char *parser_input_buffer;
 extern SourceFile *rootfile;
 
 #define YY_INPUT(buf,result,max_size) {   \
-  if (yyin && yyin != stdin) {            \
+  if (evaluationCancelled()) { result = YY_NULL; } \
+  else if (yyin && yyin != stdin) {       \
     int c = fgetc(yyin);                  \
     if (c >= 0) {                         \
       result = 1;                         \
@@ -86,10 +88,12 @@ extern YYLTYPE parserlloc;
 #define LOCATION(loc) Location(loc.first_line, loc.first_column, loc.last_line, loc.last_column, sourcefile())
 #define LOCATION_INIT(loc) do { (loc).first_line = (loc).first_column = (loc).last_line = (loc).last_column = yylineno = 1; } while (0)
 #define YY_USER_ACTION do { \
+  if (evaluationCancelled()) return 0; \
   parserlloc.first_line = parserlloc.last_line; \
   parserlloc.first_column = parserlloc.last_column; \
   parserlloc.first_file = parserlloc.last_file = sourcefile().get(); \
   for (int i = 0; i < yyleng; ++i) { \
+    if ((i & 4095) == 0 && evaluationCancelled()) return 0; \
     if (yytext[i] == '\n') { ++parserlloc.last_line; parserlloc.last_column = 1; } \
     else ++parserlloc.last_column; \
   } \

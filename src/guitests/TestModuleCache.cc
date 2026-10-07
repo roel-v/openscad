@@ -9,6 +9,7 @@
 
 #include "core/node.h"
 #include "platform/PlatformUtils.h"
+#include "gui/evaluation/EvaluationController.h"
 
 void touchFile(const QString& filename)
 {
@@ -34,7 +35,8 @@ void TestModuleCache::testBasicCache()
   QVERIFY(source.open(QIODevice::WriteOnly));
   QCOMPARE(source.write("cube(1);\n"), qint64(9));
   source.close();
-  SourceFile *previousFile{nullptr};
+  std::shared_ptr<SourceFile> previousFile;
+  std::string previousFingerprint;
   SourceFile *currentFile{nullptr};
   QObject connectionScope;
   connect(window, &MainWindow::compilationDone, &connectionScope,
@@ -48,13 +50,14 @@ void TestModuleCache::testBasicCache()
 
   QTRY_VERIFY(completed.count() > firstCount);
   QTRY_VERIFY2(currentFile != nullptr, "The nonempty temporary model should be loaded.");
-  previousFile = currentFile;  // save the loaded Source from the
+  previousFile = window->rootFile;
+  previousFingerprint = window->evaluationInputs->root().fingerprint;
 
   const auto secondCount = completed.count();
   window->actionReloadRenderPreview();
   QTRY_VERIFY(completed.count() > secondCount);
-  QVERIFY2(previousFile == currentFile,
-           "The file should be the same as the file cache should have done its work.");
+  QCOMPARE(window->evaluationInputs->root().fingerprint, previousFingerprint);
+  QVERIFY2(previousFile.get() != currentFile, "Each asynchronous evaluation must own its mutable root AST.");
   QTest::qWait(1000);
 
   // Content-based document reload intentionally ignores timestamp-only changes.
@@ -67,7 +70,7 @@ void TestModuleCache::testBasicCache()
   window->actionReloadRenderPreview();
   QTRY_VERIFY(completed.count() > thirdCount);
   QTRY_VERIFY2(
-    previousFile != currentFile,
+    previousFile.get() != currentFile,
     "The cache should be invalidated after the model content and timestamp change.");
 }
 
@@ -84,9 +87,11 @@ void TestModuleCache::testMCAD()
 
   QString filename = fixturePath("modulecache-tests/use-mcad.scad");
   window->tabManager->open(filename);   // Open use-mcad.scad
+  QSignalSpy completed(window, &MainWindow::compilationDone);
   window->actionReloadRenderPreview();  // F5
-
-  auto node = window->instantiateRootFromSource(window->rootFile.get());
+  QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty(), 10000);
+  auto node = window->absoluteRootNode;
+  QVERIFY(node != nullptr);
   QVERIFY2(node->verbose_name().empty(), "Root node name must be empty");
   QVERIFY2(node->getChildren().size() != 0, "There must have at least a node");
   QCOMPARE(QString::fromStdString(node->getChildren()[0]->verbose_name()),

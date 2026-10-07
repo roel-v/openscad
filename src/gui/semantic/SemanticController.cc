@@ -152,7 +152,7 @@ Controller::Controller(MainWindow *owner) : QObject(owner),window(owner) {
     action(tr("Clear solo"),prepared() && visibility().solo.has_value(),[this]{setSolo({});});
     action(tr("Go to call"),current() && key && key->role==TargetRole::Instance,[this]{navigate(false);});
     action(tr("Go to definition"),current() && key.has_value(),[this]{navigate(true);});
-    auto target=key?service->resolve(*key):PreparedTarget{};const bool resolved=target.state==Design::ResolutionState::Resolved;
+    auto target=key?service->resolveForDisplay(*key):PreparedTarget{};const bool resolved=target.state==Design::ResolutionState::Resolved;
     action(tr("Fit target"),resolved && target.worldBounds && !target.worldBounds->isEmpty(),[this]{fit();});
     action(tr("Export target…"),resolved && target.localGeometry && !target.localGeometry->isEmpty(),[this]{exportSelected();});
     action(tr("Create Section"),resolved && target.worldBounds && !target.worldBounds->isEmpty() && rigidFrame(target.localToWorld),[this]{createSection();});
@@ -166,7 +166,7 @@ Controller::Controller(MainWindow *owner) : QObject(owner),window(owner) {
       auto output=prepareMeshes(*captured->semantic,stamp.resultId.toStdString(),generation,[stopped]{return stopped->load();});
       QMetaObject::invokeMethod(delivery.get(),[self,captured,stamp,done=std::move(done),output=std::move(output),stopped]()mutable{
         if(stopped->load()){done({InspectionPresentationController::Status::Cancelled,{},QStringLiteral("Semantic inspection cancelled")});return;}
-        if(self && self->current() && self->scene==captured && self->sourceStamp.resultId==stamp.resultId)self->drawPaths=output.paths;
+        if(self && self->current() && self->scene==captured && self->sourceStamp.resultId==stamp.resultId && self->service->validate(stamp))self->drawPaths=output.paths;
         done({output.cancelled?InspectionPresentationController::Status::Cancelled:!output.error.empty()?InspectionPresentationController::Status::Unsupported:output.meshes && output.meshes->pieces.empty()?InspectionPresentationController::Status::Empty:InspectionPresentationController::Status::Ready,
           output.meshes,QString::fromStdString(output.error)});
       },Qt::QueuedConnection);
@@ -199,7 +199,7 @@ Controller::Controller(MainWindow *owner) : QObject(owner),window(owner) {
 Controller::~Controller(){inspector.reset();overlay.reset();request.reset();provider.reset();delete parameters;delete service;delete structure;}
 ParameterPanel *Controller::parameterPanel() const {return parameters;}
 void Controller::refreshParameters(){if(auto *panel=parameterPanel())panel->refresh();}
-bool Controller::current() const {return window && scene && window->evaluationBinding->validate(window->evaluationBinding->stamp()) && service->validate(sourceStamp);}
+bool Controller::current() const {return window && scene && service->displayCurrent(sourceStamp);}
 bool Controller::prepared() const {return current() && window->inspectionPresentation->meshes() && window->inspectionPresentation->meshes()->resultId==sourceStamp.resultId.toStdString() &&
   (window->inspectionPresentation->status()==InspectionPresentationController::Status::Ready || window->inspectionPresentation->status()==InspectionPresentationController::Status::Empty);}
 Visibility Controller::visibility() const {auto found=documents.find(sourceStamp.documentId);return found==documents.end()?Visibility{}:found->second.visibility;}
@@ -207,8 +207,8 @@ std::optional<TargetKey> Controller::selectedTarget() const {auto found=document
 std::optional<std::string> Controller::pathForDraw(uint64_t draw) const {if(!prepared())return {};auto found=drawPaths.find(draw);return found==drawPaths.end() || found->second.empty()?std::nullopt:std::optional<std::string>(found->second);}
 void Controller::refresh(){
   if(refreshing)return;QScopedValueRollback<bool> guard(refreshing,true);
-  auto stamp=window->evaluationBinding->stamp();auto retained=window->evaluationBinding->scene(stamp);
-  if(retained && retained==scene && service->validate(sourceStamp)){applyMask();refreshParameters();return;}
+  auto stamp=window->evaluationBinding->stamp();auto retained=window->evaluationBinding->displayScene(stamp);
+  if(retained && retained==scene && service->displayCurrent(sourceStamp)){applyMask();refreshParameters();return;}
   scene.reset();drawPaths.clear();lastMask=lastGeneration=0;
   if(!retained || !retained->semantic){treeModel->setScene({},stamp.resultId,window->evaluationBinding->staleReason());status->setText(tr("Preview the current code (F5) to inspect model structure."));structure->setHasStructure(false);refreshParameters();return;}
   scene=retained;sourceStamp=stamp;auto& state=documents[stamp.documentId];state.visibility.prune(*scene->semantic);
@@ -220,7 +220,7 @@ void Controller::refresh(){
   }else {provider.setEnabled(false);request.reset();}
   status->setText(scene->semantic->valid()?QString():tr("Semantic declarations are invalid; inspect source diagnostics"));
   structure->setHasStructure(scene->semantic->marked && (!scene->semantic->instances.empty() || !scene->semantic->definitions.empty()));
-  if(state.selected){auto index=treeModel->find(state.selected->role==TargetRole::Instance?TreeRole::Instance:TreeRole::Definition,state.selected->id);tree->setCurrentIndex(index);service->resolve(*state.selected);}
+  if(state.selected){auto index=treeModel->find(state.selected->role==TargetRole::Instance?TreeRole::Instance:TreeRole::Definition,state.selected->id);tree->setCurrentIndex(index);service->resolveForDisplay(*state.selected);}
   window->inspectorDock->refresh();
   refreshParameters();
   structure->relayout();
@@ -247,7 +247,7 @@ void Controller::applyMask(){
 }
 bool Controller::select(TargetKey key){
   if(!current() || (key.role==TargetRole::Instance?!scene->semantic->instances.count(key.id):!scene->semantic->definitions.count(key.id)))return false;
-  documents[sourceStamp.documentId].selected=key;service->resolve(key);
+  documents[sourceStamp.documentId].selected=key;service->resolveForDisplay(key);
   {QScopedValueRollback<bool> guard(refreshing,true);tree->setCurrentIndex(treeModel->find(key.role==TargetRole::Instance?TreeRole::Instance:TreeRole::Definition,key.id));}
   rebind();window->inspectorDock->refresh();window->qglview->update();refreshParameters();
   window->inspectorDock->show();window->inspectorDock->raise();
@@ -309,7 +309,7 @@ void Controller::exportSelected(){
 QWidget *Controller::buildInspector(){
   auto *body=new QWidget;body->setObjectName("semanticInspector");auto *layout=new QVBoxLayout(body);layout->setContentsMargins(0,0,0,0);
   const auto key=selectedTarget();if(!key){layout->addWidget(new QLabel(current()?tr("Semantic target: select a model tree row or a mapped Part surface."):tr("Semantic target is stale or unavailable."),body));return body;}
-  auto target=service->resolve(*key);QString text=tr("Semantic %1: %2\n%3").arg(key->role==TargetRole::Instance?tr("instance"):tr("definition defaults"),QString::fromStdString(key->id),QString::fromStdString(target.diagnostic));
+  auto target=service->resolveForDisplay(*key);QString text=tr("Semantic %1: %2\n%3").arg(key->role==TargetRole::Instance?tr("instance"):tr("definition defaults"),QString::fromStdString(key->id),QString::fromStdString(target.diagnostic));
   if(key->role==TargetRole::Instance){const auto& instance=scene->semantic->instances.at(key->id);text+=tr("\nDefinition: %1\nParameters:").arg(QString::fromStdString(instance.definitionId));for(const auto& [name,value]:instance.parameters)text+=QString("\n%1 = %2").arg(QString::fromStdString(name),QString::fromStdString(value.displayedValue));
     auto matrix=[&text](QString title,const Transform3d& frame){text+="\n"+title;for(int row=0;row<3;++row){text+="\n";for(int column=0;column<4;++column){if(column)text+="  ";text+=QString::number(frame.matrix()(row,column),'g',9);}}};
     matrix(tr("Local to parent (affine rows)"),instance.localToParent);matrix(tr("Local to model (affine rows)"),instance.localToWorld);
@@ -327,7 +327,7 @@ QWidget *Controller::buildInspector(){
 }
 void Controller::prepareHighlight(){
   highlightBounds.reset();
-  const auto key=selectedTarget();if(!key || !prepared())return;const auto target=service->resolve(*key);if(target.state!=Design::ResolutionState::Resolved || !target.worldBounds || target.worldBounds->isEmpty())return;
+  const auto key=selectedTarget();if(!key || !prepared())return;const auto target=service->resolveForDisplay(*key);if(target.state!=Design::ResolutionState::Resolved || !target.worldBounds || target.worldBounds->isEmpty())return;
   if(key->role==TargetRole::Instance && !visibility().visible(key->id) && !visibility().solo)return;
   highlightBounds=*target.worldBounds;
 }

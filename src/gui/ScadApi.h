@@ -78,18 +78,19 @@ protected:
 
 public:
   ScadApi(ScintillaEditor *editor, QsciLexer *lexer);
+  void setCompletionNames(QStringList names) { userVariableNames = std::move(names); }
 
   void updateAutoCompletionList(const QStringList& context, QStringList& list) override;
   void autoCompletionSelected(const QString& selection) override;
   QStringList callTips(const QStringList& context, int commas, QsciScintilla::CallTipsStyle style,
                        QList<int>& shifts) override;
 
-  void correctUserVarNamesForCompletionFromSourceFile(const SourceFile *sourceFile,
+  static QStringList completionFromSource(const SourceFile *sourceFile,
                                                       bool flagAutoCompleteIncludeVariables,
                                                       bool flagAutoCompleteIncludeModules,
                                                       bool flagAutoCompleteIncludeFunctions);
 
-  void correctUserVarNamesForCompletionFromInputText(bool flagAutoCompleteIncludeVariables,
+  static QStringList completionFromText(const QString& text, bool flagAutoCompleteIncludeVariables,
                                                      bool flagAutoCompleteIncludeModules,
                                                      bool flagAutoCompleteIncludeFunctions);
 

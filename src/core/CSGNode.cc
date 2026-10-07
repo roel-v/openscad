@@ -25,6 +25,7 @@
  */
 
 #include "core/CSGNode.h"
+#include "core/EvaluationCancellation.h"
 
 #include <boost/range/iterator_range.hpp>
 #include <cassert>
@@ -225,6 +226,7 @@ void CSGProducts::import(std::shared_ptr<CSGNode> csgnode, OpenSCADOperator type
   callstack.push(std::make_tuple(csgnode, type, flags));
 
   do {
+    evaluationCheckpoint();
     auto args = callstack.top();
     callstack.pop();
     csgnode = std::get<0>(args);

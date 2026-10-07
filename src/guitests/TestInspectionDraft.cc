@@ -70,6 +70,9 @@ void TestInspectionDraft::baseCandidateBasePreservesModelAndRejectsCapture()
   QCOMPARE(window->findChild<QLabel *>("inspectionPreparationStatus")->text(),QString("Pending fake candidate"));
   QVERIFY(lease.showCandidate(1,candidate,"Draft candidate — not committed"));QVERIFY(binding->draftPixels());
   QVERIFY(binding->validateModel(base));QVERIFY(!binding->validate(base));QVERIFY(!binding->scene(binding->stamp()));
+  QVERIFY(binding->modelDisplayCurrent(base));
+  QVERIFY(!binding->displayCurrent(binding->stamp()));
+  QVERIFY(!binding->displayScene(binding->stamp()));
   QCOMPARE(binding->stamp().resultId,base.resultId);QCOMPARE(editor->sourceRevision,revision);QCOMPARE(editor->toPlainText(),bytes);
   auto surface=window->qglview->renderer->prepareSurfacePick(window->qglview->edge_shader.get());QVERIFY(!surface.supported);
   QCOMPARE(window->selectionService->pick({10,10},binding->stamp()).error,Selection::PickError::Unsupported);

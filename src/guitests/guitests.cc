@@ -3,6 +3,7 @@
 #include <iostream>
 
 #include "TestMainWindow.h"
+#include "TestBackgroundEvaluation.h"
 #include "TestModuleCache.h"
 #include "TestTabManager.h"
 #include "TestSourceTransactions.h"
@@ -37,6 +38,9 @@ int runAllTest(MainWindow *window)
     const auto filter=qEnvironmentVariable("OPENSCAD_INSERTION_TEST_FUNCTION");
     return runTests<TestContextualInsertion>(window,filter.isEmpty()?QStringList{}:QStringList{filter});
   }
+  if (qEnvironmentVariableIsSet("OPENSCAD_MAINWINDOW_TESTS_ONLY")) return runTests<TestMainWindow>(window);
+  if (qEnvironmentVariableIsSet("OPENSCAD_MODULE_CACHE_TESTS_ONLY")) return runTests<TestModuleCache>(window);
+  if (qEnvironmentVariableIsSet("OPENSCAD_BACKGROUND_EVALUATION_TESTS_ONLY")) return runTests<TestBackgroundEvaluation>(window);
   if(qEnvironmentVariableIsSet("OPENSCAD_INSPECTION_DRAFT_TESTS_ONLY"))return runTests<TestInspectionDraft>(window);
   if (qEnvironmentVariableIsSet("OPENSCAD_NAVIGATION_TESTS_ONLY")) {
     TestNavigation test;
@@ -59,6 +63,7 @@ int runAllTest(MainWindow *window)
   totalTestFailures += runTests<TestSourceTransactions>(window);
   totalTestFailures += runTests<TestDesignObjects>(window);
   totalTestFailures += runTests<TestMainWindow>(window);
+  totalTestFailures += runTests<TestBackgroundEvaluation>(window);
   totalTestFailures += runTests<TestModuleCache>(window);
   totalTestFailures += runTests<TestAnnotations>(window);
   totalTestFailures += runTests<TestNavigation>(window);

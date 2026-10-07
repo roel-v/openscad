@@ -58,6 +58,11 @@ public:
 
   VBOPolyhedron(const ColorScheme& cs)
   {
+    setColors(cs);
+  }
+
+  void setColors(const ColorScheme& cs)
+  {
     // Set default colors.
     setColor(CGALColorIndex::MARKED_VERTEX_COLOR, {0xb7, 0xe8, 0x5c});
     setColor(CGALColorIndex::UNMARKED_VERTEX_COLOR, {0xff, 0xf6, 0x7c});

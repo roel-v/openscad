@@ -1,4 +1,5 @@
 #include "gui/OpenSCADApp.h"
+#include "gui/evaluation/EvaluationService.h"
 
 #include "gui/MainWindow.h"
 #ifdef Q_OS_MACOS
@@ -110,8 +111,10 @@ void OpenSCADApp::hideFontCacheDialog()
 void OpenSCADApp::setRenderBackend3D(RenderBackend3D backend)
 {
   RenderSettings::inst()->backend3D = backend;
-  CGALCache::instance()->clear();
-  GeometryCache::instance()->clear();
+  auto job = std::make_shared<BackgroundEvaluation::Job>();
+  job->key = "maintenance:backend";
+  job->compute = [] { CGALCache::instance()->clear(); GeometryCache::instance()->clear(); };
+  BackgroundEvaluation::Service::instance().submit(job);
 }
 
 void OpenSCADApp::setApplicationFont(const QString& family, uint size)
@@ -143,5 +146,5 @@ void OpenSCADApp::closeApp()
   // Should not be reached, when closing the last MainWindow,
   // the quit() call would already happen in the close event
   // handler MainWindow::closeEvent().
-  QApplication::quit();
+  BackgroundEvaluation::Service::instance().shutdownWhenIdle();
 }

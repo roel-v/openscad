@@ -84,7 +84,7 @@ InspectionPresentationController::InspectionPresentationController(MainWindow *w
     QTimer::singleShot(0,this,[this] { refresh(); });
   });
   connect(window->evaluationBinding,&Selection::EvaluationBinding::invalidated,this,[this] {
-    if(!replacing && draftActive() && !this->window->evaluationBinding->validateModel(draftBase))releaseDraft(draftId);
+    if(!replacing && draftActive() && !this->window->evaluationBinding->modelDisplayCurrent(draftBase))releaseDraft(draftId);
     if (replacing || !registry.requested()) return;
     stopJob(); registry.invalidate();
     setStatus(Status::Stale,tr("Inspection inputs or result changed")); emit meshesChanged();

@@ -25,6 +25,7 @@
  *
  */
 #include "gui/parameter/ParameterWidget.h"
+#include "gui/evaluation/EvaluationService.h"
 
 #include <QAction>
 #include <QJsonDocument>
@@ -75,23 +76,6 @@ QJsonObject ParameterWidget::annotationValues() const
   }
   return values;
 }
-class CustomizerContext
-{
-public:
-  explicit CustomizerContext(const SourceFile *sourceFile)
-    : session(PlatformUtils::resourcePath("libraries").string()),
-      builtinContext(Context::create<BuiltinContext>(&session)),
-      fileContext(Context::create<FileContext>(*builtinContext, sourceFile))
-  {
-  }
-
-  Context *context() { return fileContext.operator->(); }
-
-private:
-  EvaluationSession session;
-  ContextHandle<BuiltinContext> builtinContext;
-  ContextHandle<FileContext> fileContext;
-};
 
 ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
 {
@@ -121,25 +105,30 @@ ParameterWidget::ParameterWidget(QWidget *parent) : QWidget(parent)
           &ParameterWidget::setFontFamilySize);
 }
 
-ParameterWidget::~ParameterWidget() = default;
+ParameterWidget::~ParameterWidget()
+{
+  // QWidget children can still dereference their ParameterObject in destruction.
+  auto *layout = scrollAreaWidgetContents->layout();
+  while (layout && layout->count()) {
+    auto *child = layout->takeAt(0);
+    delete child->widget(); delete child;
+  }
+  auto retained = std::make_shared<std::pair<std::shared_ptr<const void>, ParameterObjects>>(
+    std::move(evaluationBacking), std::move(parameters));
+  BackgroundEvaluation::Service::instance().retire([retained] {});
+}
 
-// Can only be called before the initial setParameters().
+// Load presets before the first asynchronous metadata result is installed.
 void ParameterWidget::readFile(const QString& scadFile)
 {
   assert(sets.empty());
   assert(parameters.empty());
   assert(widgets.empty());
-
   QString jsonFile = getJsonFile(scadFile);
-  if (!std::filesystem::exists(jsonFile.toStdString()) || this->sets.readFile(jsonFile.toStdString())) {
-    this->invalidJsonFile = QString();
-  } else {
-    this->invalidJsonFile = jsonFile;
-  }
-
-  for (const auto& set : this->sets) {
-    comboBoxPreset->addItem(QString::fromStdString(set.name()));
-  }
+  if (!std::filesystem::exists(jsonFile.toStdString()) || sets.readFile(jsonFile.toStdString()))
+    invalidJsonFile.clear();
+  else invalidJsonFile = jsonFile;
+  for (const auto& set : sets) comboBoxPreset->addItem(QString::fromStdString(set.name()));
 }
 
 // Write the json file if the parameter sets are not empty.
@@ -176,53 +165,63 @@ void ParameterWidget::saveBackupFile(const QString& scadFile)
   sets.writeFile(getJsonFile(scadFile).toStdString());
 }
 
-void ParameterWidget::setParameters(const SourceFile *sourceFile, const std::string& source)
-{
-  auto evaluationContext = std::make_unique<CustomizerContext>(sourceFile);
-  if (this->source == source) {
-    this->evaluationContext = std::move(evaluationContext);
-    updateParameterStates();
-    return;
-  }
-  this->source = source;
 
-  QLayout *layout = this->scrollAreaWidgetContents->layout();
-  while (layout && layout->count() > 0) {
-    QLayoutItem *child = layout->takeAt(0);
-    delete child->widget();
-    delete child;
-  }
-
-  this->widgets.clear();
-  this->dependencyMap.clear();
-  this->parameters.clear();
-  this->evaluationContext = std::move(evaluationContext);
-  this->parameters = ParameterObjects::fromSourceFile(sourceFile, this->evaluationContext->context());
-  rebuildWidgets();
-  loadSet(comboBoxPreset->currentIndex());
-  updateParameterStates();
-}
 
 // updates every parameter
 void ParameterWidget::updateParameterStates()
 {
-  if (!this->evaluationContext) return;
+  ++parameterRevision;
+  emit metadataRequested();
+}
 
-  Context *context = this->evaluationContext->context();
+ParameterSet ParameterWidget::requestedValues() const
+{
+  const auto index = comboBoxPreset->currentIndex();
+  if (index > 0 && size_t(index) <= sets.size()) return sets[index - 1];
+  return {};
+}
 
-  for (const auto& param : this->parameters) {
-    param->updateContext(context);
+void ParameterWidget::installEvaluation(ParameterObjects values, std::string evaluatedSource,
+                                        std::shared_ptr<const void> backing)
+{
+  // Attribute refreshes must preserve live controls (focus, slider drags and
+  // group expansion). The accepted revision already guarantees matching values.
+  bool same = source == evaluatedSource && parameters.size() == values.size();
+  auto old = parameters.begin();
+  for (const auto& value : values) {
+    if (!same) break;
+    same = (*old)->sameDefinition(*value);
+    ++old;
   }
-  for (const auto& param : this->parameters) {
-    param->updateAttributes(context);
-    if (widgets.count(param.get())) {
-      for (auto *widget : widgets.at(param.get())) {
-        widget->setEnabled(!param->isLocked());
-        widget->setHidden(param->isHidden());
+  if (same) {
+    old = parameters.begin();
+    for (const auto& value : values) {
+      const bool changed = (*old)->jsonValue() != value->jsonValue();
+      if (changed) (*old)->importValue(value->exportValue(), true);
+      (*old)->setHidden(value->isHidden());
+      (*old)->setLocked(value->isLocked());
+      for (auto widget : widgets[old->get()]) {
+        if (changed) widget->setValue();
+        widget->setHidden(value->isHidden());
+        widget->setEnabled(!value->isLocked());
       }
+      ++old;
     }
+    updateGroupVisibility();
+    return;
   }
-  updateGroupVisibility();
+  // Retain old parameter ownership until rebuildWidgets deletes their controls.
+  auto oldBacking = std::move(evaluationBacking);
+  auto oldParameters = std::move(parameters);
+  parameters = std::move(values);
+  evaluationBacking = std::move(backing);
+  source = std::move(evaluatedSource);
+  rebuildWidgets();
+  updateSetEditability();
+  setEnabled(true);
+  auto retained = std::make_shared<std::pair<std::shared_ptr<const void>, ParameterObjects>>(
+    std::move(oldBacking), std::move(oldParameters));
+  BackgroundEvaluation::Service::instance().retire([retained] {});
 }
 
 void ParameterWidget::updateGroupVisibility()
@@ -230,10 +229,7 @@ void ParameterWidget::updateGroupVisibility()
   for (auto *group : this->findChildren<GroupWidget *>()) group->updateVisibility();
 }
 
-void ParameterWidget::applyParameters(SourceFile *sourceFile)
-{
-  this->parameters.apply(sourceFile);
-}
+
 
 bool ParameterWidget::childHasFocus()
 {
@@ -355,10 +351,7 @@ void ParameterWidget::parameterModified(bool immediate)
   if (!widget) return;
   ParameterObject *parameter = widget->getParameter();
 
-  if (parameter && this->evaluationContext) {
-    parameter->updateContext(this->evaluationContext->context());
-    updateDependentAttributes(parameter);
-  }
+  ++parameterRevision;
   // When attempting to modify the design default, create a new set to edit.
   if (comboBoxPreset->currentIndex() == 0) {
     std::set<std::string> setNames;
@@ -388,6 +381,7 @@ void ParameterWidget::parameterModified(bool immediate)
   }
 
   setModified();
+  emit metadataRequested();
   autoPreview(immediate);
 }
 
@@ -468,7 +462,7 @@ void ParameterWidget::rebuildWidgets()
     groupWidget->setExpanded(it == expandedGroups.end() || it->second);
     layout->addWidget(groupWidget);
   }
-  rebuildDependencyMap();
+
   updateGroupVisibility();
 }
 
@@ -571,121 +565,9 @@ void ParameterWidget::setFontFamilySize(const QString& fontFamily, uint fontSize
 {
   scrollArea->setFont(QFont(fontFamily, fontSize));
 }
-
-void ParameterWidget::rebuildDependencyMap()
-{
-  this->dependencyMap.clear();
-
-  std::map<std::string, ParameterObject *> parametersByName;
-
-  for (const auto& param_ptr : this->parameters) {
-    ParameterObject *param = param_ptr.get();
-    parametersByName[param->name()] = param;
-
-    for (const std::string& depName : param->getDependencies()) {
-      this->dependencyMap.insert({depName, param});
-    }
-  }
-
-  enum class VisitState { Unvisited, Visiting, Finished };
-  std::map<ParameterObject *, VisitState> states;
-  std::vector<ParameterObject *> path;
-  std::set<std::set<std::string>> reportedCycles;
-
-  std::function<void(ParameterObject *)> visit = [&](ParameterObject *parameter) {
-    states[parameter] = VisitState::Visiting;
-    path.push_back(parameter);
-
-    for (const auto& dependencyName : parameter->getDependencies()) {
-      auto dependencyIt = parametersByName.find(dependencyName);
-      if (dependencyIt == parametersByName.end()) continue;
-
-      ParameterObject *dependency = dependencyIt->second;
-      if (states[dependency] == VisitState::Unvisited) {
-        visit(dependency);
-      } else if (states[dependency] == VisitState::Visiting) {
-        auto cycleStart = std::find(path.begin(), path.end(), dependency);
-        std::vector<ParameterObject *> cycle(cycleStart, path.end());
-        std::set<std::string> cycleNames;
-        std::string cyclePath;
-        for (auto *cycleParameter : cycle) {
-          cycleNames.insert(cycleParameter->name());
-          if (!cyclePath.empty()) cyclePath += " -> ";
-          cyclePath += cycleParameter->name();
-        }
-        cyclePath += " -> " + dependency->name();
-
-        if (reportedCycles.insert(cycleNames).second) {
-          PRINT(Message("Customizer dependency cycle detected: " + cyclePath, message_group::Error,
-                        dependency->location()));
-          for (auto *cycleParameter : cycle) {
-            PRINT(Message("Customizer cycle variable: " + cycleParameter->name(), message_group::Error,
-                          cycleParameter->location()));
-          }
-        }
-      }
-    }
-
-    path.pop_back();
-    states[parameter] = VisitState::Finished;
-  };
-
-  for (const auto& param : this->parameters) {
-    if (states[param.get()] == VisitState::Unvisited) visit(param.get());
-  }
-}
-
-void ParameterWidget::updateDependentAttributes(ParameterObject *parameter)
-{
-  std::set<ParameterObject *> visited;
-  updateDependentAttributes(parameter, visited);
-  updateGroupVisibility();
-}
-
-void ParameterWidget::updateDependentAttributes(ParameterObject *parameter,
-                                                std::set<ParameterObject *>& visited)
-{
-  if (!evaluationContext) return;
-  if (!visited.insert(parameter).second) return;
-
-  Context *context = evaluationContext->context();
-  parameter->updateContext(context);
-
-  auto range = dependencyMap.equal_range(parameter->name());
-
-  for (auto it = range.first; it != range.second; ++it) {
-    ParameterObject *dependentParam = it->second;
-
-    if (dependentParam == parameter) continue;
-    dependentParam->updateAttributes(context);
-
-    if (widgets.count(dependentParam)) {
-      for (auto *widget : widgets.at(dependentParam)) {
-        widget->setEnabled(!dependentParam->isLocked());
-        widget->setHidden(dependentParam->isHidden());
-        // potentially update other visual properties here later
-      }
-    }
-
-    updateDependentAttributes(dependentParam, visited);
-  }
-}
-
 ParameterSet ParameterWidget::evaluationValues() const
 {
   ParameterSet values;
   for (const auto& parameter : parameters) values.emplace(parameter->name(), parameter->exportValue());
   return values;
-}
-
-bool ParameterWidget::applyEvaluationValues(const ParameterSet& values,SourceFile *sourceFile)
-{
-  // Validate every captured field before changing any native value or widget.
-  for(const auto& [name,encoded]:values){
-    auto found=std::find_if(parameters.begin(),parameters.end(),[&](const auto& parameter){return parameter->name()==name;});
-    if(found==parameters.end() || !(*found)->importValue(encoded,false))return false;
-  }
-  parameters.importValues(values);
-  for(const auto& [parameter,fields]:widgets)for(auto *field:fields)field->setValue();
-  updateParameterStates();parameters.apply(sourceFile);return true;
 }

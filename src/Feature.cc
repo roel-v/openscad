@@ -76,7 +76,11 @@ const std::string& Feature::get_description() const
 bool Feature::is_enabled() const
 {
 #ifdef ENABLE_EXPERIMENTAL
-  return enabled;
+  if (currentFeatureSnapshot) {
+    const auto found = currentFeatureSnapshot->find(this);
+    if (found != currentFeatureSnapshot->end()) return found->second;
+  }
+  return enabled.load();
 #else
   return false;
 #endif

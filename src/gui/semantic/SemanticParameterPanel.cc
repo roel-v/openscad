@@ -109,8 +109,8 @@ void ParameterPanel::refresh() {
   if(rebuilding || !window || !controller)return;QScopedValueRollback<bool> guard(rebuilding,true);
   auto *body=new QWidget;body->setLayout(new QVBoxLayout);body->layout()->setContentsMargins(4,4,4,4);
   delete scroll->takeWidget();scroll->setWidget(body);
-  const auto stamp=window->evaluationBinding->stamp();const auto captured=window->evaluationBinding->scene(stamp);
-  if(!captured || !captured->semantic || !controller->targetService()->validate(stamp)){
+  const auto stamp=window->evaluationBinding->stamp();const auto captured=window->evaluationBinding->displayScene(stamp);
+  if(!captured || !captured->semantic || !controller->targetService()->displayCurrent(stamp)){
     status->setText(tr("Preview the current code (F5) to inspect component parameters."));return;
   }
   if(!captured->semantic->valid()){
@@ -136,7 +136,7 @@ void ParameterPanel::refresh() {
     std::map<std::string,Parameter> parameters;
     if(selected->role==TargetRole::Instance){parameters=captured->semantic->instances.at(selected->id).parameters;status->setText(tr("Instance: %1\nEdits change its source call. Reset removes a named override.").arg(QString::fromStdString(selected->id)));}
     else{
-      const auto target=controller->targetService()->resolve(*selected);parameters=target.parameters;
+      const auto target=controller->targetService()->resolveForDisplay(*selected);parameters=target.parameters;
       status->setText(tr("Definition defaults: %1\nEditing affects every use that inherits this default. Explicit call overrides remain.").arg(QString::fromStdString(selected->id))+(parameters.empty()?"\n"+QString::fromStdString(target.diagnostic):QString()));
     }
     for(const auto& [name,parameter]:parameters)addParameter(body,*selected,parameter,false,captured,stamp);

@@ -42,7 +42,7 @@ QWidget *SavedViewContribution::build(const Selection::Stamp& stamp){
   auto current=document->records(stamp);
   for(const auto& [id,record]:current)if(record->kind=="View")list->addItem(QString::fromStdString(record->label)+(record->source?tr(" · Source"):tr(" · Transient")),QStringList{QString::fromStdString(id),record->source?"source":"transient"});
   for(const auto& entry:personal->entries())list->addItem(entry.name()+tr(" · Personal inspection"),QStringList{entry.id(),"personal"});
-  auto *status=new QLabel(window->evaluationBinding->validate(stamp)?tr("Source views follow the current evaluated model."):tr("Source views require a current evaluation."),body);status->setWordWrap(true);layout->addWidget(status);
+  auto *status=new QLabel(window->evaluationBinding->displayCurrent(stamp)?tr("Source views follow the current evaluated model."):tr("Source views require a current evaluation."),body);status->setWordWrap(true);layout->addWidget(status);
   QPointer<SavedViewContribution> service(this);QPointer<EditorInterface> editor(owner);QPointer<DesignDocument> doc(document);QPointer<SavedViews> store(personal);QPointer<QComboBox> chooser(list);
   auto action=[&](const QString& text,const QString& name,const std::function<void(QString,QString)>& callback){
     auto *button=new QPushButton(text,body);button->setObjectName(name);button->setEnabled(list->count()>0);layout->addWidget(button);
@@ -56,7 +56,8 @@ QWidget *SavedViewContribution::build(const Selection::Stamp& stamp){
     if(!service || !service->window || !service->window->qglview->navigation()->permitted())return;
     if(backing=="personal"){auto *entry=store?store->find(id):nullptr;if(entry)service->window->qglview->navigation()->apply(entry->pose());return;}
     auto records=doc?doc->records(stamp):Records{};auto found=records.find(id.toStdString());if(found==records.end()){report("View evaluation became stale");return;}
-    auto scene=service->window->evaluationBinding->scene(stamp);Tree tree(scene->root,scene->documentPath);GeometryEvaluator evaluator(tree);auto geometry=evaluator.evaluateGeometry(*scene->root,false);
+    auto scene=service->window->evaluationBinding->scene(stamp);if(!scene){report("Evaluation is stale");return;}
+    Tree tree(scene->root,scene->documentPath);GeometryEvaluator evaluator(tree);auto geometry=evaluator.evaluateGeometry(*scene->root,false);
     ResolveContext context{stamp.resultId.toStdString(),stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString(),geometry?geometry->getBoundingBox():BoundingBox(),records,{}};
     std::string error;auto camera=viewCamera(*found->second,context,&error);if(!camera){report(error);return;}
     if(service && service->window && service->window->evaluationBinding->validate(stamp))service->window->qglview->navigation()->apply(CameraPose::from(*camera));

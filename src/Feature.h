@@ -3,6 +3,7 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <atomic>
 
 #include "utils/exceptions.h"
 
@@ -47,7 +48,7 @@ public:
   static void enable_all(bool status = true);
 
 private:
-  bool enabled{false};
+  std::atomic_bool enabled{false};
 
   const std::string name;
   const std::string description;
@@ -58,6 +59,19 @@ private:
 
   Feature(const std::string& name, std::string description, bool hidden = false);
   virtual ~Feature() = default;
+};
+
+// Job-local feature switches; UI preferences remain independently editable.
+using FeatureSnapshot = std::map<const Feature *, bool>;
+inline thread_local const FeatureSnapshot *currentFeatureSnapshot = nullptr;
+class FeatureSnapshotScope {
+public:
+  explicit FeatureSnapshotScope(const FeatureSnapshot& snapshot) : previous(currentFeatureSnapshot) {
+    currentFeatureSnapshot = &snapshot;
+  }
+  ~FeatureSnapshotScope() { currentFeatureSnapshot = previous; }
+private:
+  const FeatureSnapshot *previous;
 };
 
 class ExperimentalFeatureException : public EvaluationException

@@ -18,6 +18,15 @@ class RenderSettings
 {
 public:
   static RenderSettings *inst(bool erase = false);
+  class Scope {
+  public:
+    explicit Scope(RenderSettings& settings);
+    ~Scope();
+    Scope(const Scope&) = delete;
+    Scope& operator=(const Scope&) = delete;
+  private:
+    RenderSettings *previous;
+  };
 
   RenderBackend3D backend3D;
   unsigned int openCSGTermLimit;
@@ -25,5 +34,6 @@ public:
   std::string colorscheme;
 
 private:
+  static thread_local RenderSettings *threadSettings;
   RenderSettings();
 };

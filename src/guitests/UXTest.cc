@@ -26,14 +26,27 @@ void UXTest::restoreWindowInitialState()
   // Only discard documents in this test-owned window. Earlier cases may leave
   // dirty source or companion metadata, including when an assertion fails.
   QTimer discard;
-  connect(&discard, &QTimer::timeout, window, [this] {
-    auto box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-    if (box && window->isAncestorOf(box) && box->button(QMessageBox::Discard))
+  QString cleanupError;
+  connect(&discard, &QTimer::timeout, window, [this, &cleanupError] {
+    auto dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+    if (!dialog) return;
+    bool owned = false;
+    for (QObject *parent = dialog; parent; parent = parent->parent())
+      if (parent == window) { owned = true; break; }
+    auto box = qobject_cast<QMessageBox *>(dialog);
+    if (owned && box && box->button(QMessageBox::Discard)) {
       box->button(QMessageBox::Discard)->click();
+    } else {
+      cleanupError = QString("Unexpected cleanup dialog %1: %2 %3")
+        .arg(dialog->metaObject()->className(), dialog->windowTitle(), box ? box->text() : QString());
+      // This is the isolated --run-all-gui-tests process. Fail instead of leaving it modal.
+      dialog->reject();
+    }
   });
   discard.start(20);
   QString filename = fixturePath("basic-ux/default.scad");
   window->tabManager->open(filename);
+  QVERIFY2(cleanupError.isEmpty(), qPrintable(cleanupError));
   auto target = window->activeEditor;
   auto tabs = qobject_cast<QTabWidget *>(window->tabManager->getTabContent());
   Q_ASSERT(tabs);
@@ -44,6 +57,7 @@ void UXTest::restoreWindowInitialState()
       if (tabs->widget(index) != target) { tabs->setCurrentIndex(index); break; }
     }
     window->tabManager->closeCurrentTab();
+    QVERIFY2(cleanupError.isEmpty(), qPrintable(cleanupError));
     QVERIFY2(window->tabManager->count() < previousCount, "Fixture tab was not closed");
   }
 

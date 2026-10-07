@@ -492,8 +492,9 @@ void TestNavigation::interruptibleTransitions()
   QVERIFY2(nav->current()==target,"Periodic automatic reload prevented the exact camera endpoint");
   nav->navigate(original);
   QTest::qWait(30);
-  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
+  QVERIFY(QMetaObject::invokeMethod(window,"on_designActionPreview_triggered"));
   QVERIFY2(!nav->animating(),"An explicit preview must still cancel pending camera movement");
+  QVERIFY(waitForEvaluation());
   nav->settings.animate=false;
   nav->apply(original,false);
   window->tabManager->closeCurrentTab();

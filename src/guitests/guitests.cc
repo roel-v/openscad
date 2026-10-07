@@ -34,6 +34,8 @@ int runTests(MainWindow *window, const QStringList& filters = {})
 
 int runAllTest(MainWindow *window)
 {
+  // Qt-driven dialog tests need the inspectable widget implementation.
+  QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
   if(qEnvironmentVariableIsSet("OPENSCAD_INSERTION_TESTS_ONLY")){
     const auto filter=qEnvironmentVariable("OPENSCAD_INSERTION_TEST_FUNCTION");
     return runTests<TestContextualInsertion>(window,filter.isEmpty()?QStringList{}:QStringList{filter});
@@ -47,7 +49,10 @@ int runAllTest(MainWindow *window)
     test.setWindow(window);
     QStringList arguments{"navigation-tests"};
     const auto output = qEnvironmentVariable("OPENSCAD_NAVIGATION_TEST_OUTPUT");
-    if (!output.isEmpty()) arguments << "-o" << output + "/test-results.xml,junitxml";
+    if (!output.isEmpty()) arguments << "-o" << output + "/test-results.xml,junitxml"
+                                    << "-o" << output + "/TestNavigation.txt,txt";
+    const auto functions = qEnvironmentVariable("OPENSCAD_GUI_TEST_FUNCTIONS");
+    if (!functions.isEmpty()) arguments.append(functions.split(',', Qt::SkipEmptyParts));
     return QTest::qExec(&test, arguments);
   }
   int totalTestFailures = 0;

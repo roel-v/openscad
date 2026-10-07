@@ -19,6 +19,7 @@ protected:
   static QString fixturePath(const QString& relative);
 
   void restoreWindowInitialState();
+  bool waitForEvaluation();
 
   MainWindow *window;
 };

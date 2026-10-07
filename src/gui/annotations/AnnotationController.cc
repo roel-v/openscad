@@ -356,7 +356,8 @@ EditorInterface *Controller::actionOwner() const
 }
 bool Controller::busy() const
 {
-  return drafting() || capturePending || !evaluation.isEmpty() || GuiLocker::isLocked();
+  return drafting() || capturePending || !evaluation.isEmpty() || GuiLocker::isLocked() ||
+         (window->backgroundEvaluation && window->backgroundEvaluation->busy());
 }
 void Controller::updateActions()
 {
@@ -739,6 +740,7 @@ QJsonObject Controller::status() const
   if (drafting()) reasons.append("annotation_draft");
   if (capturePending) reasons.append("capture");
   if (!evaluation.isEmpty() || GuiLocker::isLocked()) reasons.append("native_evaluation");
+  if (window->backgroundEvaluation && window->backgroundEvaluation->busy()) reasons.append("background_evaluation");
   if (QApplication::activeModalWidget()) reasons.append("modal_interaction");
   QJsonObject value{
     {"window_id", windowId},

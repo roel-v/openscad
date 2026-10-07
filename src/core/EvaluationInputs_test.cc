@@ -48,6 +48,23 @@ TEST_CASE("Evaluation inputs capture dirty editors and retain exact UTF8 CRLF BO
   REQUIRE(inputs.read(include).utf8 == exact);
 }
 
+TEST_CASE("Input observation follows consumed dependencies and ends when frozen", "[evaluation-inputs]")
+{
+  InputFixture fixture;
+  const auto root = fixture.write("root.scad", "cube(1);");
+  const auto dependency = fixture.write("dependency.scad", "height=1;");
+  EvaluationInputs inputs(fixture.input(root, "cube(1);"), {fixture.input(dependency, "height=2;", "dependency")});
+  std::vector<std::string> observed;
+  inputs.observeReads([&](const SourceInput& input) { observed.push_back(input.editorId.value_or("disk")); });
+  REQUIRE(observed.empty());
+  REQUIRE(inputs.read(dependency).utf8 == "height=2;");
+  inputs.read(dependency);
+  REQUIRE(observed == std::vector<std::string>{"dependency", "dependency"});
+  inputs.freeze();
+  inputs.read(dependency);
+  REQUIRE(observed.size() == 2);
+}
+
 TEST_CASE("Library lookup aliases stay within their captured evaluation", "[evaluation-inputs]")
 {
   InputFixture fixture;

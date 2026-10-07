@@ -48,6 +48,7 @@
 #include <QMessageBox>
 #include <array>
 #include <algorithm>
+#include <cmath>
 namespace {
 using namespace Insertion;
 void traceEvent(const QString& event){
@@ -170,8 +171,19 @@ void TestContextualInsertion::realPlaneMoveSpinFlipAndNavigation(){
   QVERIFY(controller->draftPlacement()->offset.head<2>().norm()>1);
   QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Ready,15000);
   const auto moved=*controller->draftPlacement();
-  const auto spinStart=projected(view,*frame.value*Vector3d(moved.offset.x()+15,moved.offset.y(),0));
-  const auto spinEnd=projected(view,*frame.value*Vector3d(moved.offset.x(),moved.offset.y()+15,0));
+  // The complete feature stack can leave a narrow viewport beside its docks.
+  // Centre the gesture and size its radius in pixels so both endpoints remain visible.
+  const Vector3d spinOrigin=*frame.value*Vector3d(moved.offset.x(),moved.offset.y(),0);
+  auto spinPose=view->navigation()->current();spinPose.translation=-spinOrigin;
+  view->navigation()->apply(spinPose);QTest::qWait(30);
+  const auto centre=projected(view,spinOrigin);
+  const auto unitX=projected(view,*frame.value*Vector3d(moved.offset.x()+1,moved.offset.y(),0))-centre;
+  const auto unitY=projected(view,*frame.value*Vector3d(moved.offset.x(),moved.offset.y()+1,0))-centre;
+  const double pixelsPerUnit=std::max(std::hypot(unitX.x(),unitX.y()),std::hypot(unitY.x(),unitY.y()));
+  QVERIFY(pixelsPerUnit>0);
+  const double radius=std::min(view->width(),view->height())*0.25/pixelsPerUnit;
+  const auto spinStart=projected(view,*frame.value*Vector3d(moved.offset.x()+radius,moved.offset.y(),0));
+  const auto spinEnd=projected(view,*frame.value*Vector3d(moved.offset.x(),moved.offset.y()+radius,0));
   QVERIFY2(view->rect().contains(spinStart.toPoint()) && view->rect().contains(spinEnd.toPoint()),"Spin drag must stay inside the viewport");
   view->setFocus();QTest::qWait(30);QTest::keyClick(view,Qt::Key_R);QTest::qWait(30);QTest::mousePress(view,Qt::LeftButton,Qt::NoModifier,spinStart.toPoint());
   QTest::mouseMove(view,spinEnd.toPoint());QTest::mouseRelease(view,Qt::LeftButton,Qt::NoModifier,spinEnd.toPoint());

@@ -21,6 +21,7 @@
 #include "core/Expression.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFile.h"
+#include "core/customizer/CommentParser.h"
 #include "core/customizer/ParameterObject.h"
 #include "openscad.h"
 
@@ -125,6 +126,33 @@ const std::string selectorAttributes = R"(
 )";
 
 }  // namespace
+
+TEST_CASE("Customizer comments exclude line terminators from metadata", "[customizer][parser]")
+{
+  const std::string newline = GENERATE(std::string("\n"), std::string("\r\n"));
+  const std::string source = "/* [Dimensions] */" + newline + "// Width // millimeters" + newline +
+    "width = 3; // 12" + newline + "// Height" + newline + "height = 4; // [1:8]" + newline;
+  TemporaryCustomizerDirectory files;
+  const auto filename = (files.path() / "comments.scad").string();
+  SourceFile *parsed = nullptr;
+  REQUIRE(parse(parsed, source, filename, filename, false));
+  std::unique_ptr<SourceFile> owner(parsed);
+  CommentParser::collectParameters(source, parsed);
+  const auto& assignments = parsed->scope->assignments;
+  REQUIRE(assignments.size() == 2);
+  const auto annotationText = [](const auto& assignment, const char *name) {
+    const auto *annotation = assignment->annotation(name);
+    REQUIRE(annotation);
+    std::ostringstream text;
+    annotation->getExpr()->print(text, "");
+    return text.str();
+  };
+  CHECK(annotationText(assignments[0], "Parameter") == "12");
+  CHECK(annotationText(assignments[0], "Description") == "\"Width   millimeters\"");
+  CHECK(annotationText(assignments[0], "Group") == "\"Dimensions\"");
+  CHECK(annotationText(assignments[1], "Parameter") == "[1 : 8]");
+  CHECK(annotationText(assignments[1], "Description") == "\"Height\"");
+}
 
 TEST_CASE("Native attributes use fixed OEP8-style members", "[customizer][parameter-attributes][parser]")
 {

@@ -473,12 +473,18 @@ void TestNavigation::interruptibleTransitions()
   QVERIFY(view->cam.object_rot==Eigen::Vector3d(12,34,56));
   QVERIFY(!nav->animating());
   // Unchanged automatic-reload polls must not interrupt an in-flight camera operation.
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const auto filename=directory.filePath("unchanged-navigation.scad");
+  QFile source(filename);QVERIFY(source.open(QIODevice::WriteOnly));
+  QCOMPARE(source.write("cube(10);\n"),qint64(10));source.close();
+  window->tabManager->createTab(filename);
   window->actionRenderPreview(); QVERIFY(waitForEvaluation());
-  window->actionReloadRenderPreview();
+  window->checkAutoReload(); QVERIFY(waitForEvaluation());
   nav->settings.duration=350;
   nav->navigate(target);
   QTest::qWait(30);
-  window->actionReloadRenderPreview();
+  window->checkAutoReload();
   QVERIFY2(nav->animating(),"An unchanged file poll cancelled the camera transition");
   window->designActionAutoReload->setChecked(true);
   QTest::qWait(450);
@@ -490,6 +496,7 @@ void TestNavigation::interruptibleTransitions()
   QVERIFY2(!nav->animating(),"An explicit preview must still cancel pending camera movement");
   nav->settings.animate=false;
   nav->apply(original,false);
+  window->tabManager->closeCurrentTab();
 }
 
 void TestNavigation::popupAndTuning()

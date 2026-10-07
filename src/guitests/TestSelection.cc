@@ -290,7 +290,7 @@ void TestSelection::visibleSelectionFeedback()
     view->setColorScheme(*oldScheme);
   }
   window->inspectorDock->beginSelection();
-  QVERIFY(window->viewportTools->active());
+  QTRY_VERIFY(window->viewportTools->active());
   QTest::mouseClick(view,Qt::LeftButton,Qt::NoModifier,projectedPixel(*view,{8,-5,0}).toPoint());
   QVERIFY(!window->viewportTools->active());
   QVERIFY(window->selectionService->state().surface);
@@ -774,7 +774,7 @@ void TestSelection::inspectorExtensions()
   QSignalSpy compiled(window,&MainWindow::compilationDone); window->actionRenderPreview(); QTRY_VERIFY(!compiled.empty());
   auto view=window->qglview;
   view->navigation()->apply({CameraPose::upright({0,-1,0}),{0,5,0},50,45,Camera::ProjectionType::ORTHOGONAL});
-  window->inspectorDock->beginSelection(); QTest::qWait(20);
+  window->inspectorDock->beginSelection(); QTRY_VERIFY(window->viewportTools->active());
   QTest::mouseClick(view,Qt::LeftButton,Qt::NoModifier,projectedPixel(*view,{0,-5,0}).toPoint());
   QVERIFY(window->selectionService->state().surface);
   auto text=window->inspectorDock->findChild<QLabel*>("geometricProperties"); QVERIFY(text);

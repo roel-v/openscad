@@ -487,6 +487,10 @@ void Controller::install(const std::shared_ptr<Pending>& attempt)
   if (!editor || !current(*attempt)) return;
   auto& result = *attempt->result;
   drain(attempt, 2048);
+  // This tracks the last attempted source for edit/backup bookkeeping, not
+  // the retained display. Failed current evaluations still attempted it.
+  if (attempt->request.mode != Mode::Parameters && editor == window->activeEditor)
+    window->lastCompiledDoc = QString::fromUtf8(attempt->request.root.utf8.data(), int(attempt->request.root.utf8.size()));
   if (!attempt->job->succeeded || !result.success) {
     if (editor == window->activeEditor) {
       if (!attempt->job->error.isEmpty()) window->consoleOutput(Message(attempt->job->error.toStdString(), message_group::Error));
@@ -556,7 +560,6 @@ void Controller::install(const std::shared_ptr<Pending>& attempt)
   window->absoluteRootNode = result.absoluteRoot; window->rootNode = result.root;
   window->tree.setRoot(result.root); window->tree.setDocumentPath(result.scene->documentPath);
   window->evaluatedScene = result.scene;
-  window->lastCompiledDoc = QString::fromUtf8(attempt->request.root.utf8.data(), int(attempt->request.root.utf8.size()));
   window->renderedEditor = editor;
   if (attempt->cameraRevision == window->annotationController->viewRevision()) {
     window->qglview->cam = result.camera;

@@ -31,6 +31,7 @@
 #include <QJsonArray>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QSignalSpy>
 #include <QUuid>
 #include <QSettings>
 
@@ -84,7 +85,7 @@ void TestAnnotations::nativeSavedViews()
   QVERIFY(source.open(QIODevice::WriteOnly)); source.write("cube([10,5,3]);"); source.close();
   window->tabManager->open(source.fileName());
   auto editor = window->activeEditor;
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   window->qglview->viewAll();
   QTRY_VERIFY(!window->qglview->navigation()->animating());
   auto controller = window->annotationController;
@@ -205,7 +206,7 @@ void TestAnnotations::directHttpWorkflow()
   QVERIFY(source.open(QIODevice::WriteOnly)); source.write("cube([10,5,3]);"); source.close();
   window->designActionAutoReload->setChecked(false);
   window->tabManager->open(source.fileName());
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   window->qglview->viewAll();
   auto bridge = AgentAnnotations::Bridge::instance();
   bridge->start(false);
@@ -262,7 +263,7 @@ void TestAnnotations::guardedViewport()
   window->tabManager->actionNew();
   auto editor = window->activeEditor;
   editor->setPlainText("difference(){cube(10,center=true); cylinder(h=20,r=3,center=true);}");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   window->qglview->viewAll();
   QTRY_VERIFY(!window->qglview->navigation()->animating());
   auto controller = window->annotationController;
@@ -330,7 +331,7 @@ void TestAnnotations::modelInspection()
   auto editor = window->activeEditor;
   editor->setPlainText("module part(s) { translate([s,0,0]) cube(s); }\n"
     "!difference() { for (s=[2:4]) part(s); #sphere(1); %cube(8); } *cube(99);\n");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   auto bridge = AgentAnnotations::Bridge::instance();
   bridge->start(false);
   QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
@@ -357,11 +358,11 @@ void TestAnnotations::modelInspection()
   const auto oldNode = agentRequest(info, "/v1/trees/" + treeId + "/nodes/1");
   editor->setPlainText("cube(7);");
   QVERIFY(agentRequest(info, "/v1/documents/" + editor->annotations->sessionId + "/parameters").value("stale_source").toBool());
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QVERIFY(window->annotationController->status().value("result").toObject().value("tree_id") != treeId);
   QCOMPARE(agentRequest(info, "/v1/trees/" + treeId + "/nodes/1"), oldNode);
   editor->setPlainText("");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   auto empty = window->annotationController->status().value("result").toObject();
   QVERIFY(agentRequest(info, "/v1/trees/" + empty.value("tree_id").toString()).value("empty").toBool());
   GroupNode wide(nullptr);
@@ -387,7 +388,7 @@ void TestAnnotations::sourceInspection()
   window->tabManager->open(file.fileName());
   auto editor = window->activeEditor;
   editor->setPlainText("echo(43); cube(3);\n");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   const auto camera = window->annotationController->camera();
   const auto before = window->annotationController->status().value("result");
   const auto dirty = editor->isContentModified(), undo = editor->canUndo();
@@ -428,7 +429,7 @@ void TestAnnotations::sourceInspection()
   body["request_id"] = QUuid::createUuid().toString(QUuid::WithoutBraces);
   QCOMPARE(agentRequest(info, route + "/source-snapshots", body).value("http_status").toInt(), 202);
   QTRY_COMPARE(agentRequest(info, "/v1/requests/" + body.value("request_id").toString()).value("state").toString(), QString("failed"));
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QCOMPARE(agentRequest(info, route + "/results").value("results"), results);
   auto attempts = agentRequest(info, route + "/attempts").value("attempts").toArray();
   QCOMPARE(attempts.last().toObject().value("outcome").toString(), QString("failed"));
@@ -483,7 +484,7 @@ void TestAnnotations::targetInspection()
   file.close();
   window->designActionAutoReload->setChecked(false);
   window->tabManager->open(path);
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   const auto first = window->activeEditor->annotations->sessionId;
   auto second = std::make_unique<MainWindow>(QStringList{path});
   second->designActionAutoReload->setChecked(false);
@@ -539,7 +540,7 @@ void TestAnnotations::syntaxInspection()
   auto editor = window->activeEditor;
   // The live result is deliberately different from the source being parsed.
   editor->setPlainText("cube(4);\n");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   const auto root = window->rootFile;
   const auto model = window->absoluteRootNode;
   const auto view = window->annotationController->status().value("result");
@@ -652,7 +653,7 @@ void TestAnnotations::syntaxInspection()
   QVERIFY(!agentRequest(info, nodePath + "/children").value("children").toArray().isEmpty());
   QCOMPARE(agentRequest(info, treePath + "/nodes/invalid").value("http_status").toInt(), 410);
   bridge->stop();
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QCOMPARE(window->annotationController->status().value("result").toObject().value("outcome").toString(), QString("installed"));
 }
 
@@ -777,7 +778,7 @@ void TestAnnotations::viewportWorkflow()
   editor->qsci->setReadOnly(false);
   editor->setPlainText(
     "difference(){cube([24,18,12],center=true); cylinder(h=20,r=4,center=true,$fn=48);}\n");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   auto controller = window->annotationController;
   QVERIFY(controller);
   controller->dock->show();
@@ -944,7 +945,7 @@ void TestAnnotations::agentAndAutomaticReload()
   QVERIFY(write(source, initial));
   window->tabManager->open(source);
   auto editor = window->activeEditor;
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   window->qglview->viewAll();
   auto controller = window->annotationController;
   QCOMPARE(controller->owner(), editor);
@@ -1077,6 +1078,11 @@ void TestAnnotations::agentAndAutomaticReload()
            editor->annotations->sessionId);
   QCOMPARE(controller->status().value("evaluation").toObject().value("outcome").toString(),
            QString("installed"));
+  // Publication can still have a pending layout/resize before the first paint.
+  // Capture a settled viewport; resize cancellation is a separate guarded behavior.
+  QSignalSpy firstFrame(window->qglview, &QGLView::frameRendered);
+  window->qglview->update();
+  QTRY_VERIFY_WITH_TIMEOUT(!firstFrame.isEmpty(), 6000);
   bool rendered = false;
   QString renderError;
   controller->capture(controller->status().value("result").toObject().value("result_id").toString(),
@@ -1087,7 +1093,7 @@ void TestAnnotations::agentAndAutomaticReload()
   QTRY_VERIFY_WITH_TIMEOUT(rendered || !renderError.isEmpty(), 6000);
   QVERIFY2(rendered, qPrintable(renderError));
   editor->setPlainText("");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QCOMPARE(controller->owner(), editor);
   QVERIFY(!controller->busy());
   QCOMPARE(controller->status().value("result").toObject().value("source_sha256").toString(),

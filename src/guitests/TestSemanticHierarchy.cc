@@ -118,6 +118,37 @@ void TestSemanticHierarchy::hierarchyAndTargets(){
   QVERIFY(controller->select({Semantic::TargetRole::Definition,"bracket"}));key={Semantic::TargetRole::Definition,"bracket"};QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);QCOMPARE(service->resolve(key).localBounds->max().x(),30.0);
   QVERIFY(controller->select({Semantic::TargetRole::Instance,"/pair"}));key={Semantic::TargetRole::Instance,"/pair"};QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);QCOMPARE(service->resolve(key).localBounds->max().x(),105.0);
 }
+void TestSemanticHierarchy::displayRefreshKeepsStrictEditGuards(){
+  QTemporaryDir directory;QVERIFY(directory.isValid());
+  const auto dependency=directory.filePath("width.scad");
+  auto write=[&](const QByteArray& bytes){QFile file(dependency);return file.open(QIODevice::WriteOnly) && file.write(bytes)==bytes.size();};
+  QVERIFY(write("width=30;\n"));
+  evaluate("include <"+dependency+">\n"+part+"@{type:Component,id:\"a\"} bracket(width);\n");
+  if(QTest::currentTestFailed())return;
+  auto *controller=window->semanticController;auto *service=controller->targetService();
+  const Semantic::TargetKey key{Semantic::TargetRole::Instance,"/a"};
+  QVERIFY(controller->select(key));
+  QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);
+  auto *binding=window->evaluationBinding;const auto stamp=binding->stamp();
+  const auto captured=binding->scene(stamp);QVERIFY(captured!=nullptr);
+  const auto source=window->activeEditor->toPlainText();
+  QVERIFY(write("width=40;\n"));
+  // No watcher delivery: repeated read-only panel refreshes retain the display.
+  for(int i=0;i<20;++i){
+    controller->refreshParameters();window->inspectorDock->refresh();
+    QVERIFY(service->displayCurrent(stamp));
+    QCOMPARE(service->resolveForDisplay(key).state,Design::ResolutionState::Resolved);
+    QVERIFY(controller->selectedTarget()==std::optional<Semantic::TargetKey>(key));
+  }
+  // Actions still reject changed disk contents before any event-loop turn.
+  QVERIFY(!service->validate(stamp));
+  QCOMPARE(service->resolve(key).state,Design::ResolutionState::Changed);
+  const auto& parameter=captured->semantic->instances.at("/a").parameters.at("width");
+  QString detail;
+  QVERIFY(!controller->parameterPanel()->applyCaptured(captured,stamp,key,parameter,Value(50.0),false,&detail));
+  QCOMPARE(window->activeEditor->toPlainText(),source);
+  QTRY_VERIFY(!service->displayCurrent(stamp));
+}
 void TestSemanticHierarchy::initializeUnstructuredModel(){
   window->inspectorDock->hide();
   auto preview=[&](const QString& source){window->activeEditor->setPlainText(source);QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),15000);QTRY_VERIFY(window->evaluationBinding->current());QTest::qWait(30);};

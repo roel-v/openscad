@@ -1,4 +1,5 @@
 #include "AgentModel.h"
+#include "core/EvaluationCancellation.h"
 #include "core/node.h"
 #include "core/primitives.h"
 #include "core/TransformNode.h"
@@ -45,6 +46,7 @@ InspectionTree inspectModel(const AbstractNode *root, const AbstractNode *effect
   // a conservative byte estimate can truncate earlier without dangling child references.
   constexpr int maxNodes = 12000;
   while (!queue.empty()) {
+    evaluationCheckpoint();
     const auto work = queue.front(); queue.pop_front();
     const auto p = work.node;
     if (p == effective) effectiveRoots.append(work.id);
@@ -104,6 +106,7 @@ InspectionTree inspectModel(const AbstractNode *root, const AbstractNode *effect
   std::set<const SourceFile *> visited;
   if (source) files.push_back(source);
   while (!files.empty() && dependencies.size() < 256) {
+    evaluationCheckpoint();
     const auto file = files.front(); files.pop_front();
     if (!visited.insert(file).second) continue;
     for (const auto& include : file->getIncludes()) {

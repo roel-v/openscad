@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -159,6 +160,7 @@ std::string AbstractIntersectionNode::name() const
 
 void AbstractNode::progress_prepare()
 {
+  evaluationCheckpoint();
   std::for_each(this->children.begin(), this->children.end(),
                 std::mem_fn(&AbstractNode::progress_prepare));
   this->progress_mark = ++progress_report_count;
@@ -188,7 +190,8 @@ std::shared_ptr<AbstractNode> find_root_tag(const std::shared_ptr<AbstractNode>&
 
   std::function<void(const std::shared_ptr<const AbstractNode>&)> recursive_find_tag =
     [&](const std::shared_ptr<const AbstractNode>& node) {
-      for (const auto& child : node->children) {
+        for (const auto& child : node->children) {
+          evaluationCheckpoint();
         if (child->modinst->tag_root) {
           if (!rootTag) {
             rootTag = child;

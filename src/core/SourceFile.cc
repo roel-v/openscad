@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -145,6 +146,7 @@ time_t SourceFile::handleDependencies(bool is_root)
   // as it will have a relative path.
   time_t latest = 0;
   for (auto filename : this->usedlibs) {
+    evaluationCheckpoint();
     auto found = true;
 
     // Get an absolute filename for the module

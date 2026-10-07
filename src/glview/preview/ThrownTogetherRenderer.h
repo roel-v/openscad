@@ -57,7 +57,7 @@ class ThrownTogetherRenderer : public VBORenderer
 public:
   ThrownTogetherRenderer(std::shared_ptr<CSGProducts> root_products,
                          std::shared_ptr<CSGProducts> highlight_products,
-                         std::shared_ptr<CSGProducts> background_products);
+                         std::shared_ptr<CSGProducts> background_products, TriangleStatistics triangles);
   ~ThrownTogetherRenderer() override = default;
   void prepare(const ShaderUtils::ShaderInfo *shaderinfo = nullptr) override;
   void draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo = nullptr) const override;

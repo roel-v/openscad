@@ -86,7 +86,7 @@ class OpenCSGRenderer : public VBORenderer
 public:
   OpenCSGRenderer(std::shared_ptr<CSGProducts> root_products,
                   std::shared_ptr<CSGProducts> highlights_products,
-                  std::shared_ptr<CSGProducts> background_products);
+                  std::shared_ptr<CSGProducts> background_products, TriangleStatistics triangles);
   ~OpenCSGRenderer() override = default;
   void prepare(const ShaderUtils::ShaderInfo *shaderinfo = nullptr) override;
   void draw(bool showedges, const ShaderUtils::ShaderInfo *shaderinfo = nullptr) const override;

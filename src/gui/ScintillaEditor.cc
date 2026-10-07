@@ -1769,22 +1769,12 @@ void ScintillaEditor::clearSelectionIndicators(int lineFrom, int colFrom, int li
   qsci->clearIndicatorRange(lineFrom, colFrom, lineTo, colTo, selectionIndicatorIsActiveNumber + 1);
 }
 
-void ScintillaEditor::correctUserVarNamesForCompletionFromSourceFile(
-  const SourceFile *sourceFile, bool flagAutoCompleteIncludeVariables,
-  bool flagAutoCompleteIncludeModules, bool flagAutoCompleteIncludeFunctions)
+void ScintillaEditor::setCompletionNames(QStringList names)
 {
-  api->correctUserVarNamesForCompletionFromSourceFile(sourceFile, flagAutoCompleteIncludeVariables,
-                                                      flagAutoCompleteIncludeModules,
-                                                      flagAutoCompleteIncludeFunctions);
+  api->setCompletionNames(std::move(names));
 }
 
-void ScintillaEditor::correctUserVarNamesForCompletionFromInputText(
-  bool flagAutoCompleteIncludeVariables, bool flagAutoCompleteIncludeModules,
-  bool flagAutoCompleteIncludeFunctions)
-{
-  api->correctUserVarNamesForCompletionFromInputText(
-    flagAutoCompleteIncludeVariables, flagAutoCompleteIncludeModules, flagAutoCompleteIncludeFunctions);
-}
+
 
 void ScintillaEditor::moveLineUp()
 {

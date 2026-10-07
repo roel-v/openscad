@@ -44,6 +44,7 @@ public:
   [[nodiscard]] const std::string& description() const { return description_; }
   [[nodiscard]] const std::string& group() const { return group_; }
   [[nodiscard]] const Location& location() const { return location_; }
+  bool sameDefinition(const ParameterObject& other) const;
   void setLocation(const Location& location) { location_ = location; }
 
   virtual void reset() = 0;

@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 #include "gui/ScadApi.h"
 
 #include <QDir>
@@ -158,14 +159,14 @@ QStringList ScadApi::callTips(const QStringList& context, int /*commas*/,
   return callTips;
 }
 
-void ScadApi::correctUserVarNamesForCompletionFromSourceFile(const SourceFile *sourceFile,
+QStringList ScadApi::completionFromSource(const SourceFile *sourceFile,
                                                              bool flagAutoCompleteIncludeVariables,
                                                              bool flagAutoCompleteIncludeModules,
                                                              bool flagAutoCompleteIncludeFunctions)
 {
-  if (!sourceFile) return;
+  if (!sourceFile) return {};
 
-  userVariableNames.clear();
+  QStringList userVariableNames;
 
   if (flagAutoCompleteIncludeVariables) {
     for (const auto& assignment : sourceFile->scope->assignments) {
@@ -179,24 +180,26 @@ void ScadApi::correctUserVarNamesForCompletionFromSourceFile(const SourceFile *s
     }
   }
 
-  if (flagAutoCompleteIncludeModules) {
+  if (flagAutoCompleteIncludeFunctions) {
     for (const auto& [modname, mod] : sourceFile->scope->getUserFunctions()) {
       userVariableNames << QString::fromStdString(modname);
     }
   }
 
   userVariableNames.removeDuplicates();
+  return userVariableNames;
 }
 
-void ScadApi::correctUserVarNamesForCompletionFromInputText(bool flagAutoCompleteIncludeVariables,
+QStringList ScadApi::completionFromText(const QString& text, bool flagAutoCompleteIncludeVariables,
                                                             bool flagAutoCompleteIncludeModules,
                                                             bool flagAutoCompleteIncludeFunctions)
 {
-  const QString text = editor->toPlainText();
+
 
   auto fnCollectName = [&text](const QRegularExpression& re, QStringList& target) {
     auto it = re.globalMatch(text);
     while (it.hasNext()) {
+      evaluationCheckpoint();
       auto match = it.next();
       const QString name = match.captured(1);
       if (!name.isEmpty()) {
@@ -205,7 +208,7 @@ void ScadApi::correctUserVarNamesForCompletionFromInputText(bool flagAutoComplet
     }
   };
 
-  userVariableNames.clear();
+  QStringList userVariableNames;
 
   static QRegularExpression const varPattern(R"(^\s*([a-zA-Z_\$][a-zA-Z0-9_]*)\s*=\s*(?!function\b))",
                                              QRegularExpression::MultilineOption);
@@ -227,4 +230,5 @@ void ScadApi::correctUserVarNamesForCompletionFromInputText(bool flagAutoComplet
   }
 
   userVariableNames.removeDuplicates();
+  return userVariableNames;
 }

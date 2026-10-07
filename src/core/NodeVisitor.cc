@@ -1,4 +1,5 @@
 #include "core/NodeVisitor.h"
+#include "core/EvaluationCancellation.h"
 
 #include "core/BaseVisitable.h"
 #include "core/State.h"
@@ -8,6 +9,7 @@ State NodeVisitor::nullstate(nullptr);
 
 Response NodeVisitor::traverse(const AbstractNode& node, const State& state)
 {
+  evaluationCheckpoint();
   State newstate = state;
   newstate.setNumChildren(node.getChildren().size());
 

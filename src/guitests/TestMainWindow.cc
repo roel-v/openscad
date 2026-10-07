@@ -61,13 +61,15 @@ void TestMainWindow::checkOpenTabPropagateToWindow()
 void TestMainWindow::checkSaveToShouldUpdateWindowTitle()
 {
   restoreWindowInitialState();
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
 
   QString filename = fixturePath("basic-ux/empty.scad");
 
   // When we open a new file,
   window->tabManager->open(filename);
 
-  window->tabManager->saveAs(window->activeEditor, "test-tmp.scad");
+  QVERIFY(window->tabManager->saveAs(window->activeEditor, directory.filePath("test-tmp.scad")));
 
   // The window title must also have the name of open file
   QCOMPARE(window->windowTitle(), "test-tmp.scad");

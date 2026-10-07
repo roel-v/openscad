@@ -31,6 +31,7 @@
 #include <QJsonArray>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QSignalSpy>
 #include <QUuid>
 #include <QSettings>
 

@@ -2,6 +2,7 @@
 #include "core/semantic/SemanticEvaluation.h"
 #include "core/design/DesignKinds.h"
 #include "core/design/DesignCollector.h"
+#include "core/ModuleInstantiation.h"
 #include "utils/printutils.h"
 #include <set>
 using SemanticTest::Fixture;
@@ -10,6 +11,24 @@ using SemanticTest::pairDefinition;
 using SemanticTest::pair;
 
 namespace {struct ExtensionProbe : Design::Payload {std::vector<std::string> owners,defaultContexts;};}
+TEST_CASE("Semantic validity checks preserve diagnostics and finalized syntax snapshots", "[semantic-evaluation]") {
+  for (const auto& source : {std::string("cube(1);"), pair,
+      part + "@{type:Section} s={id:\"bracket\",origin:[0,0,0],normal:[0,0,1]};",
+      std::string("@{type:Section} s={id:\"s\",normal:[0,0,0]}; cube(1);")}) {
+    Fixture fixture; fixture.evaluate(source);
+    REQUIRE(fixture.session->semanticCollector->valid() == fixture.scene->valid());
+  }
+  Fixture fixture; fixture.evaluate("cube(1);");
+  const auto publishedCount = fixture.scene->syntax->sites().size();
+  auto& call = *fixture.parsed->scope->moduleInstantiations.front();
+  fixture.syntax->record(call, SourceProvenance::SiteKind::ModuleCall, "later-parser-work");
+  REQUIRE(fixture.syntax->sites().size() == publishedCount + 1);
+  SourceProvenance::ParseScope parsing(fixture.syntax.get());
+  const auto republished = fixture.session->semanticCollector->finish();
+  REQUIRE(republished->syntax->sites().size() == publishedCount);
+  REQUIRE(fixture.scene->syntax->sites().size() == publishedCount);
+}
+
 TEST_CASE("Consumer evaluation state publishes owned extensions for ordinary and semantic results", "[semantic-evaluation]") {
   Design::KindHandler handler;handler.name="SemanticExtensionProbe";handler.hosts={Design::DeclarationHost::Assignment};handler.scopes={Design::DeclarationScope::File,Design::DeclarationScope::Local};
   handler.decode=[](const Value&,const Design::DeclarationContext&){Design::DecodeResult result;result.payload=std::make_shared<Design::Payload>();return result;};handler.destination=Design::RecordDestination::Consumer;

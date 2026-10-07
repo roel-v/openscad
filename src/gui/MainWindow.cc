@@ -1785,11 +1785,16 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
 
   SourceFile *sourceFile;
   sourceFile = parse(sourceFile, fulltext, fname, fname, false) ? sourceFile : nullptr;
+  const std::shared_ptr<SourceFile> parsedSource(sourceFile);
 
   editor->resetHighlighting();
   if (sourceFile) {
     // add parameters as annotation in AST
     CommentParser::collectParameters(fulltext, sourceFile);
+    // Customizer's FileContext evaluates top-level assignments. Resolve use
+    // libraries first, inside the caller's evaluation scope, so those
+    // assignments can call library functions even with a fresh captured cache.
+    sourceFile->handleDependencies();
     editor->parameterWidget->setParameters(sourceFile, fulltext);
     editor->parameterWidget->applyParameters(sourceFile);
     editor->parameterWidget->setEnabled(true);
@@ -1798,7 +1803,7 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
     editor->parameterWidget->setEnabled(false);
   }
 
-  return std::shared_ptr<SourceFile>(sourceFile);
+  return parsedSource;
 }
 
 void MainWindow::parseTopLevelDocument()

@@ -1072,6 +1072,11 @@ void TestAnnotations::agentAndAutomaticReload()
            editor->annotations->sessionId);
   QCOMPARE(controller->status().value("evaluation").toObject().value("outcome").toString(),
            QString("installed"));
+  // Publication can still have a pending layout/resize before the first paint.
+  // Capture a settled viewport; resize cancellation is a separate guarded behavior.
+  QSignalSpy firstFrame(window->qglview, &QGLView::frameRendered);
+  window->qglview->update();
+  QTRY_VERIFY_WITH_TIMEOUT(!firstFrame.isEmpty(), 6000);
   bool rendered = false;
   QString renderError;
   controller->capture(controller->status().value("result").toObject().value("result_id").toString(),

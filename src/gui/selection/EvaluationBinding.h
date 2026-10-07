@@ -28,6 +28,8 @@ struct EvaluationBacking {
   std::shared_ptr<const FileContext> file;
 };
 struct EvaluatedScene {
+  // Optional inspection data is independent of geometry/input freshness.
+  bool inspectionPrepared = false;
   std::shared_ptr<const EvaluationBacking> backing;
   std::string documentPath;
   std::shared_ptr<const EvaluationInputs> inputs;
@@ -63,7 +65,13 @@ public:
   const Stamp& stamp() const { return installedStamp; }
   std::shared_ptr<const EvaluatedScene> scene(const Stamp& expected) const;
   QString staleReason() const { return reason; }
+  bool inspectionRequested(EditorInterface *editor) const;
+  bool inspectionReady() const;
+  void requestInspection(QObject *consumer, EditorInterface *editor);
+  void releaseInspection(QObject *consumer);
 signals:
+  // Emitted once a foreground/background evaluation attempt has terminated.
+  void evaluationFinished(EditorInterface *editor);
   void invalidated();
   void installed();
 private:
@@ -88,5 +96,10 @@ private:
   QFileSystemWatcher inputWatcher;
   void editorsChanged();
   bool diskInputsChanged = false;
+  struct InspectionRequest {
+    QPointer<EditorInterface> editor;
+    QMetaObject::Connection destroyed;
+  };
+  std::map<QObject *, InspectionRequest> inspectionRequests;
 };
 }

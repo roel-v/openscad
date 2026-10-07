@@ -10,6 +10,8 @@
 #include "gui/selection/ViewportToolRouter.h"
 #include "gui/selection/ViewportOverlays.h"
 #include "gui/selection/InspectorDock.h"
+#include "gui/QSettingsCached.h"
+#include <QScopeGuard>
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QScrollArea>
@@ -41,6 +43,39 @@ bool writeSource(const QString& path, const QByteArray& bytes)
   QFile file(path);
   return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
 }
+}
+
+void TestSelection::inspectionDemandLifetime()
+{
+  QSettingsCached settings;
+  const auto previous=settings.value("advanced/alwaysPrepareInspector");
+  const auto restore=qScopeGuard([&] {
+    if(previous.isValid())settings.setValue("advanced/alwaysPrepareInspector",previous);
+    else settings.remove("advanced/alwaysPrepareInspector");
+  });
+  settings.setValue("advanced/alwaysPrepareInspector",false);
+  window->inspectorDock->hide();
+  auto binding=window->evaluationBinding;
+  auto first=window->activeEditor;
+  auto consumer=std::make_unique<QObject>();
+  QVERIFY(!binding->inspectionRequested(first));
+  binding->requestInspection(consumer.get(),first);
+  QVERIFY(binding->inspectionRequested(first));
+  window->tabManager->createTab(QString());
+  auto second=window->activeEditor;
+  QVERIFY(first!=second);
+  QVERIFY(!binding->inspectionRequested(second));
+  QVERIFY(binding->inspectionRequested(first));
+  binding->requestInspection(consumer.get(),second);
+  QVERIFY(!binding->inspectionRequested(first));
+  QVERIFY(binding->inspectionRequested(second));
+  consumer.reset();
+  QVERIFY(!binding->inspectionRequested(second));
+  settings.setValue("advanced/alwaysPrepareInspector",true);
+  QVERIFY(binding->inspectionRequested(first));
+  QVERIFY(binding->inspectionRequested(second));
+}
+namespace {
 BoundingBox evaluatedBounds(const std::shared_ptr<const Selection::EvaluatedScene>& scene)
 {
   Tree tree(scene->root, scene->documentPath);

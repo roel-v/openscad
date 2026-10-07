@@ -46,6 +46,8 @@ struct Request {
 #endif
   ParameterSet parameters;
   bool strictParameters = false;
+  // Captured on the GUI thread. Workers must never consult preferences/widgets.
+  bool prepareInspection = false;
   RenderVariables variables{};
   RenderSettings settings = *RenderSettings::inst();
   QJsonObject metadata;

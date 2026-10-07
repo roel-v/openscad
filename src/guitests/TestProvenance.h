@@ -25,5 +25,6 @@ private:
   int previousBackend = 0;
   QVariant previousInspectorPreference;
   bool compile(const QString& source, bool final = false);
+  bool preview(bool final = false);
   std::optional<Selection::Hit> pick(const Vector3d& point);
 };

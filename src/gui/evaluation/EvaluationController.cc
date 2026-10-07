@@ -3,6 +3,7 @@
 #include "gui/OpenSCADApp.h"
 #include "gui/Editor.h"
 #include "gui/QGLView.h"
+#include "gui/CameraNavigation.h"
 #include "gui/ViewportStatistics.h"
 #include "gui/Animate.h"
 #include "gui/ViewportControl.h"
@@ -144,6 +145,10 @@ void Controller::request(EditorInterface *editor, Mode mode, bool automatic)
       (mode == Mode::Parameters || previous->second->request.mode == mode) &&
       configurationCurrent(previous->second->request) &&
       previous->second->request.variables.time == time && !previous->second->job->cancellation->load()) return;
+  // Freeze an explicit Preview/Render at its displayed camera before taking the snapshot.
+  // Reactive refreshes and metadata work must not interrupt navigation.
+  if (!automatic && mode != Mode::Parameters && editor == window->activeEditor)
+    window->qglview->navigation()->cancel();
   auto attempt = std::make_shared<Pending>();
   attempt->owner = editor;
   attempt->revision = editor->sourceRevision;

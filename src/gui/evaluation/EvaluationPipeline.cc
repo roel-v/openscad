@@ -101,8 +101,9 @@ void evaluate(const Request& request, Result& result, Job& job)
     backing.inputs->observeReads([validity = request.validity](const SourceInput& input) { validity->consume(input); });
   }
   backing.libraries = std::make_shared<SourceFileCache>(backing.inputs.get());
-  backing.syntax = std::make_shared<SourceProvenance::SyntaxTable>(backing.inputs);
-  SourceProvenance::ParseScope syntaxScope(backing.syntax.get());
+  if (request.prepareInspection)
+    backing.syntax = std::make_shared<SourceProvenance::SyntaxTable>(backing.inputs);
+  auto syntaxScope = std::make_unique<SourceProvenance::ParseScope>(backing.syntax.get());
   NativeEvaluationScope scope(*backing.inputs, *backing.libraries);
   auto fulltext = request.root.utf8 + "\n\x03\n" + request.definitions;
 #ifdef ENABLE_PYTHON
@@ -131,6 +132,25 @@ void evaluate(const Request& request, Result& result, Job& job)
   stage("Loading dependencies");
   parsed->handleDependencies();
   evaluationCheckpoint();
+  if (!backing.syntax && request.mode != Mode::Parameters && SourceProvenance::modelRequiresInspection(*parsed)) {
+    // Model structure requires mappings. Reparse the captured source closure
+    // with tracing before evaluating any geometry or applying Customizer values.
+    backing.parsedRoot.reset();
+    parsed = nullptr;
+    backing.libraries->clear();
+    syntaxScope.reset();
+    backing.syntax = std::make_shared<SourceProvenance::SyntaxTable>(backing.inputs);
+    syntaxScope = std::make_unique<SourceProvenance::ParseScope>(backing.syntax.get());
+    stage("Preparing model structure");
+    try { parsedOK = parse(parsed, fulltext, request.filename, request.filename, false); }
+    catch (...) { backing.parsedRoot.reset(parsed); throw; }
+    backing.parsedRoot.reset(parsed);
+    result.parserError = parser_error_pos;
+    evaluationCheckpoint();
+    if (!parsedOK || !parsed) return;
+    parsed->handleDependencies();
+    evaluationCheckpoint();
+  }
   CommentParser::collectParameters(fulltext, parsed);
   if (request.completionMode == "ParsedFileMode")
     result.completion = ScadApi::completionFromSource(parsed, request.completionVariables,
@@ -170,7 +190,8 @@ void evaluate(const Request& request, Result& result, Job& job)
     stage("Evaluating language");
     AbstractNode::resetIndexCounter();
     backing.session = std::make_shared<EvaluationSession>(directory);
-    backing.session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(backing.syntax);
+    if (backing.syntax)
+      backing.session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(backing.syntax);
     ContextHandle<BuiltinContext> builtin{Context::create<BuiltinContext>(backing.session.get())};
     backing.builtin = *builtin;
     request.variables.applyToContext(builtin);
@@ -185,7 +206,8 @@ void evaluate(const Request& request, Result& result, Job& job)
     if (otherRoot) LOG(message_group::NONE, *otherRoot, builtin->documentRoot(),
                        "More than one Root Modifier (!)");
     if (!result.root || result.errors) return;
-    auto provenance = backing.session->provenanceCollector->finish(*result.root);
+    auto provenance = backing.session->provenanceCollector ?
+      backing.session->provenanceCollector->finish(*result.root) : nullptr;
     result.camera = request.variables.camera;
     if (backing.file) result.camera.updateView(backing.file, false);
     Tree tree(result.root, directory);
@@ -215,12 +237,14 @@ void evaluate(const Request& request, Result& result, Job& job)
       stage("Generating CSG");
       CSGTreeEvaluator csg(tree, &geometry);
       result.csg = csg.buildCSGTree(*result.root);
-      std::vector<std::shared_ptr<CSGNode>> provenanceRoots{result.csg};
-      const auto& highlightRoots = csg.getHighlightNodes();
-      const auto& backgroundRoots = csg.getBackgroundNodes();
-      provenanceRoots.insert(provenanceRoots.end(), highlightRoots.begin(), highlightRoots.end());
-      provenanceRoots.insert(provenanceRoots.end(), backgroundRoots.begin(), backgroundRoots.end());
-      provenance = provenance->withPreview(provenanceRoots);
+      if (provenance) {
+        std::vector<std::shared_ptr<CSGNode>> provenanceRoots{result.csg};
+        const auto& highlightRoots = csg.getHighlightNodes();
+        const auto& backgroundRoots = csg.getBackgroundNodes();
+        provenanceRoots.insert(provenanceRoots.end(), highlightRoots.begin(), highlightRoots.end());
+        provenanceRoots.insert(provenanceRoots.end(), backgroundRoots.begin(), backgroundRoots.end());
+        provenance = provenance->withPreview(provenanceRoots);
+      }
       stage("Normalizing CSG");
       CSGTreeNormalizer normalizer(2 * request.csgLimit);
       auto products = [&](const auto& nodes) {
@@ -245,6 +269,7 @@ void evaluate(const Request& request, Result& result, Job& job)
     result.scene = std::make_shared<Selection::EvaluatedScene>();
     result.scene->backing = result.backing;
     result.scene->provenance = std::move(provenance);
+    result.scene->inspectionPrepared = bool(result.scene->provenance);
     result.scene->semantic = backing.session->semanticCollector->finish();
     result.scene->designObjects = backing.session->designCollector->finish();
     result.scene->inputs = backing.inputs;

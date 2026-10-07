@@ -22,6 +22,31 @@
 #include "utils/printutils.h"
 
 namespace Semantic {
+namespace {
+bool markedScope(const LocalScope& scope) {
+  for (const auto& [name, module] : scope.getModuleDeclarations())
+    if (module->nativeAttributes || markedScope(*module->body)) return true;
+  for (const auto& call : scope.moduleInstantiations) {
+    if (call->nativeAttributes || markedScope(*call->scope)) return true;
+    const auto *branch = dynamic_cast<const IfElseModuleInstantiation *>(call.get());
+    if (branch && branch->getElseScope() && markedScope(*branch->getElseScope())) return true;
+  }
+  return false;
+}
+bool markedFile(const SourceFile& file, std::set<const SourceFile *>& visited) {
+  if (!visited.insert(&file).second) return false;
+  if (markedScope(*file.scope)) return true;
+  for (const auto& path : file.usedlibs)
+    if (auto *library = SourceFileCache::instance()->lookup(path); library && markedFile(*library, visited)) return true;
+  return false;
+}
+[[maybe_unused]] const bool registeredInspectionRequirement =
+  SourceProvenance::registerModelRequirement(&Collector::requiresInspection);
+}
+bool Collector::requiresInspection(const SourceFile& root) {
+  std::set<const SourceFile *> visited;
+  return markedFile(root, visited);
+}
 Collector::Collector(EvaluationSession& session) : session(session) { registerKinds(); scene.documentPath = session.documentRoot(); }
 Design::DeclarationKey Collector::sourceKey(const ASTNode& node, Design::DeclarationHost host, const std::string& name) const {
   Design::DeclarationKey key{"", "", name, host};
@@ -41,7 +66,7 @@ void Collector::error(const std::string& code, const std::string& message, const
 }
 void Collector::discover(const SourceFile& root) {
   document = nativeEvaluationInputs ? nativeEvaluationInputs->root().fileKey : EvaluationInputs::fileKey(root.getFullpath());
-  if (SourceProvenance::nativeSyntaxTable) scene.inputs = SourceProvenance::nativeSyntaxTable->inputs();
+  scene.inputs = SourceProvenance::nativeSyntaxTable ? SourceProvenance::nativeSyntaxTable->inputs() : session.capturedInputs;
   discoverFile(root, false);
 }
 std::shared_ptr<AbstractNode> Collector::instantiateDefaults(const Definition& target, const std::shared_ptr<const Context>& lexicalContext) {

@@ -6,6 +6,7 @@
 #include "gui/selection/EvaluationBinding.h"
 #include "gui/InspectionPresentationController.h"
 #include "gui/QGLView.h"
+#include "gui/QSettingsCached.h"
 #include "gui/ScintillaEditor.h"
 #include "gui/parameter/ParameterWidget.h"
 #include "core/SourceFile.h"
@@ -123,8 +124,26 @@ void TestContextualInsertion::initTestCase(){previousBackend=int(RenderSettings:
   connect(window->evaluationBinding,&Selection::EvaluationBinding::invalidated,this,[]{traceEvent("evaluationInvalidated");});
   connect(window->inspectionPresentation,&InspectionPresentationController::draftDisplayChanged,this,[](bool active,bool pixels){traceEvent(QString("draft active=%1 pixels=%2").arg(active).arg(pixels));});
 }
-void TestContextualInsertion::init(){QApplication::setActiveWindow(window);originalTabs=window->tabManager->editorList;window->tabManager->actionNew();window->activeEditor->setPlainText("cube(10);\n");QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty() && !GuiLocker::isLocked(),20000);QVERIFY(window->evaluationBinding->current());window->activeEditor->clearUndoHistory();traceConnection=connect(window->insertionController,&Controller::changed,this,[this]{QFile trace(qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT")+"/insertion-trace.log");if(trace.open(QIODevice::Append)){auto controller=window->insertionController;trace.write(QString("%1: %2 / %3\n").arg(int(controller->state())).arg(controller->message(),window->statusBar()->currentMessage()).toUtf8());}});}
-void TestContextualInsertion::cleanup(){disconnect(traceConnection);window->insertionController->cancel();window->inspectionPresentation->cancelDraft();while(window->tabManager->editorList.size()>originalTabs.size()){while(originalTabs.contains(window->activeEditor))window->tabManager->nextTab();SavedViews::forEditor(window->activeEditor)->load(window->activeEditor->filepath);window->activeEditor->annotations->load(window->activeEditor->filepath+".annotations");window->activeEditor->parameterWidget->setModified(false);window->activeEditor->setContentModified(false);window->tabManager->closeCurrentTab();}fixtureFolder.reset();}
+void TestContextualInsertion::init(){previousInspectorPreference=QSettingsCached().value("advanced/alwaysPrepareInspector");QSettingsCached().setValue("advanced/alwaysPrepareInspector",true);QApplication::setActiveWindow(window);originalTabs=window->tabManager->editorList;window->tabManager->actionNew();window->activeEditor->setPlainText("cube(10);\n");QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty() && !GuiLocker::isLocked(),20000);QVERIFY(window->evaluationBinding->current());window->activeEditor->clearUndoHistory();traceConnection=connect(window->insertionController,&Controller::changed,this,[this]{QFile trace(qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT")+"/insertion-trace.log");if(trace.open(QIODevice::Append)){auto controller=window->insertionController;trace.write(QString("%1: %2 / %3\n").arg(int(controller->state())).arg(controller->message(),window->statusBar()->currentMessage()).toUtf8());}});}
+void TestContextualInsertion::cleanup(){if(previousInspectorPreference.isValid())QSettingsCached().setValue("advanced/alwaysPrepareInspector",previousInspectorPreference);else QSettingsCached().remove("advanced/alwaysPrepareInspector");disconnect(traceConnection);window->insertionController->cancel();window->inspectionPresentation->cancelDraft();while(window->tabManager->editorList.size()>originalTabs.size()){while(originalTabs.contains(window->activeEditor))window->tabManager->nextTab();SavedViews::forEditor(window->activeEditor)->load(window->activeEditor->filepath);window->activeEditor->annotations->load(window->activeEditor->filepath+".annotations");window->activeEditor->parameterWidget->setModified(false);window->activeEditor->setContentModified(false);window->tabManager->closeCurrentTab();}fixtureFolder.reset();}
+void TestContextualInsertion::preparesInspectionOnDemand(){
+  QSettingsCached().setValue("advanced/alwaysPrepareInspector",false);
+  QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();
+  QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),20000);
+  auto binding=window->evaluationBinding;auto controller=window->insertionController;
+  QVERIFY(!binding->inspectionReady());
+  QVERIFY(controller->add());QCOMPARE(controller->state(),Controller::State::Preparing);
+  controller->cancel(); // Cancels the queued request before it can change the display.
+  QVERIFY(!binding->inspectionRequested(window->activeEditor));
+  QTest::qWait(20);QVERIFY(!binding->inspectionReady());
+  QVERIFY(controller->add());
+  QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Picking,20000);
+  QVERIFY(binding->inspectionReady());
+  QVERIFY(binding->inspectionRequested(window->activeEditor));
+  controller->cancel();QVERIFY(!binding->inspectionRequested(window->activeEditor));
+  done.clear();window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),20000);
+  QVERIFY(!binding->inspectionReady());
+}
 void TestContextualInsertion::cleanupTestCase(){RenderSettings::inst()->backend3D=RenderBackend3D(previousBackend);QVERIFY2(criticalErrors.empty(),qPrintable(criticalErrors.join("\n")));}
 void TestContextualInsertion::isolatedCandidatePreservesLiveBase(){
   auto editor=window->activeEditor;auto bytes=editor->toPlainText();auto revision=editor->sourceRevision;auto stamp=window->evaluationBinding->stamp();auto scene=window->evaluationBinding->scene(stamp);auto renderer=window->qglview->renderer;QObject owner;std::optional<PreviewResponse> result;

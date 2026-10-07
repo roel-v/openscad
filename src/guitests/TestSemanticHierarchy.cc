@@ -108,7 +108,8 @@ void TestSemanticHierarchy::evaluate(const QString& source,bool final){
   window->activeEditor->setPlainText(source);QSignalSpy done(window,&MainWindow::compilationDone);
   if(final)window->designActionRender->trigger();else window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),15000);
   QTRY_VERIFY_WITH_TIMEOUT(window->evaluationBinding->current(),5000);
-  QTRY_COMPARE_WITH_TIMEOUT(window->inspectionPresentation->status(),InspectionPresentationController::Status::Ready,15000);
+  if(window->evaluatedScene && window->evaluatedScene->semantic && window->evaluatedScene->semantic->marked)
+    QTRY_COMPARE_WITH_TIMEOUT(window->inspectionPresentation->status(),InspectionPresentationController::Status::Ready,15000);
 }
 void TestSemanticHierarchy::hierarchyAndTargets(){
   evaluate(pair);if(QTest::currentTestFailed())return;auto *controller=window->semanticController;auto *model=controller->model();

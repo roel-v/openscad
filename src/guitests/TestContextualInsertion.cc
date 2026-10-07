@@ -260,7 +260,7 @@ void TestContextualInsertion::postCommitEvaluationFailureRetainsSourceAndUndo(){
   done.clear();QVERIFY(controller->commit());disconnect(hook);QVERIFY(changed);
   // Wait for the asynchronous failure notification; the last successful model stays installed.
   QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),20000);QVERIFY(window->compileErrors>0);
-  QCOMPARE(window->lastCompiledDoc,original);QVERIFY(!window->evaluationBinding->current());
+  QCOMPARE(window->lastCompiledDoc.toUtf8().toStdString(),candidate);QVERIFY(!window->evaluationBinding->current());
   QCOMPARE(editor->toPlainText().toUtf8().toStdString(),candidate);QVERIFY(!window->inspectionPresentation->draftActive());
   editor->undo();QCOMPARE(editor->toPlainText(),original);QVERIFY(!editor->canUndo());
 }

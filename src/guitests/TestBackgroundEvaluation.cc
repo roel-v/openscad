@@ -276,6 +276,7 @@ void TestBackgroundEvaluation::failedPreviewRetainsLastDisplay()
   editor->setPlainText("cube(;\n");
   window->on_designActionPreview_triggered();
   QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty(), 10000);
+  QCOMPARE(window->lastCompiledDoc, QString("cube(;\n"));
   QCOMPARE(window->qglview->renderer, renderer);
   QCOMPARE(window->evaluatedScene, scene);
   QVERIFY(!window->evaluationBinding->current());

@@ -356,7 +356,8 @@ EditorInterface *Controller::actionOwner() const
 }
 bool Controller::busy() const
 {
-  return drafting() || capturePending || !evaluation.isEmpty() || GuiLocker::isLocked();
+  return drafting() || capturePending || !evaluation.isEmpty() || GuiLocker::isLocked() ||
+         (window->backgroundEvaluation && window->backgroundEvaluation->busy());
 }
 void Controller::updateActions()
 {

@@ -182,7 +182,7 @@ void TestNavigation::savedViewDocumentLifecycle()
   QVERIFY(window->tabManager->refreshDocument()); QVERIFY(editor->hasViewChanges());
   QCOMPARE(store->find(id)->name,QString("Unsaved copy"));
   QVERIFY(window->tabManager->saveAll()); QVERIFY(!editor->hasViewChanges());
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QTRY_COMPARE(window->displayedDocument(),editor);
   auto popup=window->findChild<ViewportPopup *>(); popup->toggle();
   QTRY_VERIFY(popup->addView->isEnabled());
@@ -258,7 +258,7 @@ void TestNavigation::nativeOverlayComposition()
   const bool wasModified = editor->isContentModified();
   editor->setPlainText("$vpr=[30,0,50]; cube([30,15,8]); translate([25,0,8]) sphere(7);");
   QSignalSpy compilation(window, &MainWindow::compilationDone);
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QTRY_VERIFY(!compilation.isEmpty());
   QVERIFY(view->getRenderer());
   QCOMPARE(window->displayedDocument(), editor);
@@ -469,7 +469,7 @@ void TestNavigation::interruptibleTransitions()
   QVERIFY(view->cam.object_rot==Eigen::Vector3d(12,34,56));
   QVERIFY(!nav->animating());
   // Unchanged automatic-reload polls must not interrupt an in-flight camera operation.
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   window->actionReloadRenderPreview();
   nav->settings.duration=350;
   nav->navigate(target);
@@ -482,7 +482,7 @@ void TestNavigation::interruptibleTransitions()
   QVERIFY2(nav->current()==target,"Periodic automatic reload prevented the exact camera endpoint");
   nav->navigate(original);
   QTest::qWait(30);
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QVERIFY2(!nav->animating(),"An explicit preview must still cancel pending camera movement");
   nav->settings.animate=false;
   nav->apply(original,false);
@@ -660,7 +660,7 @@ void TestNavigation::visualCalibrationAndClose()
   window->tabManager->createTab("");
   auto editor=window->activeEditor;
   editor->setPlainText("difference(){cube([24,18,12],center=true);cylinder(h=20,r=4,center=true,$fn=32);}\n");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   auto view=window->qglview;
   view->navigation()->settings.animate=false;
   view->viewAll();
@@ -717,7 +717,7 @@ void TestNavigation::statisticsAndCleanCapture()
   window->tabManager->createTab("");
   auto editor=window->activeEditor;
   editor->setPlainText("cube(10); translate([15,0,0]) cube(10);\n");
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   auto view=window->qglview;
   QTRY_VERIFY(view->getRenderer());
   const auto statistics=view->getRenderer()->triangleStatistics();
@@ -764,7 +764,7 @@ void TestNavigation::statisticsAndCleanCapture()
   QVERIFY(animation);
   animation->e_dump->setChecked(true);
   animation->animateTimer->start(60000);
-  window->actionRenderPreview();
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   animation->animateTimer->stop();
   animation->e_dump->setChecked(false);
   const auto frames=QDir(animationOutput.path()).entryList({"frame*.png"},QDir::Files);
@@ -806,11 +806,11 @@ void TestNavigation::resultStatisticsStates()
   auto editor=window->activeEditor;
   auto view=window->qglview;
   view->navigation()->settings.setTemporary("showInformation",true);
-  editor->setPlainText("square(10);\n");window->actionRenderPreview();
+  editor->setPlainText("square(10);\n");window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QTRY_VERIFY(view->getRenderer());
   QCOMPARE(view->getRenderer()->triangleStatistics().dimension,2);
   view->statistics()->refresh();QVERIFY(view->statistics()->text().contains("2D"));
-  editor->setPlainText("cube(10);\n");window->actionRenderPreview();
+  editor->setPlainText("cube(10);\n");window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QTRY_COMPARE(window->displayedDocument(),editor);
   QCOMPARE(*view->getRenderer()->triangleStatistics().count,uint64_t(12));
   const auto oldBackend=RenderSettings::inst()->backend3D;
@@ -819,10 +819,10 @@ void TestNavigation::resultStatisticsStates()
   QTRY_VERIFY_WITH_TIMEOUT(view->getRenderer() && view->getRenderer()->triangleStatistics().kind==Renderer::TriangleStatistics::Kind::Final,10000);
   QCOMPARE(*view->getRenderer()->triangleStatistics().count,uint64_t(12));
   RenderSettings::inst()->backend3D=oldBackend;
-  editor->setPlainText("invalid syntax ?\n");window->actionRenderPreview();
+  editor->setPlainText("invalid syntax ?\n");window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QTRY_VERIFY(view->statistics()->text().contains("failed"));
   QCOMPARE(window->displayedDocument(),editor);
-  editor->setPlainText("");window->actionRenderPreview();
+  editor->setPlainText("");window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   QTRY_COMPARE(window->displayedDocument(),editor);
   const auto empty=view->getRenderer();
   QVERIFY(empty);QVERIFY(empty->triangleStatistics().count.has_value());

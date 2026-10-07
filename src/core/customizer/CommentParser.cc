@@ -100,6 +100,7 @@ static std::string getComment(const std::string& fulltext, int line)
 
   std::size_t end = start + 1;
   while (end < fulltext.size() && fulltext[end] != '\n') end++;
+  if (end > start && fulltext[end - 1] == '\r') --end;
 
   std::string comment = fulltext.substr(start, end - start);
 
@@ -107,7 +108,7 @@ static std::string getComment(const std::string& fulltext, int line)
   unsigned int startText = 0;
   int noOfSemicolon = 0;
   bool inString = false;
-  for (; startText < comment.length() - 1; ++startText) {
+  for (; startText + 1 < comment.length(); ++startText) {
     if (inString && comment.compare(startText, 2, "\\\"") == 0) {
       startText++;
       continue;
@@ -147,11 +148,11 @@ static std::string getDescription(const std::string& fulltext, int line)
   start = start + 2;
 
   // Jump over all the spaces
-  while (fulltext[start] == ' ' || fulltext[start] == '\t') start++;
+  while (start < fulltext.size() && (fulltext[start] == ' ' || fulltext[start] == '\t')) start++;
   std::string retString = "";
 
   // go till the end of the line
-  while (fulltext[start] != '\n') {
+  while (start < fulltext.size() && fulltext[start] != '\n') {
     // replace // with space
     if (fulltext.compare(start, 2, "//") == 0) {
       retString += " ";
@@ -161,6 +162,7 @@ static std::string getDescription(const std::string& fulltext, int line)
     }
     start++;
   }
+  if (!retString.empty() && retString.back() == '\r') retString.pop_back();
   return retString;
 }
 

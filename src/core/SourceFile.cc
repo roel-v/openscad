@@ -197,8 +197,8 @@ std::shared_ptr<AbstractNode> SourceFile::instantiate(
   auto semantic = context->session()->semanticCollector;
   semantic->discover(*this);
   auto validateSemantic = [&]() {
-    auto scene = semantic->finish();
-    if (!scene->valid()) {
+    if (!semantic->valid()) {
+      auto scene = semantic->finish();
       for (const auto& diagnostic : scene->diagnostics)
         LOG(message_group::Error, "Semantic %1$s: %2$s [%3$s]", diagnostic.code, diagnostic.message,
             diagnostic.source ? diagnostic.source->fileKey : getFullpath());

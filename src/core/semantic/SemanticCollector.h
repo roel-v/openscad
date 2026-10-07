@@ -15,6 +15,7 @@ public:
   bool validateCall(const ModuleInstantiation&, const AbstractModule *, const std::shared_ptr<const Context>&);
   void captureComponent(Design::Record, const Design::EvaluatedDeclaration&);
   std::shared_ptr<const Scene> finish() const;
+  bool valid() const;
   const Definition *definition(const UserModule&) const;
   class Frame {
   public:

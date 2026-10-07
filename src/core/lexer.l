@@ -38,6 +38,7 @@
 #include "core/parsersettings.h"
 #include "core/ParserInspection.h"
 #include "core/EvaluationInputs.h"
+#include "core/EvaluationCancellation.h"
 #include "core/Assignment.h"
 #include "parser.hxx"
 #include "core/SourceFile.h"
@@ -57,7 +58,8 @@ extern const char *parser_input_buffer;
 extern SourceFile *rootfile;
 
 #define YY_INPUT(buf,result,max_size) {   \
-  if (yyin && yyin != stdin) {            \
+  if (evaluationCancelled()) { result = YY_NULL; } \
+  else if (yyin && yyin != stdin) {       \
     int c = fgetc(yyin);                  \
     if (c >= 0) {                         \
       result = 1;                         \
@@ -96,7 +98,7 @@ extern YYLTYPE parserlloc;
         } \
     }
 
-#define YY_USER_ACTION parserlloc.last_column += yyleng;
+#define YY_USER_ACTION if (evaluationCancelled()) return 0; parserlloc.last_column += yyleng;
 
 extern void parsererror(char const *s);
 void to_utf8(const char *, char *);

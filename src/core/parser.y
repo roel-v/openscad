@@ -1061,9 +1061,10 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
   lexerlex_destroy();
 
   file = rootfile;
-  if (parserretval != 0) {
+  if (parserretval != 0 || evaluationCancelled()) {
     // Clear scope_stack when parsing aborted
     scope_stack = {};
+    parser_input_buffer = nullptr;
     return false;
   }
 
@@ -1078,7 +1079,7 @@ bool parse(SourceFile *&file, const std::string& text, const std::string &filena
 bool parseInspection(SourceFile *&file, const std::string& text, const std::string& filename,
                      ParserInspection& inspection)
 {
-  // A native parser frame cannot be suspended. The caller must hold the GUI compile lock.
+  // A native parser frame cannot be suspended. Hold the native execution gate.
   if (parserInspection || !scope_stack.empty()) return false;
   extern std::function<void()> preserveLexerInspectionState();
   const auto restoreLexer = preserveLexerInspectionState();

@@ -1,6 +1,7 @@
 #include "gui/SavedViews.h"
 #include "gui/ViewportStatistics.h"
 #include "gui/TabManager.h"
+#include "gui/evaluation/EvaluationController.h"
 
 #include <QApplication>
 #include <QStringBuilder>
@@ -206,8 +207,10 @@ void TabManager::createTab(const QString& filename)
   editor = scintillaEditor;
   parent->activeEditor = editor;
   editor->parameterWidget = new ParameterWidget(parent->parameterDock);
-  connect(editor->parameterWidget, &ParameterWidget::parametersChanged, parent,
-          &MainWindow::actionRenderPreview);
+  connect(editor->parameterWidget, &ParameterWidget::parametersChanged, parent, [parent = parent, editor = editor] {
+    if (parent->backgroundEvaluation)
+      parent->backgroundEvaluation->request(editor, BackgroundEvaluation::Mode::Preview, true);
+  });
   parent->parameterDock->setWidget(editor->parameterWidget);
 
   // clearing default mapping of keyboard shortcut for font size

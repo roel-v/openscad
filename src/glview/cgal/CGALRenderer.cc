@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -61,42 +62,29 @@
 #include "geometry/manifold/ManifoldGeometry.h"
 #endif
 
-CGALRenderer::CGALRenderer(const std::shared_ptr<const class Geometry>& geom)
+CGALRenderer::CGALRenderer(const std::shared_ptr<const Geometry>& geom)
+  : CGALRenderer(prepareGeometry(geom, ColorMap::instance().defaultColorScheme()))
 {
-  this->addGeometry(geom);
-  PRINTD("CGALRenderer::CGALRenderer() -> createPolyhedrons()");
-#ifdef ENABLE_CGAL
-  if (!this->nefPolyhedrons_.empty() && this->polyhedrons_.empty()) createPolyhedrons();
-#endif
 }
 
-void CGALRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)
+void CGALRenderer::PreparedGeometry::add(const std::shared_ptr<const Geometry>& geom, const ColorScheme& colors)
 {
-  if (const auto geomlist = std::dynamic_pointer_cast<const GeometryList>(geom)) {
-    for (const auto& item : geomlist->getChildren()) {
-      this->addGeometry(item.second);
-    }
-  } else if (const auto ps = std::dynamic_pointer_cast<const PolySet>(geom)) {
-    assert(ps->getDimension() == 3);
-    // We need to tessellate here, in case the generated PolySet contains
-    // concave polygons See
-    // tests/data/scad/3D/features/polyhedron-concave-test.scad
-    this->polysets_.push_back(PolySetUtils::tessellate_faces(*ps));
-  } else if (const auto poly = std::dynamic_pointer_cast<const Polygon2d>(geom)) {
-    this->polygons_.emplace_back(poly, std::shared_ptr<const PolySet>(poly->tessellate()));
+  evaluationCheckpoint();
+  if (const auto list = std::dynamic_pointer_cast<const GeometryList>(geom)) {
+    for (const auto& item : list->getChildren()) add(item.second, colors);
 #ifdef ENABLE_CGAL
-  } else if (const auto new_N = std::dynamic_pointer_cast<const CGALNefGeometry>(geom)) {
-    assert(new_N->getDimension() == 3);
-    if (!new_N->isEmpty()) {
-      this->nefPolyhedrons_.push_back(new_N);
+  } else if (const auto nef = std::dynamic_pointer_cast<const CGALNefGeometry>(geom)) {
+    if (!nef->isEmpty()) {
+      nefs.push_back(nef);
+      auto polyhedron = std::make_shared<VBOPolyhedron>(colors);
+      CGAL::OGL::Nef3_Converter<CGAL_Nef_polyhedron3>::convert_to_OGLPolyhedron(*nef->p3, polyhedron.get());
+      polyhedrons.push_back(std::move(polyhedron));
     }
-#endif
-#ifdef ENABLE_MANIFOLD
-  } else if (const auto mani = std::dynamic_pointer_cast<const ManifoldGeometry>(geom)) {
-    this->polysets_.push_back(mani->toPolySet());
 #endif
   } else {
-    assert(false && "unsupported geom in CGALRenderer");
+    auto prepared = PolySetRenderer::prepareGeometry(geom);
+    polysets.insert(polysets.end(), prepared.polysets.begin(), prepared.polysets.end());
+    polygons.insert(polygons.end(), prepared.polygons.begin(), prepared.polygons.end());
   }
 }
 
@@ -107,17 +95,11 @@ CGALRenderer::~CGALRenderer()
 #ifdef ENABLE_CGAL
 void CGALRenderer::createPolyhedrons()
 {
-  PRINTD("createPolyhedrons");
-  this->polyhedrons_.clear();
-  for (const auto& N : this->nefPolyhedrons_) {
-    auto p = std::make_shared<VBOPolyhedron>(*colorscheme_);
-    CGAL::OGL::Nef3_Converter<CGAL_Nef_polyhedron3>::convert_to_OGLPolyhedron(*N->p3, p.get());
-    // CGAL_NEF3_MARKED_FACET_COLOR <- CGAL_FACE_BACK_COLOR
-    // CGAL_NEF3_UNMARKED_FACET_COLOR <- CGAL_FACE_FRONT_COLOR
-    p->init();
-    this->polyhedrons_.push_back(p);
+  for (auto& polyhedron : polyhedrons_) {
+    polyhedron->setColors(*colorscheme_);
+    polyhedron->init(); // VBO allocation/upload requires the current GL context.
   }
-  PRINTD("createPolyhedrons() end");
+  polyhedronsDirty = false;
 }
 #endif
 
@@ -129,7 +111,7 @@ void CGALRenderer::setColorScheme(const ColorScheme& cs)
   colormap_[ColorMode::CGAL_FACE_2D_COLOR] = ColorMap::getColor(cs, RenderColor::CGAL_FACE_2D_COLOR);
   colormap_[ColorMode::CGAL_EDGE_2D_COLOR] = ColorMap::getColor(cs, RenderColor::CGAL_EDGE_2D_COLOR);
 #ifdef ENABLE_CGAL
-  this->polyhedrons_.clear();  // Mark as dirty
+  polyhedronsDirty = true;
 #endif
   vertex_state_containers_.clear();  // Mark as dirty
   PRINTD("setColorScheme done");
@@ -252,7 +234,7 @@ void CGALRenderer::prepare(const ShaderUtils::ShaderInfo * /*shaderinfo*/)
   }
 
 #ifdef ENABLE_CGAL
-  if (!this->nefPolyhedrons_.empty() && this->polyhedrons_.empty()) createPolyhedrons();
+  if (polyhedronsDirty) createPolyhedrons();
 #endif
 
   PRINTD("prepare() end");
@@ -336,4 +318,19 @@ Renderer::SurfaceContext CGALRenderer::prepareSurfacePick(const ShaderUtils::Sha
     surfaceRenderer = std::make_shared<PolySetRenderer>(std::make_shared<GeometryList>(std::move(geometries)));
   }
   return surfaceRenderer->prepareSurfacePick(displayShader);
+}
+
+CGALRenderer::PreparedGeometry CGALRenderer::prepareGeometry(const std::shared_ptr<const Geometry>& geom,
+                                                             const ColorScheme& colors)
+{
+  PreparedGeometry result;
+  if (geom) result.add(geom, colors);
+  return result;
+}
+CGALRenderer::CGALRenderer(PreparedGeometry geometry)
+  : polysets_(std::move(geometry.polysets)), polygons_(std::move(geometry.polygons))
+#ifdef ENABLE_CGAL
+  , polyhedrons_(std::move(geometry.polyhedrons)), nefPolyhedrons_(std::move(geometry.nefs))
+#endif
+{
 }

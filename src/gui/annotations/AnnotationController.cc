@@ -1,4 +1,5 @@
 #include "AnnotationController.h"
+#include "gui/evaluation/EvaluationController.h"
 #include "gui/selection/EvaluationBinding.h"
 #include "gui/selection/ViewportToolRouter.h"
 #include "Feature.h"
@@ -569,35 +570,7 @@ QJsonObject Controller::savedViewOperation(const QString& action, const QString&
   emit changed();
   return response;
 }
-void Controller::beginEvaluation(const QString& source)
-{
-  if (!evaluation.isEmpty()) {
-    evaluation["customizer"] = customizerContext(evaluationOwner);
-    return;
-  }
-  if (drafting()) cancelDrawing();
-  if (capturePending) finishFrame("Evaluation replaced the requested frame.");
-  evaluationOwner = window->activeEditor;
-  evaluationTimer.start();
-  evaluation = {
-    {"attempt_id", windowId + ":" + QString::number(++generation)},
-    {"document_id", evaluationOwner->annotations->sessionId},
-    {"source_sha256", QString::fromLatin1(Store::hash(source.toUtf8()))},
-    {"path", evaluationOwner->filepath},
-    {"dependency_provenance", "unknown"},
-    {"time", window->animateWidget->getAnimTval()},
-    {"backend", QString::fromStdString(renderBackend3DToString(RenderSettings::inst()->backend3D))},
-    {"customizer", customizerContext(evaluationOwner)},
-    {"outcome", "evaluating"}};
-  evaluation["origin"] = "editor";
-  evaluation["source_revision"] = QString::number(evaluationOwner->sourceRevision);
-  {
-    QMutexLocker lock(&contextMutex);
-    messageContext = {{"attempt_id", evaluation.value("attempt_id")},
-      {"document_id", evaluation.value("document_id")}, {"scope", "evaluation"}};
-  }
-  emit changed();
-}
+
 void Controller::finishEvaluation(bool success)
 {
   if (evaluation.isEmpty()) {
@@ -605,8 +578,8 @@ void Controller::finishEvaluation(bool success)
     return;
   }
   lastAttempt = evaluation;
-  lastAttempt["duration_ms"] = double(evaluationTimer.elapsed());
-  lastAttempt["outcome"] = success ? (view->getRenderer() ? "installed" : "empty") : "failed";
+  if (!lastAttempt.contains("duration_ms")) lastAttempt["duration_ms"] = double(evaluationTimer.elapsed());
+  lastAttempt["outcome"] = success ? (lastAttempt.value("empty").toBool() ? "empty" : "installed") : "failed";
   if (success && window->evaluatedScene && evaluationOwner) {
     QJsonArray inputs;
     for (const auto& [key, input] : window->evaluatedScene->inputs->consumed()) {
@@ -632,8 +605,9 @@ void Controller::finishEvaluation(bool success)
     // Detach while both root SourceFile and cached library ModuleInstantiations are alive.
     // Never recover mappings later from an old renderer's raw modinst pointers.
     try {
-      NativeEvaluationScope inputScope(*window->evaluationInputs, *window->evaluationBacking->libraries);
-      auto tree = inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), lastAttempt);
+      auto tree = std::move(preparedInspection.value());
+      tree.metadata["result_id"] = lastAttempt.value("result_id");
+      tree.metadata["source"] = lastAttempt;
       if (Bridge::instance()->retainTree(tree)) {
         lastAttempt["tree_id"] = tree.metadata.value("tree_id");
         lastAttempt["tree_complete"] = tree.metadata.value("complete");
@@ -645,9 +619,7 @@ void Controller::finishEvaluation(bool success)
     }
   }
   const auto document = lastAttempt.value("document_id").toString();
-  auto& attempts = attemptHistory[document];
-  attempts.append(lastAttempt);
-  trimHistory(attempts, 64);
+  observeBackgroundAttempt(lastAttempt);
   if (success) {
     auto published = lastAttempt;
     published["result_id"] = lastAttempt.value("attempt_id");
@@ -674,6 +646,31 @@ void Controller::finishEvaluation(bool success)
     else ++it;
   }
   refresh();
+  emit changed();
+}
+QJsonObject Controller::finishBackgroundEvaluation(EditorInterface *editor, QJsonObject metadata,
+                                            InspectionTree inspection)
+{
+  evaluationOwner = editor;
+  evaluation = std::move(metadata);
+  evaluationTimer.start();
+  preparedInspection = std::move(inspection);
+  finishEvaluation(true);
+  preparedInspection.reset();
+  return lastAttempt;
+}
+void Controller::observeBackgroundAttempt(QJsonObject metadata)
+{
+  if (metadata.value("mode").toString() != "parameters" &&
+      (metadata.value("outcome").toString() == "evaluating" ||
+       lastAttempt.value("attempt_id") == metadata.value("attempt_id")))
+    lastAttempt = metadata;
+  auto& attempts = attemptHistory[metadata.value("document_id").toString()];
+  const auto id = metadata.value("attempt_id");
+  for (int i = attempts.size() - 1; i >= 0; --i)
+    if (attempts[i].toObject().value("attempt_id") == id) attempts.removeAt(i);
+  attempts.append(metadata);
+  trimHistory(attempts, 64);
   emit changed();
 }
 QJsonObject Controller::diagnosticContext() const
@@ -751,6 +748,7 @@ QJsonObject Controller::status() const
     {"displayed_result_id", result.value("outcome") == "installed" || result.value("outcome") == "empty" ? result.value("result_id") : QJsonValue(QJsonValue::Null)},
     {"busy", busy() || QApplication::activeModalWidget()},
     {"busy_reasons", reasons},
+    {"background_evaluations", window->backgroundEvaluation ? window->backgroundEvaluation->status() : QJsonArray{}},
     {"draft", drafting()},
     {"evaluation", evaluation.isEmpty() ? lastAttempt : evaluation},
     {"result", result},
@@ -828,20 +826,13 @@ void Controller::cancelDrawing()
 QByteArray Controller::fileState() const
 {
   QJsonArray files;
-  QSet<QString> visited;
-  std::function<void(const QString&, const SourceFile *)> append = [&](const QString& path,
-                                                                       const SourceFile *source) {
-    if (visited.contains(path) || visited.size() >= 4096) return;
-    visited.insert(path);
-    QFileInfo info(path);
-    files.append(QJsonArray{path, QString::number(info.size()),
-                            QString::number(info.lastModified().toMSecsSinceEpoch()),
-                            source ? QString::number(source->includesChanged()) : QString()});
-    if (source)
-      for (const auto& dependency : source->usedlibs)
-        append(QString::fromStdString(dependency), SourceFileCache::instance()->lookup(dependency));
-  };
-  if (draftOwner) append(draftOwner->filepath, window->rootFile.get());
+  if (window->evaluatedScene) {
+    for (const auto& [key, input] : window->evaluatedScene->inputs->consumed()) {
+      QFileInfo info(QString::fromStdString(key));
+      files.append(QJsonArray{QString::fromStdString(key), QString::number(info.size()),
+                              QString::number(info.lastModified().toMSecsSinceEpoch())});
+    }
+  }
   return QJsonDocument(files).toJson(QJsonDocument::Compact);
 }
 bool Controller::eventFilter(QObject *object, QEvent *event)

@@ -3,10 +3,15 @@
 
 #include <QEvent>
 #include <QAccessibleWidget>
+#include <QAccessibilityHints>
+#include <QGuiApplication>
 #include <QLineEdit>
 #include <QObject>
 #include <QSizePolicy>
 #include <QString>
+#include <QStyleHints>
+#include <QStyleOptionToolButton>
+#include <QStylePainter>
 #include <QWidget>
 
 namespace {
@@ -36,6 +41,54 @@ public:
   }
   QStringList keyBindingsForAction(const QString&) const override { return {QStringLiteral("Space")}; }
 };
+}
+
+GroupDisclosureButton::GroupDisclosureButton(QWidget *parent) : QToolButton(parent)
+{
+  connect(QGuiApplication::styleHints()->accessibility(),
+          &QAccessibilityHints::contrastPreferenceChanged, this, [this] { update(); });
+}
+
+void GroupDisclosureButton::paintEvent(QPaintEvent *event)
+{
+  // Preserve the native disabled and high-contrast surfaces instead of diluting them.
+  // https://doc.qt.io/qt-6/qaccessibilityhints.html#contrastPreference-prop
+  if (!isEnabled() || QGuiApplication::styleHints()->accessibility()->contrastPreference() ==
+                        Qt::ContrastPreference::HighContrast) {
+    QToolButton::paintEvent(event);
+    return;
+  }
+
+  QStyleOptionToolButton option;
+  initStyleOption(&option);
+
+  // QPalette supplies semantic roles, not a complete list of rendered surface colors.
+  // Qt explicitly allows styles to derive brushes from those roles:
+  // https://doc.qt.io/qt-6/style-drawing.html
+  // Derive a quiet section surface from Window + Accent on EVERY paint: this follows
+  // light/dark palettes and live palette changes without caching a light-only color.
+  // Modify only the temporary style option; setting a widget/application palette would
+  // make explicit colors persist across theme changes and can affect child controls.
+  // https://doc.qt.io/qt-6/qwidget.html#palette-prop
+  // https://doc.qt.io/qt-6/qstylehints.html#colorScheme-prop
+  const auto window = option.palette.color(QPalette::Window);
+  const auto accent = option.palette.color(QPalette::Accent);
+  const qreal amount = option.state.testFlag(QStyle::State_Sunken) ? 0.22 :
+                       option.state.testFlag(QStyle::State_MouseOver) ? 0.16 : 0.10;
+  const auto surface = QColor::fromRgbF(
+    window.redF() + amount * (accent.redF() - window.redF()),
+    window.greenF() + amount * (accent.greenF() - window.greenF()),
+    window.blueF() + amount * (accent.blueF() - window.blueF()));
+  option.palette.setColor(QPalette::Button, surface);
+
+  // Windows 11's controlFillBrush() honors an explicit Button brush before its own
+  // hover/press fills, so the blend above supplies those states (press wins).
+  // https://github.com/qt/qtbase/blob/v6.11.1/src/plugins/styles/modernwindows/qwindows11style.cpp
+  // Keep the button non-checkable: expansion is disclosure state, not selection.
+  // Delegate borders, text, arrow, focus and DPI metrics to the native complex control.
+  // https://doc.qt.io/qt-6/qstylepainter.html#drawComplexControl
+  QStylePainter painter(this);
+  painter.drawComplexControl(QStyle::CC_ToolButton, option);
 }
 
 GroupWidget::GroupWidget(const QString& title, QWidget *parent) : QWidget(parent), groupTitle(title)

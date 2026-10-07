@@ -732,6 +732,35 @@ model();
   };
   REQUIRE(groupNamed("view"));
   REQUIRE(groupNamed("View"));
+  auto *header = groupNamed("view")->findChild<QToolButton *>("customizerDisclosure");
+  REQUIRE(header);
+  // The asynchronous initial preview temporarily disables the Customizer.
+  // Wait for its enabled state before exercising interactive surfaces.
+  for (int i = 0; i < 50 && !header->isEnabled(); ++i) settle();
+  REQUIRE(header->isEnabled());
+  const auto inheritedPalette = header->palette();
+  auto headerSurface = [&](const QString& name) {
+    auto *currentHeader = groupNamed("view")->findChild<QToolButton *>("customizerDisclosure");
+    REQUIRE(currentHeader);
+    const auto image = currentHeader->grab().toImage();
+    REQUIRE(image.save(output + "/header-" + name + ".png"));
+    // Sample clear fill near the right edge, away from text, arrow and border.
+    return image.pixelColor(image.width() - qRound(12 * image.devicePixelRatio()), image.height() / 2);
+  };
+  header->setAttribute(Qt::WA_UnderMouse, false);
+  const auto restingSurface = headerSurface("rest");
+  CHECK(restingSurface != header->palette().color(QPalette::Window));
+  header->setAttribute(Qt::WA_UnderMouse, true);
+  const auto hoverSurface = headerSurface("hover");
+  header->setDown(true);
+  const auto pressedSurface = headerSurface("pressed");
+  CHECK(hoverSurface != restingSurface);
+  CHECK(pressedSurface != hoverSurface);
+  header->setDown(false);
+  header->setAttribute(Qt::WA_UnderMouse, false);
+  CHECK(headerSurface("restored") == restingSurface);
+  CHECK(header->palette() == inheritedPalette);
+  CHECK_FALSE(header->isCheckable());
   auto *boolean = fieldNamed("swap_boards");
   REQUIRE(boolean);
   boolean->findChild<QCheckBox *>()->click();
@@ -791,6 +820,7 @@ model();
   app.styleHints()->setColorScheme(scheme == Qt::ColorScheme::Dark ? Qt::ColorScheme::Light : Qt::ColorScheme::Dark);
   settle();
   CHECK(panel->palette().color(QPalette::Window) != color);
+  CHECK(headerSurface("live-theme-switch") != restingSurface);
   app.styleHints()->setColorScheme(scheme);
 #endif
   panel->hide();

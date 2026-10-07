@@ -23,24 +23,20 @@
 #include "glview/OffscreenContextOSMesa.h"
 #endif
 
-namespace {
-
-/*!
- Capture framebuffer from OpenGL and write it to the given ostream.
- Called by save_framebuffer() from platform-specific code.
-*/
-bool save_framebuffer(const OpenGLContext *ctx, std::ostream& output, bool with_alpha)
+std::vector<uint8_t> OffscreenView::captureRGBA() const
 {
-  if (!ctx) return false;
+  if (!ctx) return {};
 
   const auto pixels = ctx->getFramebuffer();
 
   const size_t samplesPerPixel = 4;  // R, G, B and A
+  const size_t byteCount = samplesPerPixel * ctx->height() * ctx->width();
+  if (byteCount == 0 || pixels.size() < byteCount) return {};
   // Flip it vertically - images read from OpenGL buffers are upside-down
-  std::vector<uint8_t> flippedBuffer(samplesPerPixel * ctx->height() * ctx->width());
+  std::vector<uint8_t> flippedBuffer(byteCount);
   flip_image(&pixels[0], flippedBuffer.data(), samplesPerPixel, ctx->width(), ctx->height());
 
-  if (with_alpha) {
+  if (transparentBackground()) {
     // A transparent render always leaves the framebuffer premultiplied; PNG stores straight alpha,
     // so undo it. Fully opaque and fully transparent pixels need no correction -- the latter carry
     // no recoverable color at all.
@@ -54,10 +50,8 @@ bool save_framebuffer(const OpenGLContext *ctx, std::ostream& output, bool with_
     }
   }
 
-  return write_png(output, flippedBuffer.data(), ctx->width(), ctx->height(), with_alpha);
+  return flippedBuffer;
 }
-
-}  // namespace
 
 OffscreenView::OffscreenView(uint32_t width, uint32_t height)
 {
@@ -143,15 +137,17 @@ bool OffscreenView::save(const char *filename) const
     std::cerr << "Can't open file " << filename << " for writing";
     return false;
   } else {
-    save_framebuffer(this->ctx.get(), fstream, this->transparentBackground());
+    const bool saved = save(fstream);
     fstream.close();
+    return saved && !fstream.fail();
   }
-  return true;
 }
 
 bool OffscreenView::save(std::ostream& output) const
 {
-  return save_framebuffer(this->ctx.get(), output, this->transparentBackground());
+  auto pixels = captureRGBA();
+  if (pixels.empty()) return false;
+  return write_png(output, pixels.data(), ctx->width(), ctx->height(), transparentBackground());
 }
 
 std::string OffscreenView::getRendererInfo() const

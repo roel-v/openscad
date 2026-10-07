@@ -39,10 +39,11 @@ def fail(message):
     sys.exit(1)
 
 
-def run(openscad, scad_file, cwd, output_name, processes=None):
+def run(openscad, scad_file, cwd, output_name, processes=None, extra=()):
     cmd = [openscad, "-o", output_name, "--imgsize=" + IMGSIZE, "--animate", str(FRAMES)]
     if processes is not None:
         cmd += ["--animate-processes", str(processes)]
+    cmd.extend(extra)
     cmd.append(scad_file)
     result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
     if result.returncode != 0:
@@ -155,7 +156,7 @@ def png_chunks(data):
         pos += 12 + length
 
 
-def decode_first_frame(data):
+def decode_first_frame(data, with_alpha=False):
     """Decodes an APNG's first frame - which is a plain IDAT precisely so that a
     non-APNG decoder still sees an image - to (width, height, rows of RGB tuples).
 
@@ -210,7 +211,9 @@ def decode_first_frame(data):
                 fail("apng: unknown filter type %d" % method)
         # Compare on RGB only: the two paths legitimately differ on whether an opaque
         # alpha channel is stored at all, which is what this test must tolerate.
-        rows.append([tuple(line[x * channels:x * channels + 3]) for x in range(width)])
+        rows.append([tuple(line[x * channels:x * channels + 3]) +
+                     ((line[x * channels + 3] if channels == 4 else 255,) if with_alpha else ())
+                     for x in range(width)])
         previous = line
     return width, height, rows
 
@@ -240,6 +243,31 @@ def check_container_pixels_match(openscad, scad_file, output_dir):
             bad = next(x for x, (a, b) in enumerate(zip(ref_row, par_row)) if a != b)
             fail("parallel apng frame 0 differs from the sequential one at (%d,%d): "
                  "%s vs %s" % (bad, y, par_row[bad], ref_row[bad]))
+
+
+def check_transparent_container_pixels(openscad, output_dir):
+    """Raw-frame sequential export must use the same straight alpha as worker PNGs."""
+    fixture = os.path.join(output_dir, "transparent-animation.scad")
+    with open(fixture, "w", encoding="utf-8") as fh:
+        fh.write('color([1, 0.2, 0.1, 0.5]) rotate([0, 0, 360*$t]) cube(10, center=true);\n')
+    for mode, render_options in (("preview", []), ("render", ["--render"])):
+        extra = ["--view", "transparent", "--camera=25,25,25,0,0,0"] + render_options
+        images = []
+        for name, processes in (("sequential", 1), ("parallel", PROCESSES)):
+            output = "transparent-%s-%s.apng" % (mode, name)
+            run(openscad, fixture, output_dir, output, processes=processes, extra=extra)
+            with open(os.path.join(output_dir, output), "rb") as fh:
+                data = fh.read()
+            if apng_frame_count(data) != FRAMES:
+                fail("transparent APNG has incorrect frame count")
+            images.append(decode_first_frame(data, with_alpha=True))
+        if images[0] != images[1]:
+            fail("transparent %s APNG differs between sequential and parallel export" % mode)
+        pixels = [pixel for row in images[0][2] for pixel in row]
+        if not any(pixel[3] == 0 for pixel in pixels):
+            fail("transparent APNG has no transparent background")
+        if mode == "preview" and not any(0 < pixel[3] < 255 for pixel in pixels):
+            fail("transparent APNG fixture did not exercise partial alpha")
 
 
 def check_sharding_container_warns(openscad, scad_file, output_dir):
@@ -352,6 +380,7 @@ def main():
     check_container(openscad, scad_file, output_dir, "gif")
     check_container(openscad, scad_file, output_dir, "apng")
     check_container_pixels_match(openscad, scad_file, output_dir)
+    check_transparent_container_pixels(openscad, output_dir)
     check_sharding_container_warns(openscad, scad_file, output_dir)
     check_sharding_with_processes(openscad, scad_file, output_dir)
 

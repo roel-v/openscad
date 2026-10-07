@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <ostream>
+#include <vector>
 
 #include "glview/GLView.h"
 #include "glview/OpenGLContext.h"
@@ -22,6 +23,8 @@ public:
   OffscreenView(uint32_t width, uint32_t height);
   ~OffscreenView() override;
   bool save(std::ostream& output) const;
+  // Top-down straight RGBA for still images and animation encoders alike.
+  std::vector<uint8_t> captureRGBA() const;
   // TODO: Do we need to worry about deletion order?
   std::shared_ptr<OpenGLContext> ctx;
   std::unique_ptr<FBO> fbo;

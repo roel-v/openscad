@@ -153,17 +153,13 @@ bool export_png(const OffscreenView& glview, std::ostream& output)
 bool export_video_frame(const OffscreenView& glview, VideoEncoder& encoder)
 {
   if (!glview.ctx) return false;
-  const auto pixels = glview.ctx->getFramebuffer();
+  const auto pixels = glview.captureRGBA();
   const size_t width = glview.ctx->width();
   const size_t height = glview.ctx->height();
   const size_t samplesPerPixel = 4;  // R, G, B and A
   if (pixels.size() < samplesPerPixel * width * height) return false;
 
-  // Images read from OpenGL buffers are upside-down.
-  std::vector<uint8_t> flipped(samplesPerPixel * width * height);
-  flip_image(pixels.data(), flipped.data(), samplesPerPixel, width, height);
-
-  return encoder.addFrame(flipped.data(), samplesPerPixel * width);
+  return encoder.addFrame(pixels.data(), samplesPerPixel * width);
 }
 
 bool export_video_frame(const std::shared_ptr<const Geometry>& root_geom, const ViewOptions& options,

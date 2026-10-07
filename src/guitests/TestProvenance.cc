@@ -83,6 +83,9 @@ void TestProvenance::cleanup() {
 }
 bool TestProvenance::compile(const QString& source, bool final) {
   window->activeEditor->setPlainText(source);
+  return preview(final);
+}
+bool TestProvenance::preview(bool final) {
   QSignalSpy completed(window, &MainWindow::compilationDone);
   if (final) window->designActionRender->trigger(); else window->actionRenderPreview();
   if (completed.empty() && !completed.wait(15000)) return false;
@@ -288,14 +291,14 @@ void TestProvenance::cachedLibrariesAndSourceVersions() {
   QVERIFY(write(library, "include <dimensions.scad> module part(){cube(n,center=true);}"));
   QVERIFY(write(dimensions, "n=10;"));
   window->tabManager->open(root);
-  QVERIFY(compile(window->activeEditor->toPlainText()));
+  QVERIFY(preview());
   auto original = window->evaluatedScene;
   auto scope = window->evaluationBacking->libraries->lookup(library.toStdString())->scope;
   const auto originalCSG = window->tree.getString(*window->rootNode, "  ");
   const auto syntaxCount = original->provenance->syntaxTable().sites().size();
   for (int i=0; i<3; ++i) {
-    window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
-    QCOMPARE(window->evaluationBacking->libraries->lookup(library.toStdString())->scope.get(), scope.get());
+    QVERIFY(preview());
+    // The worker owns fresh ASTs; cache pointer reuse is tested in the synchronous owner.
     QCOMPARE(window->tree.getString(*window->rootNode, "  "), originalCSG);
     QCOMPARE(window->evaluatedScene->provenance->syntaxTable().sites().size(), syntaxCount);
     auto hit=pick({0,-5,0}); QVERIFY(hit);
@@ -307,7 +310,7 @@ void TestProvenance::cachedLibrariesAndSourceVersions() {
   const auto stamp=std::filesystem::last_write_time(dimensions.toStdString());
   QVERIFY(write(dimensions,"n=12;"));
   std::filesystem::last_write_time(dimensions.toStdString(),stamp);
-  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  QVERIFY(preview());
   QVERIFY(window->evaluationBacking->libraries->lookup(library.toStdString())->scope.get()!=scope.get());
   QVERIFY(window->tree.getString(*window->rootNode,"  ")!=originalCSG);
   QCOMPARE(original->provenance->syntaxTable().sites().size(),syntaxCount);
@@ -316,13 +319,13 @@ void TestProvenance::cachedLibrariesAndSourceVersions() {
   window->tabManager->open(dimensions); auto dimensionEditor=window->activeEditor;
   dimensionEditor->setPlainText("n=14;");
   window->tabManager->open(root);
-  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  QVERIFY(preview());
   const auto dirtyCSG=window->tree.getString(*window->rootNode,"  ");
-  auto dirtyScope=window->evaluationBacking->libraries->lookup(library.toStdString())->scope;
-  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
-  QCOMPARE(window->evaluationBacking->libraries->lookup(library.toStdString())->scope.get(),dirtyScope.get());
+  const auto dirtySyntaxCount=window->evaluatedScene->provenance->syntaxTable().sites().size();
+  QVERIFY(preview());
+  QCOMPARE(window->evaluatedScene->provenance->syntaxTable().sites().size(),dirtySyntaxCount);
   dimensionEditor->setPlainText("n=16;");
-  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  QVERIFY(preview());
   QVERIFY(window->tree.getString(*window->rootNode,"  ")!=dirtyCSG);
   QCOMPARE(EvaluationInputs::diskBytes(dimensions.toStdString()),std::string("n=12;"));
 }
@@ -337,10 +340,10 @@ void TestProvenance::cachedLookupShadowing() {
   auto restore=sg::make_scope_guard([&]() noexcept {set_library_path(paths);});
   auto altered=paths; altered.insert(altered.begin(),directory.filePath("libraries").toStdString());
   set_library_path(altered);
-  window->tabManager->open(root); QVERIFY(compile(window->activeEditor->toPlainText()));
+  window->tabManager->open(root); QVERIFY(preview());
   const auto before=window->tree.getString(*window->rootNode,"  ");
   QVERIFY(write(directory.filePath("shared.scad"),"module part(){sphere(5);}"));
-  window->actionRenderPreview(); QVERIFY(window->evaluationBinding->current());
+  QVERIFY(preview());
   QVERIFY(window->tree.getString(*window->rootNode,"  ")!=before);
   QVERIFY(window->evaluationBacking->libraries->lookup(directory.filePath("shared.scad").toStdString()));
 }

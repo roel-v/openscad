@@ -293,16 +293,25 @@ bool Collector::finalize(const std::shared_ptr<AbstractNode>& root) {
   finalized = true;
   if (SourceProvenance::nativeSyntaxTable) scene.syntax = std::make_shared<const SourceProvenance::SyntaxTable>(*SourceProvenance::nativeSyntaxTable);
   partition(root, true);
-  if (!finish()->valid()) return false;
+  if (!valid()) return false;
   PlacementContext context(session, scene, root);
   auto outcome = runPlacementPasses(context);
   if (!outcome.success) { scene.extensions.clear(); error(outcome.code, outcome.message, Design::DeclarationKey{document}); return false; }
   partition(root, false);
-  return finish()->valid();
+  return valid();
+}
+bool Collector::valid() const {
+  if (!scene.valid()) return false;
+  const auto design = session.designCollector->finish();
+  if (scene.marked && !design->diagnostics.empty()) return false;
+  if (!modules.empty()) for (const auto& id : design->invalidIds)
+    if (scene.definitions.count(id)) return false;
+  return true;
 }
 std::shared_ptr<const Scene> Collector::finish() const {
   auto result = std::make_shared<Scene>(scene);
-  if (SourceProvenance::nativeSyntaxTable) result->syntax = std::make_shared<const SourceProvenance::SyntaxTable>(*SourceProvenance::nativeSyntaxTable);
+  // Finalization has already detached syntax from the mutable parser table.
+  if (!finalized && SourceProvenance::nativeSyntaxTable) result->syntax = std::make_shared<const SourceProvenance::SyntaxTable>(*SourceProvenance::nativeSyntaxTable);
   auto design = session.designCollector->finish();
   for (const auto& id : design->invalidIds) if (modules.size() && (result->definitions.count(id) || result->invalidIds.count(id))) {
     result->invalidIds.insert(id); result->definitions.erase(id);

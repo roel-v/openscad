@@ -7,6 +7,7 @@
 #include <memory>
 #include <ostream>
 #include <string>
+#include <set>
 #include <utility>
 #include <vector>
 
@@ -25,6 +26,7 @@ public:
   [[nodiscard]] virtual bool isLiteral() const;
   [[nodiscard]] virtual Value evaluate(const std::shared_ptr<const Context>& context) const = 0;
   Value checkUndef(Value&& val, const std::shared_ptr<const Context>& context) const;
+  virtual void collectDependencies(std::set<std::string>& deps) const {}
 };
 
 class UnaryOp : public Expression
@@ -36,6 +38,7 @@ public:
   UnaryOp(Op op, Expression *expr, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void collectDependencies(std::set<std::string>& deps) const override;
 
 private:
   [[nodiscard]] const char *opString() const;
@@ -72,6 +75,7 @@ public:
   BinaryOp(Expression *left, Op op, Expression *right, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void collectDependencies(std::set<std::string>& deps) const override;
 
 private:
   [[nodiscard]] const char *opString() const;
@@ -89,6 +93,7 @@ public:
   [[nodiscard]] const Expression *evaluateStep(const std::shared_ptr<const Context>& context) const;
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void collectDependencies(std::set<std::string>& deps) const override;
 
 private:
   std::shared_ptr<Expression> cond;
@@ -103,6 +108,7 @@ public:
   ArrayLookup(Expression *array, Expression *index, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void collectDependencies(std::set<std::string>& deps) const override;
 
 private:
   std::shared_ptr<Expression> array;
@@ -141,6 +147,7 @@ public:
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
   [[nodiscard]] bool isLiteral() const override;
+  void collectDependencies(std::set<std::string>& deps) const override;
 
 private:
   std::shared_ptr<Expression> begin;
@@ -157,10 +164,28 @@ public:
   void print(std::ostream& stream, const std::string& indent) const override;
   void emplace_back(Expression *expr);
   bool isLiteral() const override;
+  void collectDependencies(std::set<std::string>& deps) const override;
 
 private:
   std::vector<std::shared_ptr<Expression>> children;
   mutable boost::tribool literal_flag;  // cache if already computed
+};
+
+class Object : public Expression
+{
+public:
+  Object(const Location& loc);
+  Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
+  void addSetOp(Expression *name, Expression *expr);
+  void addSetOp(std::shared_ptr<Expression> name, std::shared_ptr<Expression> expr);
+  void mergeSetOps(Object *obj);
+  void addIncludeOp(Object *obj);
+  bool isLiteral() const override;
+private:
+  std::vector<std::shared_ptr<Expression>> keys;
+  std::vector<std::shared_ptr<Expression>> values;
+  mutable boost::tribool literal_flag; // cache if already computed
 };
 
 class Lookup : public Expression
@@ -170,6 +195,7 @@ public:
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
   [[nodiscard]] const std::string& get_name() const { return name; }
+  void collectDependencies(std::set<std::string>& deps) const override;
 
 private:
   std::string name;
@@ -182,6 +208,7 @@ public:
   MemberLookup(Expression *expr, std::string member, const Location& loc);
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
+  void collectDependencies(std::set<std::string>& deps) const override;
 
 private:
   std::shared_ptr<Expression> expr;
@@ -343,6 +370,83 @@ public:
   [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
   void print(std::ostream& stream, const std::string& indent) const override;
 
+private:
+  AssignmentList arguments;
+  std::shared_ptr<Expression> expr;
+};
+
+class ObjectExpression : public Expression
+{
+public:
+  ObjectExpression(AssignmentList members, const Location& loc);
+  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
+  const AssignmentList& getMembers() const { return members; }
+
+private:
+  AssignmentList members;
+};
+
+class ObjectComprehension : public Object
+{
+public:
+  ObjectComprehension(const Location& loc);
+};
+
+class OcIf : public ObjectComprehension
+{
+public:
+  OcIf(Expression *cond, Expression *ifexpr, Expression *elseexpr, const Location& loc);
+  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
+private:
+  std::shared_ptr<Expression> cond;
+  std::shared_ptr<Expression> ifexpr;
+  std::shared_ptr<Expression> elseexpr;
+};
+
+class OcFor : public ObjectComprehension
+{
+public:
+  OcFor(AssignmentList args, Expression *expr, const Location& loc);
+  static void forEach(const AssignmentList& assignments, const Location& loc, const std::shared_ptr<const Context>& context, const std::function<void(const std::shared_ptr<const Context>&)>& operation);
+  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
+private:
+  AssignmentList arguments;
+  std::shared_ptr<Expression> expr;
+};
+
+class OcForC : public ObjectComprehension
+{
+public:
+  OcForC(AssignmentList args, AssignmentList incrargs, Expression *cond, Expression *expr, const Location& loc);
+  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
+private:
+  AssignmentList arguments;
+  AssignmentList incr_arguments;
+  std::shared_ptr<Expression> cond;
+  std::shared_ptr<Expression> expr;
+};
+
+class OcEach : public ObjectComprehension
+{
+public:
+  OcEach(Expression *expr, const Location& loc);
+  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
+private:
+  Value evalRecur(Value&& v, const std::shared_ptr<const Context>& context) const;
+  std::shared_ptr<Expression> expr;
+};
+
+class OcLet : public ObjectComprehension
+{
+public:
+  OcLet(AssignmentList args, Expression *expr, const Location& loc);
+  [[nodiscard]] Value evaluate(const std::shared_ptr<const Context>& context) const override;
+  void print(std::ostream& stream, const std::string& indent) const override;
 private:
   AssignmentList arguments;
   std::shared_ptr<Expression> expr;

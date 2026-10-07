@@ -298,10 +298,12 @@ public:
   public:
     std::shared_ptr<ObjectObject> ptr;
     ObjectType(class EvaluationSession *session);
+    // ObjectType(class EvaluationSession *session, std::shared_ptr<AbstractNode> node);
     [[nodiscard]] ObjectType clone() const;
     [[nodiscard]] const Value& get(const std::string& key) const;
     bool set(const std::string& key, Value value);
-    bool del(const std::string& key);  // true if was present
+    bool del(const std::string& key); // true if was present
+    void merge(Value&& value, const Location& loc);
     bool contains(const std::string& key) const;
     bool empty() const;
     Value operator==(const ObjectType& v) const;
@@ -312,7 +314,10 @@ public:
     Value operator>=(const ObjectType& v) const;
     const Value& operator[](const str_utf8_wrapper& v) const;
     [[nodiscard]] const std::vector<std::string>& keys() const;
+    [[nodiscard]] const std::vector<std::string>& literalDuplicateKeys() const;
+    void recordLiteralDuplicateKey(const std::string& key);
     [[nodiscard]] const std::vector<Value>& values() const;
+    static bool keyIsIdentifier(const std::string& k);
   };
 
 private:
@@ -436,6 +441,7 @@ struct Value::ObjectType::ObjectObject {
 
   std::unordered_map<std::string, size_t> map;
   std::vector<std::string> keys;
+  std::vector<std::string> literalDuplicates;
   std::vector<Value> values;
 
   const size_t find(const std::string& key)
@@ -466,6 +472,8 @@ struct Value::ObjectType::ObjectObject {
     }
     return index == NOINDEX;
   }
+
+  void merge(Value&& value, const Location& loc);
 
   size_t del(const std::string& key)
   {

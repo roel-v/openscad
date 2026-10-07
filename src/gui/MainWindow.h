@@ -48,7 +48,6 @@ class RenderVariables;
 class ParameterSet;
 struct EvaluationOverrides;
 class EvaluationInputs;
-class GeometryWorker;
 class CSGNode;
 class CSGProducts;
 class FontListDialog;
@@ -77,6 +76,7 @@ class AIDock;
 
 class UXTest;
 namespace AgentAnnotations { class Controller; }
+namespace BackgroundEvaluation { class Controller; }
 class InspectionPresentationController;
 namespace Semantic { class Controller; }
 namespace Anchors { class Controller; }
@@ -86,8 +86,10 @@ class MainWindow : public QMainWindow, public Ui::MainWindow, public InputEventH
   Q_OBJECT
 
   friend UXTest;
+  friend class BackgroundEvaluation::Controller;
 
 public:
+  BackgroundEvaluation::Controller *backgroundEvaluation = nullptr;
   AgentAnnotations::Controller *annotationController = nullptr;
   Selection::EvaluationBinding *evaluationBinding = nullptr;
   Selection::SelectionService *selectionService = nullptr;
@@ -105,18 +107,16 @@ public:
 
   QTimer *consoleUpdater;
 
-  bool isPreview;
+  bool isPreview = true;
 
   QTimer *autoReloadTimer;
-  QTimer *waitAfterReloadTimer;
-  RenderStatistic renderStatistic;
 
   std::shared_ptr<SourceFile> rootFile;            // Result of parsing
   std::shared_ptr<SourceFile> parsedFile;          // Last parse for include list
   std::shared_ptr<AbstractNode> absoluteRootNode;  // Result of tree evaluation
   std::shared_ptr<AbstractNode> rootNode;          // Root if the root modifier (!) is used
 #ifdef ENABLE_PYTHON
-  bool python_active;
+  bool python_active = false;
   std::string trusted_edit_document_name;
   std::string untrusted_edit_document_name;
   bool trust_python_file(const std::string& file, const std::string& content);
@@ -230,13 +230,9 @@ public:
 
   // Parse the document contained in the editor, update the editors's parameters and returns a SourceFile
   // object if parsing suceeded. Nullptr otherwise.
-  std::shared_ptr<SourceFile> parseDocument(EditorInterface *editor);
 
-  void parseTopLevelDocument();
   bool evaluateCapturedVariables(const RenderVariables&,const ParameterSet&);
-  void exceptionCleanup();
   void setLastFocus(QWidget *widget);
-  void UnknownExceptionCleanup(std::string msg = "");
   void showFind(bool doFindAndReplace);
 
 private:
@@ -245,8 +241,6 @@ private:
   std::shared_ptr<const EvaluationOverrides> evaluationOverrides;
   void setRenderVariables(ContextHandle<BuiltinContext>& context);
   void updateCompileResult();
-  void compile(bool reload, bool forcedone = false);
-  void compileCSG();
   bool checkEditorModified();
   QString dumpCSGTree(const std::shared_ptr<AbstractNode>& root);
 
@@ -260,7 +254,6 @@ private:
 
   void loadViewSettings();
   void loadDesignSettings();
-  void prepareCompile(const char *afterCompileSlot, bool procevents, bool preview);
   void saveBackup();
   void writeBackup(QFile *file);
   void show_examples();
@@ -301,9 +294,6 @@ private slots:
   void on_editActionConvertTabsToSpaces_triggered();
   void on_editActionCopy_triggered();
 
-  void instantiateRoot();
-  void compileDone(bool didchange);
-  void compileEnded();
   void resetCompileMessageCounts();
   void selectPreviewViewMode();
 
@@ -372,13 +362,9 @@ public slots:
   void actionRenderPreview();
   void on_designActionPreview_triggered();
 private slots:
-  void csgRender();
-  void csgReloadRender();
   void on_designAction3DPrint_triggered();
   void sendToExternalTool(class ExternalToolInterface& externalToolService);
   void on_designActionRender_triggered();
-  void actionRenderDone(const std::shared_ptr<const Geometry>&);
-  void cgalRender();
   void handleMeasurementClicked(QAction *clickedAction);
   void on_designCheckValidity_triggered();
   void on_designActionDisplayAST_triggered();
@@ -419,7 +405,6 @@ public slots:
   void actionReloadRenderPreview();
   void on_designActionReloadAndPreview_triggered();
   void on_toolButtonCompileResultClose_clicked();
-  void processEvents();
   void jumpToLine(int, int);
   void openFileFromPath(const QString&, int);
 
@@ -461,16 +446,13 @@ public slots:
   void on_helpActionOfflineCheatSheet_triggered();
   void on_helpActionLibraryInfo_triggered();
   void checkAutoReload();
-  void waitAfterReload();
   void on_designActionAutoReload_toggled(bool);
 
 private:
   bool network_progress_func(const double permille);
-  static void report_func(const std::shared_ptr<const AbstractNode>&, void *vp, int mark);
   static bool undockMode;
   static bool reorderMode;
   static const int tabStopWidth;
-  static QElapsedTimer *progressThrottle;
   QWidget *lastFocus;  // keep track of active copyable widget (Editor|Console) for global menu action
                        // Edit->Copy
 
@@ -481,19 +463,14 @@ private:
   std::shared_ptr<CSGProducts> backgroundProducts;
   int currentlySelectedObject{-1};
 
-  char const *afterCompileSlot;
-  bool procevents{false};
   QTemporaryFile *tempFile{nullptr};
   ProgressWidget *progresswidget{nullptr};
-  GeometryWorker *geometryWorker;
+
   QMutex consolemutex;
   EditorInterface *renderedEditor = nullptr;  // document owning the displayed result
-  time_t includesMTime{0};          // latest include mod time
-  time_t depsMTime{0};              // latest dependency mod time
   std::unordered_map<QString, QString> exportPaths;  // for each file type, where it was exported to last
   // look up the last export path and generate one if not found
   QString exportPath(const QString& suffix, const QString& basename = "");
-  int lastParserErrorPos{-1};  // last highlighted error position
   int tabCount = 0;
   ExportPdfPaperSize sizeString2Enum(const QString& current);
   ExportPdfPaperOrientation orientationsString2Enum(const QString& current);
@@ -516,7 +493,6 @@ signals:
 
 #ifdef ENABLE_GUI_TESTS
 public:
-  std::shared_ptr<AbstractNode> instantiateRootFromSource(SourceFile *file);
 signals:
   // This is a new signal introduced while drafting the testing framework, while in experimental mode
   // we protected it using the #ifdef/endif so it should not be considered as part of the MainWindow API.

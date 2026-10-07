@@ -2,6 +2,7 @@
 #include "AnnotationController.h"
 #include "gui/Editor.h"
 #include "gui/MainWindow.h"
+#include "gui/evaluation/EvaluationService.h"
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
@@ -303,14 +304,33 @@ void Bridge::dispatch(QString server, QString id, QString path, QJsonObject body
             error = "Source snapshot expired or belongs to another document.";
           else if (controller->busy() || QApplication::activeModalWidget()) error = "Native compilation or interaction is busy.";
           else {
-            const GuiLocker lock;
-            auto parsed = inspectSyntax(source->metadata, source->text);
-            result = parsed.outcome;
-            result["editor_advanced"] = source->metadata.value("source_revision").toString() != QString::number(editor->sourceRevision);
-            if (!parsed.tree.metadata.isEmpty() && !retainTree(parsed.tree)) {
-              result.remove("tree_id"); result["success"] = false; result["error"] = "Tree retention budget exceeded.";
-            }
-            parseOutcomes.insert(editor->annotations->sessionId, result);
+            auto parsed = std::make_shared<ParseInspectionResult>();
+            const auto metadata = source->metadata;
+            const auto text = source->text;
+            auto job = std::make_shared<BackgroundEvaluation::Job>();
+            job->key = "parse:" + id;
+            job->compute = [parsed, metadata, text] { *parsed = inspectSyntax(metadata, text); };
+            const QPointer<Bridge> self(this);
+            const QPointer<EditorInterface> owner(editor);
+            const std::weak_ptr<BackgroundEvaluation::Job> weak = job;
+            job->complete = [self, owner, parsed, metadata, done, weak] {
+              if (!self) return;
+              auto job = weak.lock();
+              if (!owner || !job || !job->succeeded || job->cancellation->load()) {
+                done({}, {}, "Parse cancelled or document closed.");
+                return;
+              }
+              auto result = parsed->outcome;
+              result["editor_advanced"] = metadata.value("source_revision").toString() != QString::number(owner->sourceRevision);
+              if (!parsed->tree.metadata.isEmpty() && !self->retainTree(parsed->tree)) {
+                result.remove("tree_id"); result["success"] = false; result["error"] = "Tree retention budget exceeded.";
+              }
+              self->parseOutcomes.insert(owner->annotations->sessionId, result);
+              self->publish();
+              done(result, {}, {});
+            };
+            if (!BackgroundEvaluation::Service::instance().submit(job)) done({}, {}, "Application is closing.");
+            return;
           }
         } else result = snapshotSource(editor, body, &error);
         publish();

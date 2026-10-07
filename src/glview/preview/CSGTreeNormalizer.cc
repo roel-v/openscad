@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 #include "glview/preview/CSGTreeNormalizer.h"
 
 #include <cassert>
@@ -90,9 +91,11 @@ std::shared_ptr<CSGNode> CSGTreeNormalizer::normalizePass(std::shared_ptr<CSGNod
   std::stack<stackframe_t> callstack;
 
 entrypoint:
+  evaluationCheckpoint();
   if (std::dynamic_pointer_cast<CSGLeaf>(node)) goto return_node;
   do {
     while (node && match_and_replace(node)) {
+      evaluationCheckpoint();
     }
     this->nodecount++;
     if (nodecount > this->limit) {

@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -107,6 +108,7 @@ static std::shared_ptr<AbstractNode> builtin_children(const ModuleInstantiation 
   } else if (parameters["index"].type() == Value::Type::VECTOR) {
     std::vector<size_t> indices;
     for (const auto& val : parameters["index"].toVector()) {
+      evaluationCheckpoint();
       auto index = validChildIndex(val, children, inst, context);
       if (index) {
         indices.push_back(*index);
@@ -123,6 +125,7 @@ static std::shared_ptr<AbstractNode> builtin_children(const ModuleInstantiation 
     }
     std::vector<size_t> indices;
     for (double d : range) {
+      evaluationCheckpoint();
       auto index = validChildIndex(static_cast<int>(d), children, inst, context);
       if (index) {
         indices.push_back(*index);

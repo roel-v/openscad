@@ -80,12 +80,12 @@ Renderer::ColorMode getColorMode(const CSGNode::Flag& flags, bool highlight_mode
 
 ThrownTogetherRenderer::ThrownTogetherRenderer(std::shared_ptr<CSGProducts> root_products,
                                                std::shared_ptr<CSGProducts> highlight_products,
-                                               std::shared_ptr<CSGProducts> background_products)
+                                               std::shared_ptr<CSGProducts> background_products, TriangleStatistics triangles)
   : root_products_(std::move(root_products)),
     highlight_products_(std::move(highlight_products)),
     background_products_(std::move(background_products))
 {
-  triangles_=previewTriangleStatistics(root_products_,highlight_products_,background_products_);
+  triangles_ = triangles;
 }
 
 void ThrownTogetherRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)

@@ -98,7 +98,10 @@ std::optional<std::string> DesignDocument::createTransient(const std::string& na
   transient.emplace(record->id,std::move(mutableRecord));emit changed();return record->id;
 }
 Records DesignDocument::records(const Selection::Stamp& stamp) const {
-  auto scene=valid(stamp)?window->evaluationBinding->scene(stamp):nullptr;
+  // Listing records is a display operation. Lifecycle/edit methods retain their
+  // strict validation, including checks before applying a source transaction.
+  auto scene=owner && window && stamp.documentId==owner->documentId()
+    ?window->evaluationBinding->displayScene(stamp):nullptr;
   Records result=sourceStateCurrent()?sourceState.records:scene && scene->designObjects?scene->designObjects->records:Records{};
   for (const auto& [id,record]:transient) { if (result.count(id)) result.erase(id); else result.emplace(id,record); }
   return result;

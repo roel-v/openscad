@@ -112,7 +112,9 @@ void TestClipping::rearSurfacesAndFrozenPreview() {
     auto provider=presentation->registerMeshProvider("clipping-root-test",0,&jobs,[&jobs](auto scene,auto stamp,auto done){return jobs.start(scene,stamp,done);});
     Effect effect(*window); auto request=presentation->requestMeshes("clipping-test",&jobs);
     QTRY_VERIFY_WITH_TIMEOUT(presentation->status()!=Status::Preparing,20000);
-    QVERIFY2(presentation->status()==Status::Ready,qPrintable(presentation->reason()));
+    QVERIFY2(presentation->status()==Status::Ready,qPrintable(QString("Fixture %1, final %2: %3; binding: %4; evaluation busy: %5")
+      .arg(qulonglong(i)).arg(final).arg(presentation->reason(),window->evaluationBinding->staleReason())
+      .arg(window->backgroundEvaluation->busy())));
     QVERIFY(presentation->meshes());
     QVERIFY(window->qglview->renderer->getBoundingBox().min().isApprox(reference->getBoundingBox().min()));
     QVERIFY(window->qglview->renderer->getBoundingBox().max().isApprox(reference->getBoundingBox().max()));

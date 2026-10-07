@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 #include "core/ModuleInstantiation.h"
 
 #include <cstddef>
@@ -83,6 +84,7 @@ std::shared_ptr<AbstractNode> ModuleInstantiation::evaluate(
     return nullptr;
   }
 
+  evaluationCheckpoint();
   try {
     if (auto semantic = context->session()->semanticCollector;
         semantic && !semantic->validateCall(*this, module->module, context)) return nullptr;

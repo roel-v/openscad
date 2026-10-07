@@ -17,27 +17,27 @@
 
 namespace fs = std::filesystem;
 
-std::set<std::string> printedDeprecations;
-std::list<std::string> print_messages_stack;
-OutputHandlerFunc *outputhandler = nullptr;
-void *outputhandler_data = nullptr;
+thread_local std::set<std::string> printedDeprecations;
+thread_local std::list<std::string> print_messages_stack;
+thread_local OutputHandlerFunc *outputhandler = nullptr;
+thread_local void *outputhandler_data = nullptr;
 std::string OpenSCAD::debug("");
-bool OpenSCAD::quiet = false;
-bool OpenSCAD::hardwarnings = false;
-int OpenSCAD::traceDepth = 12;
-bool OpenSCAD::traceUsermoduleParameters = true;
-bool OpenSCAD::parameterCheck = true;
-bool OpenSCAD::rangeCheck = false;
+thread_local bool OpenSCAD::quiet = false;
+thread_local bool OpenSCAD::hardwarnings = false;
+thread_local int OpenSCAD::traceDepth = 12;
+thread_local bool OpenSCAD::traceUsermoduleParameters = true;
+thread_local bool OpenSCAD::parameterCheck = true;
+thread_local bool OpenSCAD::rangeCheck = false;
 
 namespace {
 
-std::list<struct Message> log_messages_stack;
-OutputHandlerFunc2 *outputhandler2 = nullptr;
-boost::circular_buffer<std::string> lastmessages(5);
-boost::circular_buffer<struct Message> lastlogmessages(5);
+thread_local std::list<struct Message> log_messages_stack;
+thread_local OutputHandlerFunc2 *outputhandler2 = nullptr;
+thread_local boost::circular_buffer<std::string> lastmessages(5);
+thread_local boost::circular_buffer<struct Message> lastlogmessages(5);
 
-bool no_throw;
-bool deferred;
+thread_local bool no_throw;
+thread_local bool deferred;
 
 }  // namespace
 

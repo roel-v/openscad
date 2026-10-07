@@ -1,6 +1,7 @@
 #pragma once
 #include "AnnotationStore.h"
 #include "AnnotationDrawing.h"
+#include "AgentSyntax.h"
 #include "glview/Camera.h"
 #include <QPointer>
 #include <QTimer>
@@ -10,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <map>
+#include <optional>
 
 class MainWindow;
 class EditorInterface;
@@ -36,8 +38,10 @@ public:
   EditorInterface *actionOwner() const;
   bool busy() const;
   bool drafting() const { return state != Idle; }
-  void beginEvaluation(const QString& source);
+
   void finishEvaluation(bool success);
+  QJsonObject finishBackgroundEvaluation(EditorInterface *owner, QJsonObject metadata, InspectionTree inspection);
+  void observeBackgroundAttempt(QJsonObject metadata);
   void rendererChanged();
   void registerPresentationRenderer(const std::shared_ptr<Renderer>& renderer, const QString& resultId);
   void startDrawing();
@@ -73,6 +77,7 @@ private:
   QPointer<EditorInterface> displayedOwner, evaluationOwner, draftOwner;
   QPointer<QDialog> commentDialog;
   QJsonObject result, evaluation, lastAttempt, draftResult;
+  std::optional<InspectionTree> preparedInspection;
   mutable QMutex contextMutex;
   QJsonObject messageContext;
   QHash<QString, QJsonArray> attemptHistory, resultHistory, diagnosticHistory;

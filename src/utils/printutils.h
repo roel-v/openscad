@@ -101,24 +101,24 @@ struct Message {
 using OutputHandlerFunc = void(const Message&, void *);
 using OutputHandlerFunc2 = void(const Message&, void *);
 
-extern OutputHandlerFunc *outputhandler;
-extern void *outputhandler_data;
+extern thread_local OutputHandlerFunc *outputhandler;
+extern thread_local void *outputhandler_data;
 
 namespace OpenSCAD {
 extern std::string debug;
-extern bool quiet;
-extern bool hardwarnings;
-extern int traceDepth;
-extern bool traceUsermoduleParameters;
-extern bool parameterCheck;
-extern bool rangeCheck;
+extern thread_local bool quiet;
+extern thread_local bool hardwarnings;
+extern thread_local int traceDepth;
+extern thread_local bool traceUsermoduleParameters;
+extern thread_local bool parameterCheck;
+extern thread_local bool rangeCheck;
 }  // namespace OpenSCAD
 
 void set_output_handler(OutputHandlerFunc *newhandler, OutputHandlerFunc2 *newhandler2, void *userdata);
 void no_exceptions_for_warnings();
 bool would_have_thrown();
 
-extern std::list<std::string> print_messages_stack;
+extern thread_local std::list<std::string> print_messages_stack;
 void print_messages_push();
 void print_messages_pop();
 void resetSuppressedMessages();
@@ -249,7 +249,7 @@ public:
   [[nodiscard]] std::string format() const { return format(std::index_sequence_for<Ts...>{}); }
 };
 
-extern std::set<std::string> printedDeprecations;
+extern thread_local std::set<std::string> printedDeprecations;
 
 template <typename... Args>
 std::optional<Message> make_message_obj(const message_group& msgGroup, Location loc, std::string docPath,

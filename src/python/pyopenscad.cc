@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -467,6 +468,7 @@ void finishPython(void)
 
 std::string evaluatePython(const std::string& code, bool dry_run)
 {
+
   std::string error;
   python_result_node = nullptr;
   PyObjectUniquePtr pyExcValue(nullptr, PyObjectDeleter);
@@ -475,6 +477,17 @@ std::string evaluatePython(const std::string& code, bool dry_run)
    * console */
   pythonDryRun = dry_run;
   if (!pythonMainModuleInitialized) return "Python not initialized";
+  struct CancellationTrace {
+    bool enabled = bool(currentEvaluationCancellation);
+    CancellationTrace() {
+      if (enabled) PyEval_SetTrace([](PyObject *, PyFrameObject *, int, PyObject *) -> int {
+        if (!evaluationCancelled()) return 0;
+        PyErr_SetString(PyExc_KeyboardInterrupt, "Evaluation cancelled");
+        return -1;
+      }, nullptr);
+    }
+    ~CancellationTrace() { if (enabled) PyEval_SetTrace(nullptr, nullptr); }
+  } cancellationTrace;
   const char *python_init_code =
     "\
 import sys\n\

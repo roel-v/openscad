@@ -73,6 +73,33 @@ TEST_CASE("Library lookup aliases stay within their captured evaluation", "[eval
           first.consumed().at(EvaluationInputs::fileKey(library)).utf8);
 }
 
+TEST_CASE("Captured library aliases respect the current directory for relative lookups", "[evaluation-inputs]")
+{
+  InputFixture fixture;
+  const auto root = fixture.write("root.scad", "cube(1);");
+  const auto first = fixture.write("library.scad", "module first() {} ");
+  const auto second = fixture.write("nested/library.scad", "module second() {} ");
+  EvaluationInputs inputs(fixture.input(root, "cube(1);"));
+  SourceFileCache cache(&inputs);
+  SourceFile *firstFile = nullptr, *secondFile = nullptr;
+  cache.process(root.string(), first.string(), firstFile);
+  cache.process(root.string(), second.string(), secondFile);
+  REQUIRE(firstFile);
+  REQUIRE(secondFile);
+  REQUIRE(firstFile != secondFile);
+  struct RestoreDirectory {
+    std::filesystem::path saved = std::filesystem::current_path();
+    ~RestoreDirectory() { std::error_code error; std::filesystem::current_path(saved, error); }
+  } restore;
+  std::filesystem::current_path(fixture.directory);
+  REQUIRE(cache.lookup("library.scad") == firstFile);
+  REQUIRE(cache.lookup(first.string()) == firstFile);
+  REQUIRE(cache.lookup(first.string()) == firstFile);
+  std::filesystem::current_path(fixture.directory / "nested");
+  REQUIRE(cache.lookup("library.scad") == secondFile);
+  REQUIRE(cache.lookup(first.string()) == firstFile);
+}
+
 TEST_CASE("Evaluation inputs read each disk dependency once and freeze consumed sources", "[evaluation-inputs]")
 {
   InputFixture fixture;

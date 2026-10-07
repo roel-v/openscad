@@ -243,6 +243,7 @@ void TestBackgroundEvaluation::obsoleteQueuedPreviewRetainsLastDisplay()
   // Queued background work must also block strict annotation/capture actions.
   QVERIFY(window->backgroundEvaluation->busy());
   QVERIFY(window->annotationController->busy());
+  QVERIFY(window->annotationController->status().value("busy_reasons").toArray().contains("background_evaluation"));
   editor->setPlainText("cube(3);\n");
   release.value->store(true);
   QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 10000);

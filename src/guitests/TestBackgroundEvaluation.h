@@ -8,6 +8,7 @@ private slots:
   void cancellationKeepsEventLoopResponsive();
   void cancelLanguageThenEvaluateAgain();
   void renderBothBackends();
+  void capturedParametersRejectMissingOrIncompatibleValues();
   void cancelledQueuedJobNeverComputes();
   void obsoleteQueuedPreviewRetainsLastDisplay();
   void failedPreviewRetainsLastDisplay();

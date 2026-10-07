@@ -154,6 +154,39 @@ void TestBackgroundEvaluation::renderBothBackends()
   }
 }
 
+void TestBackgroundEvaluation::capturedParametersRejectMissingOrIncompatibleValues()
+{
+  auto& service = Service::instance();
+  QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 10000);
+  for (const auto& [name, value] : std::vector<std::pair<std::string, std::string>>{
+         {"removed", "2"}, {"size", "invalid"}, {"size", "3"}}) {
+    auto request = std::make_shared<Request>();
+    request->root = {"session:test-captured", "size = 2;\ncube(size);", {}, "test-captured", 1};
+    request->mode = Mode::Preview;
+    request->variables.preview = true;
+    request->strictParameters = true;
+    request->parameters[name].put_value(value);
+    auto result = std::make_shared<Result>();
+    auto job = std::make_shared<Job>();
+    job->key = "test:captured-parameters";
+    std::weak_ptr<Job> weak = job;
+    job->compute = [request, result, weak] { if (auto job = weak.lock()) evaluate(*request, *result, *job); };
+    CancelOnExit stop{job};
+    QVERIFY(service.submit(job));
+    QTRY_VERIFY_WITH_TIMEOUT(!service.busy(), 10000);
+    if (value == "3") {
+      QVERIFY2(job->succeeded, qPrintable(job->error));
+      QVERIFY(result->success);
+      QCOMPARE(result->parameters.exportValues("captured").at("size").data(), std::string("3"));
+    } else {
+      QVERIFY(!job->succeeded);
+      QVERIFY(!result->success);
+      QVERIFY(job->error.contains("Captured parameter is no longer valid"));
+      QVERIFY(!result->scene);
+    }
+  }
+}
+
 void TestBackgroundEvaluation::cancelledQueuedJobNeverComputes()
 {
   auto& service = Service::instance();

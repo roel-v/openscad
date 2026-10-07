@@ -45,6 +45,7 @@ struct Request {
   std::string pythonEnvironment;
 #endif
   ParameterSet parameters;
+  bool strictParameters = false;
   RenderVariables variables{};
   RenderSettings settings = *RenderSettings::inst();
   QJsonObject metadata;

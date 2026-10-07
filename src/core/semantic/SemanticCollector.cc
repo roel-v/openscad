@@ -24,7 +24,7 @@
 namespace Semantic {
 Collector::Collector(EvaluationSession& session) : session(session) { registerKinds(); scene.documentPath = session.documentRoot(); }
 Design::DeclarationKey Collector::sourceKey(const ASTNode& node, Design::DeclarationHost host, const std::string& name) const {
-  Design::DeclarationKey key{EvaluationInputs::fileKey(node.location().filePath()), "", name, host};
+  Design::DeclarationKey key{"", "", name, host};
   if (auto *table = SourceProvenance::nativeSyntaxTable) {
     if (const auto *site = table->site(node)) {
       key.fileKey = site->syntax.fileKey;
@@ -33,6 +33,7 @@ Design::DeclarationKey Collector::sourceKey(const ASTNode& node, Design::Declara
       }
     }
   }
+  if (key.fileKey.empty()) key.fileKey = EvaluationInputs::fileKey(node.location().filePath());
   return key;
 }
 void Collector::error(const std::string& code, const std::string& message, const Design::DeclarationKey& source) {
@@ -72,16 +73,21 @@ void Collector::discoverFile(const SourceFile& file, bool useLibrary) {
   for (const auto& path : file.usedlibs) if (auto *library = SourceFileCache::instance()->lookup(path)) discoverFile(*library, true);
 }
 void Collector::discoverScope(const LocalScope& scope, const std::shared_ptr<const SourceFile>& file, bool fileScope, bool useLibrary) {
-  auto identity = [](const UserModule& module) {
-    return EvaluationInputs::fileKey(module.location().filePath()) + ":" +
+  auto identity = [this](const UserModule& module) {
+    return sourceKey(module, Design::DeclarationHost::ModuleDefinition, module.name).fileKey + ":" +
       std::to_string(module.location().firstLine()) + ":" + std::to_string(module.location().firstColumn());
   };
   std::map<std::string, std::set<std::string>> declarations;
-  for (const auto& [name, module] : scope.getModuleDeclarations()) declarations[name].insert(identity(*module));
   for (const auto& [name, module] : scope.getModuleDeclarations()) {
     auto mark = metadata(module->nativeAttributes.get(), Design::DeclarationHost::ModuleDefinition);
-    auto key = sourceKey(*module, Design::DeclarationHost::ModuleDefinition, module->name);
     if (mark.marked) {
+      auto key = sourceKey(*module, Design::DeclarationHost::ModuleDefinition, module->name);
+      // Only semantic definitions need shadowing checks, but include ordinary declarations of that name.
+      if (!declarations.count(name)) {
+        auto& identities = declarations[name];
+        for (const auto& [otherName, other] : scope.getModuleDeclarations())
+          if (otherName == name) identities.insert(identity(*other));
+      }
       scene.marked = true;
       if (!mark.error.empty()) error("invalid-semantic-metadata", mark.error, key);
       else if (!fileScope) error("local-semantic-definition", "Semantic definitions must be at file scope", key);
@@ -110,10 +116,12 @@ void Collector::discoverScope(const LocalScope& scope, const std::shared_ptr<con
   }
   for (const auto& call : scope.moduleInstantiations) {
     auto mark = metadata(call->nativeAttributes.get(), Design::DeclarationHost::ModuleCall);
-    auto key = sourceKey(*call, Design::DeclarationHost::ModuleCall, call->name());
-    if (mark.marked) scene.marked = true;
-    if (mark.marked && !mark.error.empty()) error("invalid-semantic-metadata", mark.error, key);
-    if (mark.marked && call->childrenSupplied) error("component-children", "Component calls cannot supply child geometry or blocks", key);
+    if (mark.marked) {
+      scene.marked = true;
+      auto key = sourceKey(*call, Design::DeclarationHost::ModuleCall, call->name());
+      if (!mark.error.empty()) error("invalid-semantic-metadata", mark.error, key);
+      if (call->childrenSupplied) error("component-children", "Component calls cannot supply child geometry or blocks", key);
+    }
     discoverScope(*call->scope, file, false, useLibrary);
     if (const auto *branch = dynamic_cast<const IfElseModuleInstantiation *>(call.get()); branch && branch->getElseScope())
       discoverScope(*branch->getElseScope(), file, false, useLibrary);

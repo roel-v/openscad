@@ -22,6 +22,7 @@
 #include "utils/ScopedOutput.h"
 #include "utils/exceptions.h"
 #include <filesystem>
+#include <algorithm>
 #include <stdexcept>
 #ifdef ENABLE_PYTHON
 #include "python/python_public.h"
@@ -141,6 +142,16 @@ void evaluate(const Request& request, Result& result, Job& job)
     request.variables.applyToContext(builtin);
     ContextHandle<FileContext> context{Context::create<FileContext>(*builtin, parsed)};
     result.parameters = ParameterObjects::fromSourceFile(parsed, context.operator->());
+    if (request.strictParameters) {
+      // Captured actions must not silently evaluate with dropped or incompatible values.
+      for (const auto& [name, encoded] : request.parameters) {
+        evaluationCheckpoint();
+        const auto found = std::find_if(result.parameters.begin(), result.parameters.end(),
+          [&](const auto& parameter) { return parameter->name() == name; });
+        if (found == result.parameters.end() || !(*found)->importValue(encoded, false))
+          throw std::runtime_error("Captured parameter is no longer valid: " + name);
+      }
+    }
     result.parameters.importValues(request.parameters);
     for (const auto& parameter : result.parameters) {
       evaluationCheckpoint(); parameter->updateContext(context.operator->());

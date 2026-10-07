@@ -164,6 +164,7 @@ void Controller::request(EditorInterface *editor, Mode mode, bool automatic)
   if (window->evaluationOverrides && window->evaluationOverrides->editor == editor) {
     request.variables = window->evaluationOverrides->variables;
     request.parameters = window->evaluationOverrides->parameters;
+    request.strictParameters = true;
   }
   auto capture = [](EditorInterface *source) {
     const auto bytes = source->toPlainText().toUtf8();

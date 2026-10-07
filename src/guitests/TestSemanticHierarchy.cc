@@ -135,7 +135,7 @@ void TestSemanticHierarchy::displayRefreshKeepsStrictEditGuards(){
   QVERIFY(write("width=40;\n"));
   // No watcher delivery: repeated read-only panel refreshes retain the display.
   for(int i=0;i<20;++i){
-    controller->refreshParameters();window->inspectorDock->refresh();
+    controller->parameterPanel()->refresh();window->inspectorDock->refresh();
     QVERIFY(service->displayCurrent(stamp));
     QCOMPARE(service->resolveForDisplay(key).state,Design::ResolutionState::Resolved);
     QVERIFY(controller->selectedTarget()==std::optional<Semantic::TargetKey>(key));

@@ -345,7 +345,8 @@ void TestSelection::dirtyDependencies()
   const auto values = directory.filePath("nested/values.scad");
   const auto nested = directory.filePath("nested/more.scad");
   const auto library = directory.filePath("helper.scad");
-  QVERIFY(writeSource(root, "include <nested/values.scad>\nuse <helper.scad>\ncube([height,size_value(),depth]);\n"));
+  QVERIFY(writeSource(root, "include <nested/values.scad>\nuse <helper.scad>\n"
+    "derived=assert(!is_undef(size_value())) size_value();\ncube([height,derived,depth]);\n"));
   QVERIFY(writeSource(values, "include <more.scad>\nheight=1;\n"));
   QVERIFY(writeSource(nested, "depth=13;\r\n"));
   QVERIFY(writeSource(library, "function size_value()=2;\n"));
@@ -419,12 +420,28 @@ void TestSelection::cachedDisplayFreshness()
   QTRY_VERIFY(binding->current());
   const auto stamp = binding->stamp();
   QVERIFY(binding->validate(stamp));
+  const auto scene = binding->displayScene(stamp);
+  QVERIFY(scene != nullptr);
+  auto wrongStamp = stamp;
+  ++wrongStamp.viewportGeneration;
+  QVERIFY(!binding->displayCurrent(wrongStamp));
+  QVERIFY(!binding->displayScene(wrongStamp));
+  QVERIFY(binding->modelDisplayCurrent(wrongStamp));
+  wrongStamp.resultId += "-old";
+  QVERIFY(!binding->modelDisplayCurrent(wrongStamp));
   QVERIFY(writeSource(dependency, "size=2;\n"));
   // No event delivery yet: display checks must not read the changed file.
-  for (int i = 0; i < 1000; ++i) QVERIFY(binding->current());
+  for (int i = 0; i < 1000; ++i) {
+    QVERIFY(binding->displayCurrent(stamp));
+    QVERIFY(binding->modelDisplayCurrent(stamp));
+    QCOMPARE(binding->displayScene(stamp), scene);
+  }
   // Action validation must reject changed bytes even before the watcher fires.
   QVERIFY(!binding->validate(stamp));
+  QVERIFY(!binding->validateModel(stamp));
+  QVERIFY(!binding->scene(stamp));
   QTRY_VERIFY(!binding->current());
+  QVERIFY(!binding->displayScene(stamp));
   window->checkAutoReload();
   QTRY_VERIFY(binding->current());
   QCOMPARE(evaluatedBounds(binding->scene(binding->stamp())).max().x(), 2.0);
@@ -487,6 +504,9 @@ void TestSelection::staleAndWrongDocument()
   window->tabManager->actionNew();
   QVERIFY(window->activeEditor != editor);
   QVERIFY(!binding->validate(stamp));
+  QVERIFY(!binding->displayCurrent(stamp));
+  QVERIFY(!binding->modelDisplayCurrent(stamp));
+  QVERIFY(!binding->displayScene(stamp));
 }
 
 void TestSelection::retainedSceneAfterClose()

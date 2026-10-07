@@ -52,6 +52,11 @@ public:
   // Cheap display state. Disk notifications may arrive on the next event-loop turn.
   bool current() const;
   bool takeDiskChanges() { const bool changed=diskInputsChanged; diskInputsChanged=false; return changed; }
+  // Display-only checks: no filesystem reads or source hashing. Do not use these
+  // to authorize edits, exports, picking or asynchronous result installation.
+  bool displayCurrent(const Stamp& expected) const;
+  bool modelDisplayCurrent(const Stamp& expected) const;
+  std::shared_ptr<const EvaluatedScene> displayScene(const Stamp& expected) const;
   // Actions must still verify exact dependency bytes through validate()/scene().
   bool validate(const Stamp& expected, QString *detail = nullptr) const;
   bool validateModel(const Stamp& expected, QString *detail = nullptr) const;

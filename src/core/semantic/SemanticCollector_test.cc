@@ -11,6 +11,27 @@ using SemanticTest::pairDefinition;
 using SemanticTest::pair;
 
 namespace {struct ExtensionProbe : Design::Payload {std::vector<std::string> owners,defaultContexts;};}
+TEST_CASE("Only structured models require source inspection during an ordinary preview", "[semantic-evaluation]") {
+  for (const auto& source : {std::string("cube(2);"),
+      std::string("// @{type:Part}\ns=\"@{type:Component}\"; cube(2);"),
+      std::string("@{type:Section} s={id:\"cut\",origin:[0,0,0],normal:[0,0,1]}; cube(2);")}) {
+    Fixture fixture; fixture.evaluate(source);
+    NativeEvaluationScope scope(*fixture.inputs,*fixture.cache);
+    REQUIRE_FALSE(Semantic::Collector::requiresInspection(*fixture.parsed));
+    REQUIRE_FALSE(SourceProvenance::modelRequiresInspection(*fixture.parsed));
+  }
+  for (const auto& source : {pair, part+"cube(2);"}) {
+    Fixture fixture; fixture.evaluate(source);
+    NativeEvaluationScope scope(*fixture.inputs,*fixture.cache);
+    REQUIRE(Semantic::Collector::requiresInspection(*fixture.parsed));
+    REQUIRE(SourceProvenance::modelRequiresInspection(*fixture.parsed));
+  }
+  Fixture library;
+  library.write("parts.scad",part);
+  library.evaluate("use <parts.scad>\ncube(2);");
+  NativeEvaluationScope scope(*library.inputs,*library.cache);
+  REQUIRE(SourceProvenance::modelRequiresInspection(*library.parsed));
+}
 TEST_CASE("Semantic validity checks preserve diagnostics and finalized syntax snapshots", "[semantic-evaluation]") {
   for (const auto& source : {std::string("cube(1);"), pair,
       part + "@{type:Section} s={id:\"bracket\",origin:[0,0,0],normal:[0,0,1]};",

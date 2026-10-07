@@ -15,6 +15,10 @@
 namespace fs = std::filesystem;
 
 std::vector<std::string> librarypath;
+static thread_local std::vector<LibraryPathLookup> *recordedLookups = nullptr;
+LibraryPathLookupScope::LibraryPathLookupScope(std::vector<LibraryPathLookup>& output)
+  : previous(recordedLookups) { recordedLookups = &output; }
+LibraryPathLookupScope::~LibraryPathLookupScope() { recordedLookups = previous; }
 
 static void add_librarydir(const std::string& libdir)
 {
@@ -115,7 +119,19 @@ inline fs::path find_valid_path_(const fs::path& sourcepath, const fs::path& loc
 fs::path find_valid_path(const fs::path& sourcepath, const fs::path& localpath,
                          const std::vector<std::string> *openfilenames)
 {
-  return {find_valid_path_(sourcepath, localpath, openfilenames).generic_string()};
+  const fs::path result{find_valid_path_(sourcepath, localpath, openfilenames).generic_string()};
+  if (recordedLookups) {
+    LibraryPathLookup lookup{sourcepath, localpath, result, openfilenames ? *openfilenames : std::vector<std::string>{}};
+    if (std::find(recordedLookups->begin(), recordedLookups->end(), lookup) == recordedLookups->end())
+      recordedLookups->push_back(std::move(lookup));
+  }
+  return result;
+}
+bool LibraryPathLookupScope::current(const std::vector<LibraryPathLookup>& lookups) {
+  for (const auto& lookup : lookups)
+    if (lookup.resolved.empty() || find_valid_path_(lookup.source, lookup.local, &lookup.openFiles) != lookup.resolved)
+      return false;
+  return true;
 }
 
 static bool path_contains_file(fs::path dir, fs::path file)

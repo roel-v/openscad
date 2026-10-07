@@ -26,6 +26,7 @@
  */
 
 #include "core/SourceFile.h"
+#include "core/EvaluationInputs.h"
 
 #include <algorithm>
 #include <boost/algorithm/string.hpp>

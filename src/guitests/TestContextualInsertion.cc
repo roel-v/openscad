@@ -172,6 +172,7 @@ void TestContextualInsertion::realPlaneMoveSpinFlipAndNavigation(){
   const auto moved=*controller->draftPlacement();
   const auto spinStart=projected(view,*frame.value*Vector3d(moved.offset.x()+15,moved.offset.y(),0));
   const auto spinEnd=projected(view,*frame.value*Vector3d(moved.offset.x(),moved.offset.y()+15,0));
+  QVERIFY2(view->rect().contains(spinStart.toPoint()) && view->rect().contains(spinEnd.toPoint()),"Spin drag must stay inside the viewport");
   view->setFocus();QTest::qWait(30);QTest::keyClick(view,Qt::Key_R);QTest::qWait(30);QTest::mousePress(view,Qt::LeftButton,Qt::NoModifier,spinStart.toPoint());
   QTest::mouseMove(view,spinEnd.toPoint());QTest::mouseRelease(view,Qt::LeftButton,Qt::NoModifier,spinEnd.toPoint());
   QVERIFY2(std::abs(controller->draftPlacement()->spinDegrees-90)<1.5,qPrintable(QString("Actual spin: %1").arg(controller->draftPlacement()->spinDegrees)));QVERIFY(controller->draftPlacement()->offset==moved.offset);
@@ -257,9 +258,9 @@ void TestContextualInsertion::postCommitEvaluationFailureRetainsSourceAndUndo(){
   QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Ready,15000);const auto candidate=controller->editPlan()->candidate;
   bool changed=false;auto hook=connect(editor,&EditorInterface::contentsChanged,this,[&]{changed=writeBytes(dependency,"width=[;\n");});
   done.clear();QVERIFY(controller->commit());disconnect(hook);QVERIFY(changed);
-  // Native parser failure uses exceptionCleanup(), which releases the GUI without compilationDone.
-  QTRY_VERIFY_WITH_TIMEOUT(!GuiLocker::isLocked(),20000);QVERIFY(window->compileErrors>0);
-  QCOMPARE(window->lastCompiledDoc.toUtf8().toStdString(),candidate);QVERIFY(!window->evaluationBinding->current());
+  // Wait for the asynchronous failure notification; the last successful model stays installed.
+  QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),20000);QVERIFY(window->compileErrors>0);
+  QCOMPARE(window->lastCompiledDoc,original);QVERIFY(!window->evaluationBinding->current());
   QCOMPARE(editor->toPlainText().toUtf8().toStdString(),candidate);QVERIFY(!window->inspectionPresentation->draftActive());
   editor->undo();QCOMPARE(editor->toPlainText(),original);QVERIFY(!editor->canUndo());
 }

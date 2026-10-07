@@ -8,6 +8,20 @@
 #include <stdexcept>
 
 namespace SourceProvenance {
+namespace {
+std::vector<ModelRequirement>& modelRequirements() {
+  static std::vector<ModelRequirement> requirements;
+  return requirements;
+}
+}
+bool registerModelRequirement(ModelRequirement requirement) {
+  modelRequirements().push_back(requirement);
+  return true;
+}
+bool modelRequiresInspection(const SourceFile& root) {
+  return std::any_of(modelRequirements().begin(), modelRequirements().end(),
+    [&root](auto required) { return required(root); });
+}
 thread_local SyntaxTable *nativeSyntaxTable = nullptr;
 ParseScope::ParseScope(SyntaxTable *table) : previous(nativeSyntaxTable) { nativeSyntaxTable = table; }
 ParseScope::~ParseScope() { nativeSyntaxTable = previous; }
@@ -17,7 +31,7 @@ SyntaxTable::SyntaxTable(std::shared_ptr<const EvaluationInputs> inputs) : captu
 }
 SyntaxTable::SyntaxTable(const SyntaxTable& other, bool sealed)
   : sealed(sealed), capturedInputs(other.capturedInputs), aliases(other.aliases), resolvedPaths(other.resolvedPaths), records(other.records),
-    ordinals(other.ordinals), lineStarts(other.lineStarts) {
+    overrides(other.overrides), ordinals(other.ordinals), lineStarts(other.lineStarts) {
   for (const auto& [key, input] : capturedInputs->consumed()) {
     if (lineStarts.count(key)) continue;
     auto& starts = lineStarts[key]; starts.push_back(0);
@@ -124,13 +138,61 @@ uint64_t SyntaxTable::record(ASTNode& node, SiteKind kind, const std::string& ca
     site.arguments.push_back(std::move(argument));
   }
   const auto ordinal = site.syntax.ordinal;
-  records.emplace(site.syntax, std::move(site));
+  store(std::move(site));
   node.setSyntaxOrdinal(ordinal);
   return ordinal;
 }
 const Site *SyntaxTable::site(SyntaxKey key) const {
-  auto found = records.find(key);
-  return found == records.end() ? nullptr : &found->second;
+  if (const auto changed = overrides.find(key); changed != overrides.end()) return &changed->second;
+  const auto file = records.find(key.fileKey);
+  if (file == records.end()) return nullptr;
+  const auto found = file->second->find(key);
+  return found == file->second->end() ? nullptr : &found->second;
+}
+void SyntaxTable::store(Site value) {
+  const auto key = value.syntax;
+  // A provisional module head differs from its completed span while parsing.
+  // Keep that write local; once completed, identical records use the base again.
+  if (const auto current = site(key); current && *current == value) return;
+  allRecords.reset();
+  auto& file = records[key.fileKey];
+  if (!file) file = std::make_shared<Records>();
+  const auto original = file->find(key);
+  if (original != file->end() && original->second == value) {
+    overrides.erase(key);
+  } else if (file.use_count() == 1) {
+    overrides.erase(key);
+    file->insert_or_assign(key, std::move(value));
+  } else {
+    overrides.insert_or_assign(key, std::move(value));
+  }
+}
+const std::map<SyntaxKey, Site>& SyntaxTable::sites() const {
+  if (!allRecords) {
+    auto combined = std::make_shared<Records>();
+    for (const auto& [key, file] : records) combined->insert(file->begin(), file->end());
+    for (const auto& [key, value] : overrides) combined->insert_or_assign(key, value);
+    allRecords = std::move(combined);
+  }
+  return *allRecords;
+}
+std::shared_ptr<SyntaxTable> SyntaxTable::reuseForParse(std::shared_ptr<const EvaluationInputs> inputs) const {
+  if (!inputs || inputs->root().fileKey != capturedInputs->root().fileKey)
+    throw std::invalid_argument("Syntax reuse requires the same captured root");
+  for (const auto& [key, input] : capturedInputs->consumed()) {
+    const auto current = inputs->consumed().find(key);
+    if (current == inputs->consumed().end() || current->second.fingerprint != input.fingerprint)
+      throw std::invalid_argument("Syntax reuse requires identical captured inputs");
+  }
+  auto result = std::make_shared<SyntaxTable>(std::move(inputs));
+  result->records = records;
+  result->overrides = overrides;
+  result->aliases = aliases;
+  result->resolvedPaths = resolvedPaths;
+  result->lineStarts = lineStarts;
+  // The unchanged root is parsed again into a new, parameter-mutable AST. It
+  // receives the same ordinals; retained library ASTs keep their original IDs.
+  return result;
 }
 const Site *SyntaxTable::site(const ASTNode& node) const {
   const auto *input = source(node.location());
@@ -141,10 +203,31 @@ void SyntaxTable::updateWhole(const ASTNode& node, const Location& whole) {
   const auto *input = source(node.location());
   auto range = span(whole);
   if (!input) return;
-  auto found = records.find({input->fileKey, node.syntaxOrdinal()});
-  if (found == records.end()) return;
-  found->second.wholeComplete = range && range->fileKey == input->fileKey;
-  found->second.whole = found->second.wholeComplete ? *range : Span{};
+  const SyntaxKey key{input->fileKey, node.syntaxOrdinal()};
+  const auto previous = site(key);
+  if (!previous) return;
+  const bool complete = range && range->fileKey == input->fileKey;
+  const auto updated = complete ? *range : Span{};
+  if (previous->wholeComplete == complete && previous->whole == updated) return;
+  allRecords.reset();
+  auto& file = records.at(input->fileKey);
+  if (auto changed = overrides.find(key); changed != overrides.end()) {
+    changed->second.wholeComplete = complete;
+    changed->second.whole = updated;
+    const auto original = file->find(key);
+    if (original != file->end() && original->second == changed->second) overrides.erase(changed);
+    return;
+  }
+  if (file.use_count() == 1) {
+    auto& value = file->at(key);
+    value.wholeComplete = complete;
+    value.whole = updated;
+    return;
+  }
+  Site value = *previous;
+  value.wholeComplete = complete;
+  value.whole = updated;
+  store(std::move(value));
 }
 Mapping Result::forNode(size_t nodeIndex) const {
   auto found = nodes.find(nodeIndex);

@@ -11,6 +11,7 @@
 #include "gui/QGLView.h"
 #include "gui/CameraNavigation.h"
 #include "gui/ScintillaEditor.h"
+#include "gui/QSettingsCached.h"
 #include "core/NativeExecutionGuard.h"
 #include "core/semantic/SemanticPlacement.h"
 #include "glview/RenderSettings.h"
@@ -151,6 +152,9 @@ void TestSemanticHierarchy::displayRefreshKeepsStrictEditGuards(){
 }
 void TestSemanticHierarchy::initializeUnstructuredModel(){
   window->inspectorDock->hide();
+  // This existing case exercises captured edit guards; prepare its input explicitly.
+  QObject inspectionConsumer;
+  window->evaluationBinding->requestInspection(&inspectionConsumer,window->activeEditor);
   auto preview=[&](const QString& source){window->activeEditor->setPlainText(source);QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),15000);QTRY_VERIFY(window->evaluationBinding->current());QTest::qWait(30);};
   const QString source="// Global parameters\nwidth = 12;\nmodule shape() { cube([width, 8, 3]); }\n// Geometry\nshape(); // Keep this comment";
   preview(source);if(QTest::currentTestFailed())return;
@@ -183,6 +187,43 @@ void TestSemanticHierarchy::initializeUnstructuredModel(){
   QVERIFY(!overlay->isVisible());QCOMPARE(info->pos(),QPoint(10,10));
   const auto oldStamp=window->evaluationBinding->stamp();const auto oldScene=window->evaluationBinding->scene(oldStamp);editor->setPlainText(source+"\n// changed");editor->clearUndoHistory();
   QVERIFY(!panel->initializeCaptured(oldScene,oldStamp,"Part",&detail));QCOMPARE(editor->toPlainText(),source+"\n// changed");QVERIFY(!editor->canUndo());
+}
+void TestSemanticHierarchy::onDemandInspectionAndStructure(){
+  QSettingsCached settings;
+  const auto previous=settings.value("advanced/alwaysPrepareInspector");
+  const auto restore=qScopeGuard([&]{
+    if(previous.isValid())settings.setValue("advanced/alwaysPrepareInspector",previous);
+    else settings.remove("advanced/alwaysPrepareInspector");
+  });
+  settings.setValue("advanced/alwaysPrepareInspector",false);
+  window->inspectorDock->hide();
+  evaluate("cube(4);");if(QTest::currentTestFailed())return;
+  auto binding=window->evaluationBinding;
+  auto plain=binding->scene(binding->stamp());
+  QVERIFY(plain && !plain->inspectionPrepared && !plain->provenance && !plain->backing->syntax);
+  window->inspectorDock->beginSelection();
+  QTRY_VERIFY_WITH_TIMEOUT(binding->inspectionReady(),15000);
+  QTRY_VERIFY(window->viewportTools->active()!=0);
+  window->inspectorDock->hide();
+  evaluate("cube(4);");if(QTest::currentTestFailed())return;
+  QVERIFY(!binding->inspectionReady());
+  auto *panel=window->semanticController->parameterPanel();QVERIFY(panel);
+  QTimer accept;
+  connect(&accept,&QTimer::timeout,this,[]{
+    if(auto dialog=qobject_cast<QInputDialog *>(QApplication::activeModalWidget())) {
+      dialog->setTextValue("Prepared part");dialog->accept();
+    }
+  });
+  accept.start(10);
+  panel->initializeStructureDialog();
+  QTRY_VERIFY_WITH_TIMEOUT(window->activeEditor->toPlainText().contains("Prepared part"),15000);
+  accept.stop();
+  QTRY_VERIFY_WITH_TIMEOUT(binding->current(),15000);
+  auto structured=binding->scene(binding->stamp());
+  QVERIFY(structured && structured->inspectionPrepared && structured->provenance);
+  QVERIFY(structured->semantic && structured->semantic->valid());
+  QCOMPARE(structured->semantic->instances.size(),size_t(1));
+  QVERIFY(!binding->inspectionRequested(window->activeEditor)); // Model requirement, not leaked UI demand.
 }
 void TestSemanticHierarchy::viewportStructureInteractions(){
   evaluate(pair);if(QTest::currentTestFailed())return;

@@ -150,6 +150,7 @@ void Controller::request(EditorInterface *editor, Mode mode, bool automatic)
   attempt->parameterRevision = parameterRevision;
   auto& request = attempt->request;
   request.mode = mode;
+  request.prepareInspection = mode != Mode::Parameters && window->evaluationBinding->inspectionRequested(editor);
   request.filename = editor->filepath.toStdString();
   request.definitions = commandline_commands;
   auto colors = ColorMap::instance().findColorScheme(request.settings.colorscheme);
@@ -176,7 +177,10 @@ void Controller::request(EditorInterface *editor, Mode mode, bool automatic)
 #ifdef ENABLE_PYTHON
   if (editor->filepath.endsWith(".py")) {
     if (!Feature::ExperimentalPythonEngine.is_enabled() ||
-        !window->trust_python_file(request.filename, request.root.utf8)) return;
+        !window->trust_python_file(request.filename, request.root.utf8)) {
+      if (mode != Mode::Parameters) emit window->evaluationBinding->evaluationFinished(editor);
+      return;
+    }
     request.python = true;
     request.pythonEnvironment = venvBinDirFromSettings();
   }
@@ -380,6 +384,8 @@ void Controller::finish(const QString& key, const std::shared_ptr<Pending>& atte
     if (!attempt->terminalReported) {
       attempt->terminalReported = true;
       emit attemptFinished(metadata);
+      if (latest && attempt->request.mode != Mode::Parameters && attempt->owner)
+        emit window->evaluationBinding->evaluationFinished(attempt->owner);
     }
   };
   if (!latest) { report(); return; }

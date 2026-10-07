@@ -1,6 +1,7 @@
 #include "gui/semantic/SemanticParameterPanel.h"
 #include "gui/semantic/SemanticController.h"
 #include "gui/MainWindow.h"
+#include "gui/TabManager.h"
 #include "gui/selection/EvaluationBinding.h"
 #include "gui/selection/ProvenanceService.h"
 #include "gui/source/SourceEditTransaction.h"
@@ -35,6 +36,12 @@ ParameterPanel::ParameterPanel(MainWindow *owner,Controller *control,QWidget *pa
   status=new QLabel(this);status->setObjectName("semanticParameterStatus");status->setWordWrap(true);layout->addWidget(status);
   scroll=new QScrollArea(this);scroll->setWidgetResizable(true);layout->addWidget(scroll);
   connect(mode,&QComboBox::currentIndexChanged,this,[this]{refresh();});
+  connect(window->tabManager,&TabManager::currentEditorChanged,this,[this](auto) {
+    disconnect(structurePreparationConnection);
+    ++preparationSerial;
+    preparingStructure.clear();
+    window->evaluationBinding->releaseInspection(this);
+  });
 }
 EditorInterface *ParameterPanel::owner(const Scene& scene,const ParameterEdit& edit,QString& reason) const {
   if(!window || !scene.inputs || !edit.owner){reason=tr("Captured source owner is unavailable");return nullptr;}
@@ -74,6 +81,41 @@ bool ParameterPanel::applyCaptured(std::shared_ptr<const Selection::EvaluatedSce
 }
 void ParameterPanel::initializeStructureDialog() {
   if(!window || !window->activeEditor)return;
+  if(preparingStructure)return;
+  if(!window->evaluationBinding->inspectionReady()) {
+    if(GuiLocker::isLocked()){status->setText(tr("Wait for evaluation to finish before adding model structure."));return;}
+    preparingStructure=window->activeEditor;
+    const auto revision=preparingStructure->sourceRevision;
+    const auto serial=++preparationSerial;
+    window->evaluationBinding->requestInspection(this,preparingStructure);
+    status->setText(tr("Preparing source information for model structure…"));
+    structurePreparationConnection=connect(window->evaluationBinding,&Selection::EvaluationBinding::evaluationFinished,this,
+      [this,serial,revision](EditorInterface *editor) {
+        if(serial!=preparationSerial){disconnect(structurePreparationConnection);return;}
+        if(preparingStructure!=editor)return;
+        disconnect(structurePreparationConnection);
+        const bool ready=editor==window->activeEditor && editor->sourceRevision==revision && window->evaluationBinding->inspectionReady();
+        preparingStructure.clear();
+        window->evaluationBinding->releaseInspection(this);
+        const auto stamp=window->evaluationBinding->stamp();
+        if(ready)QTimer::singleShot(0,this,[this,serial,stamp] {
+          if(serial!=preparationSerial)return;
+          if(window->evaluationBinding->stamp()==stamp && window->evaluationBinding->inspectionReady())initializeStructureDialog();
+          else status->setText(tr("The model changed during source preparation. Try again."));
+        });
+        else status->setText(tr("Source preparation did not complete. Check the evaluation messages, then try again."));
+      });
+    QTimer::singleShot(0,this,[this,serial,revision] {
+      if(serial!=preparationSerial || !preparingStructure)return;
+      if(preparingStructure!=window->activeEditor || preparingStructure->sourceRevision!=revision || GuiLocker::isLocked()) {
+        disconnect(structurePreparationConnection);
+        ++preparationSerial;preparingStructure.clear();window->evaluationBinding->releaseInspection(this);
+        status->setText(tr("Source preparation cancelled. Try again with the current document."));return;
+      }
+      window->actionRenderPreview();
+    });
+    return;
+  }
   const auto stamp=window->evaluationBinding->stamp();const auto captured=window->evaluationBinding->scene(stamp);
   const auto filename=QFileInfo(window->activeEditor->filepath).completeBaseName();
   QPointer<ParameterPanel> self(this);bool accepted=false;

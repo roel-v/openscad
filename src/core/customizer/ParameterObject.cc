@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 #include "core/customizer/ParameterObject.h"
 
 #include <boost/algorithm/string.hpp>
@@ -39,7 +40,7 @@ Value resolveValue(const Expression *expr, const Context *context)
   if (context) {
     try {
       return expr->evaluate(context->get_shared_ptr());
-    } catch (...) {
+    } catch (const EvaluationCancelled&) { throw; } catch (...) {
     }
   }
   if (const auto *lit = dynamic_cast<const Literal *>(expr)) {
@@ -680,6 +681,40 @@ void ParameterObjects::apply(SourceFile *sourceFile) const
   }
 }
 
+bool ParameterObject::sameDefinition(const ParameterObject& other) const
+{
+  if (type() != other.type() || name() != other.name() || description() != other.description() || group() != other.group()) return false;
+  switch (type()) {
+  case ParameterType::Bool:
+    return static_cast<const BoolParameter&>(*this).defaultValue == static_cast<const BoolParameter&>(other).defaultValue;
+  case ParameterType::String: {
+    const auto& a = static_cast<const StringParameter&>(*this);
+    const auto& b = static_cast<const StringParameter&>(other);
+    return a.defaultValue == b.defaultValue && a.maximumSize == b.maximumSize;
+  }
+  case ParameterType::Number: {
+    const auto& a = static_cast<const NumberParameter&>(*this);
+    const auto& b = static_cast<const NumberParameter&>(other);
+    return a.defaultValue == b.defaultValue && a.minimum == b.minimum && a.maximum == b.maximum &&
+      a.step == b.step && a.isSliderEnabled() == b.isSliderEnabled();
+  }
+  case ParameterType::Vector: {
+    const auto& a = static_cast<const VectorParameter&>(*this);
+    const auto& b = static_cast<const VectorParameter&>(other);
+    return a.defaultValue == b.defaultValue && a.minimum == b.minimum && a.maximum == b.maximum && a.step == b.step;
+  }
+  case ParameterType::Enum: {
+    const auto& a = static_cast<const EnumParameter&>(*this);
+    const auto& b = static_cast<const EnumParameter&>(other);
+    if (a.defaultValueIndex != b.defaultValueIndex || a.items.size() != b.items.size()) return false;
+    for (size_t i = 0; i < a.items.size(); ++i)
+      if (a.items[i].key != b.items[i].key || a.items[i].value != b.items[i].value) return false;
+    return true;
+  }
+  }
+  return false;
+}
+
 void ParameterObject::updateAttributes(const Context *context)
 {
   if (context) {
@@ -687,14 +722,14 @@ void ParameterObject::updateAttributes(const Context *context)
       try {
         bool newLocked = this->lockedExpr->evaluate(context->get_shared_ptr()).toBool();
         this->setLocked(newLocked);
-      } catch (...) {
+      } catch (const EvaluationCancelled&) { throw; } catch (...) {
       }
     }
     if (this->hiddenExpr) {
       try {
         bool newHidden = this->hiddenExpr->evaluate(context->get_shared_ptr()).toBool();
         this->setHidden(newHidden);
-      } catch (...) {
+      } catch (const EvaluationCancelled&) { throw; } catch (...) {
       }
     }
   }

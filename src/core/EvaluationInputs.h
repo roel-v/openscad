@@ -41,7 +41,8 @@ public:
   const std::vector<SourceInput>& capturedEditors() const { return editors; }
   const std::map<std::string,SourceInput>& validationInputs() const { return replacementBase ? *replacementBase : consumedInputs; }
   EvaluationInputs withReplacement(const std::string& fileKey, std::string candidateUtf8) const;
-  void freeze() { frozen = true; }
+  void freeze() { frozen = true; inputObserver = {}; }
+  void observeReads(std::function<void(const SourceInput&)> observer) { inputObserver = std::move(observer); }
   static std::string fileKey(const std::filesystem::path& path);
   static std::string fingerprint(const std::string& bytes);
   static std::string diskBytes(const std::filesystem::path& path);
@@ -53,6 +54,8 @@ private:
   ReadPolicy policy;
   std::optional<std::map<std::string,SourceInput>> replacementBase;
   bool frozen = false;
+  std::function<void(const SourceInput&)> inputObserver;
+  const SourceInput& observe(const SourceInput& input) { if (inputObserver) inputObserver(input); return input; }
 };
 
 extern thread_local EvaluationInputs *nativeEvaluationInputs;

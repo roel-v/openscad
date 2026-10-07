@@ -17,6 +17,14 @@
 class PolySetRenderer : public VBORenderer
 {
 public:
+  struct PreparedGeometry {
+    std::vector<std::shared_ptr<const PolySet>> polysets;
+    std::vector<std::pair<std::shared_ptr<const Polygon2d>, std::shared_ptr<const PolySet>>> polygons;
+    TriangleStatistics triangles{TriangleStatistics::Kind::Final, std::nullopt};
+    void add(const std::shared_ptr<const Geometry>& geometry);
+  };
+  static PreparedGeometry prepareGeometry(const std::shared_ptr<const Geometry>& geometry);
+  explicit PolySetRenderer(PreparedGeometry geometry);
   PolySetRenderer(const std::shared_ptr<const class Geometry>& geom);
   ~PolySetRenderer() override = default;
   void prepare(const ShaderUtils::ShaderInfo *shaderinfo) override;
@@ -35,7 +43,6 @@ public:
                                               int mouse_x, int mouse_y, double tolerance) override;
 
 private:
-  void addGeometry(const std::shared_ptr<const class Geometry>& geom);
   void createPolySetStates(const ShaderUtils::ShaderInfo *shaderinfo);
   void createPolygonStates();
   void createPolygonSurfaceStates();

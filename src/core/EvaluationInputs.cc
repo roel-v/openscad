@@ -111,17 +111,17 @@ EvaluationInputs EvaluationInputs::withReplacement(const std::string& key,std::s
 const SourceInput& EvaluationInputs::read(const std::filesystem::path& resolvedPath)
 {
   const auto key = fileKey(resolvedPath);
-  if (auto found = consumedInputs.find(key); found != consumedInputs.end()) return found->second;
+  if (auto found = consumedInputs.find(key); found != consumedInputs.end()) return observe(found->second);
   if (frozen) throw EvaluationInputError("Evaluation inputs are frozen: " + key);
   if (auto found = overrides.find(key); found != overrides.end()){
     if(replacementBase)replacementBase->emplace(key,found->second);
-    return consumedInputs.emplace(key, found->second).first->second;
+    return observe(consumedInputs.emplace(key, found->second).first->second);
   }
   if(policy==ReadPolicy::RejectMissing)throw MissingCapturedInput(key);
   SourceInput input{key, diskBytes(resolvedPath), {}, {}, {}};
   validate(input);
   if(replacementBase)replacementBase->emplace(key,input);
-  return consumedInputs.emplace(key, std::move(input)).first->second;
+  return observe(consumedInputs.emplace(key, std::move(input)).first->second);
 }
 
 NativeEvaluationScope::NativeEvaluationScope(EvaluationInputs& inputs, SourceFileCache& cache,

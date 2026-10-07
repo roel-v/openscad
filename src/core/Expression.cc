@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -75,6 +76,7 @@ UnaryOp::UnaryOp(UnaryOp::Op op, Expression *expr, const Location& loc)
 
 Value UnaryOp::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   switch (this->op) {
   case (Op::Not):       return !this->expr->evaluate(context).toBool();
   case (Op::Negate):    return checkUndef(-this->expr->evaluate(context), context);
@@ -114,6 +116,7 @@ BinaryOp::BinaryOp(Expression *left, BinaryOp::Op op, Expression *right, const L
 
 Value BinaryOp::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   switch (this->op) {
   case Op::LogicalAnd:
     return this->left->evaluate(context).toBool() && this->right->evaluate(context).toBool();
@@ -201,6 +204,7 @@ const Expression *TernaryOp::evaluateStep(const std::shared_ptr<const Context>& 
 
 Value TernaryOp::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   return evaluateStep(context)->evaluate(context);
 }
 
@@ -216,6 +220,7 @@ ArrayLookup::ArrayLookup(Expression *array, Expression *index, const Location& l
 
 Value ArrayLookup::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   return this->array->evaluate(context)[this->index->evaluate(context)];
 }
 
@@ -226,6 +231,7 @@ void ArrayLookup::print(std::ostream& stream, const std::string&) const
 
 Value Literal::evaluate(const std::shared_ptr<const Context>&) const
 {
+  evaluationCheckpoint();
   return value.clone();
 }
 
@@ -260,6 +266,7 @@ static void NOINLINE print_range_err(const std::string& begin, const std::string
 
 Value Range::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   const Value& begin_val = this->begin->evaluate(context);
   const Value& end_val = this->end->evaluate(context);
   double begin_d;
@@ -331,6 +338,7 @@ void Vector::emplace_back(Expression *expr)
 
 Value Vector::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   if (children.size() == 1) {
     Value val = children.front()->evaluate(context);
     // If only 1 EmbeddedVectorType, convert to plain VectorType
@@ -408,6 +416,7 @@ void Object::mergeSetOps(Object *obj)
 
 Value Object::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   ObjectType obj(context->session());
   for (size_t i = 0; i < this->keys.size(); i++) {
     std::shared_ptr<Expression> keyExpr = this->keys[i];
@@ -448,6 +457,7 @@ Lookup::Lookup(std::string name, const Location& loc) : Expression(loc), name(st
 
 Value Lookup::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   return context->lookup_variable(this->name, loc).clone();
 }
 
@@ -463,6 +473,7 @@ MemberLookup::MemberLookup(Expression *expr, std::string member, const Location&
 
 Value MemberLookup::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   const Value& v = this->expr->evaluate(context);
   static const boost::regex re_swizzle_validation("^([xyzw]{1,4}|[rgba]{1,4})$");
 
@@ -519,6 +530,7 @@ FunctionDefinition::FunctionDefinition(Expression *expr, AssignmentList paramete
 
 Value FunctionDefinition::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   return FunctionPtr{FunctionType{context, expr, std::make_unique<AssignmentList>(parameters)}};
 }
 
@@ -675,6 +687,7 @@ static SimplificationResult simplify_function_body(const Expression *expression,
 
 Value FunctionCall::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   const auto& name = get_name();
   if (StackCheck::inst().check()) {
     print_err(name.c_str(), loc, context);
@@ -691,6 +704,7 @@ Value FunctionCall::evaluate(const std::shared_ptr<const Context>& context) cons
   ContextHandle<Context> expression_context{Context::create<Context>(context)};
   const Expression *expression = this;
   while (true) {
+    evaluationCheckpoint();
     try {
       auto result = simplify_function_body(expression, *expression_context);
       if (Value *value = std::get_if<Value>(&result)) {
@@ -776,6 +790,7 @@ const Expression *Assert::evaluateStep(const std::shared_ptr<const Context>& con
 
 Value Assert::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   const Expression *nextexpr = evaluateStep(context);
   return nextexpr ? nextexpr->evaluate(context) : Value::undefined.clone();
 }
@@ -800,6 +815,7 @@ const Expression *Echo::evaluateStep(const std::shared_ptr<const Context>& conte
 
 Value Echo::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   const Expression *nextexpr = evaluateStep(context);
   return nextexpr ? nextexpr->evaluate(context) : Value::undefined.clone();
 }
@@ -853,6 +869,7 @@ const Expression *Let::evaluateStep(ContextHandle<Context>& targetContext) const
 
 Value Let::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   ContextHandle<Context> letContext{Context::create<Context>(context)};
   return evaluateStep(letContext)->evaluate(*letContext);
 }
@@ -873,6 +890,7 @@ LcIf::LcIf(Expression *cond, Expression *ifexpr, Expression *elseexpr, const Loc
 
 Value LcIf::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   const std::shared_ptr<Expression>& expr =
     this->cond->evaluate(context).toBool() ? this->ifexpr : this->elseexpr;
   if (expr) {
@@ -936,6 +954,7 @@ Value LcEach::evalRecur(Value&& v, const std::shared_ptr<const Context>& context
 
 Value LcEach::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   return evalRecur(this->expr->evaluate(context), context);
 }
 
@@ -1028,6 +1047,7 @@ void LcFor::forEach(const AssignmentList& assignments, const Location& loc,
 
 Value LcFor::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   EmbeddedVectorType vec(context->session());
   std::function<void(size_t)> reserve = [&vec](size_t capacity) { vec.reserve(capacity); };
   forEach(
@@ -1056,6 +1076,7 @@ LcForC::LcForC(AssignmentList args, AssignmentList incrargs, Expression *cond, E
 
 Value LcForC::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   EmbeddedVectorType output(context->session());
 
   ContextHandle<Context> initialContext{
@@ -1064,6 +1085,7 @@ Value LcForC::evaluate(const std::shared_ptr<const Context>& context) const
 
   unsigned int counter = 0;
   while (this->cond->evaluate(*currentContext).toBool()) {
+    evaluationCheckpoint();
     output.emplace_back(this->expr->evaluate(*currentContext));
 
     if (counter++ == 1000000) {
@@ -1103,6 +1125,7 @@ LcLet::LcLet(AssignmentList args, Expression *expr, const Location& loc)
 
 Value LcLet::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   return this->expr->evaluate(
     *Let::sequentialAssignmentContext(this->arguments, this->location(), context));
 }
@@ -1124,6 +1147,7 @@ OcIf::OcIf(Expression *cond, Expression *ifexpr, Expression *elseexpr, const Loc
 
 Value OcIf::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   const std::shared_ptr<Expression>& expr = this->cond->evaluate(context).toBool() ? this->ifexpr : this->elseexpr;
   if (expr) {
     return expr->evaluate(context);
@@ -1146,6 +1170,7 @@ OcEach::OcEach(Expression *expr, const Location& loc) : ObjectComprehension(loc)
 
 Value OcEach::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   Value v = this->expr->evaluate(context);
   if (v.type() == Value::Type::OBJECT) {
     ObjectType obj = v.toObject();
@@ -1171,6 +1196,7 @@ void OcFor::forEach(const AssignmentList& assignments, const Location& loc, cons
 
 Value OcFor::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   ObjectType obj(context->session());
   forEach(this->arguments, this->loc, context,
     [this, &obj, expression = expr.get()]
@@ -1193,6 +1219,7 @@ OcForC::OcForC(AssignmentList args, AssignmentList incrargs, Expression *cond, E
 
 Value OcForC::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   ObjectType output(context->session());
 
   ContextHandle<Context> initialContext{Let::sequentialAssignmentContext(this->arguments, this->location(), context)};
@@ -1200,6 +1227,7 @@ Value OcForC::evaluate(const std::shared_ptr<const Context>& context) const
 
   unsigned int counter = 0;
   while (this->cond->evaluate(*currentContext).toBool()) {
+    evaluationCheckpoint();
     output.merge(this->expr->evaluate(*currentContext), loc);
 
     if (counter++ == 1000000) {
@@ -1241,6 +1269,7 @@ OcLet::OcLet(AssignmentList args, Expression *expr, const Location& loc)
 
 Value OcLet::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   return this->expr->evaluate(*Let::sequentialAssignmentContext(this->arguments, this->location(), context));
 }
 
@@ -1256,6 +1285,7 @@ ObjectExpression::ObjectExpression(AssignmentList members, const Location& loc)
 
 Value ObjectExpression::evaluate(const std::shared_ptr<const Context>& context) const
 {
+  evaluationCheckpoint();
   Value::ObjectType obj(context->session());
   for (const auto& member : members) {
     Value val = member->getExpr()->evaluate(context);

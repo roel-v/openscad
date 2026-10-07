@@ -2,6 +2,7 @@
 #include "glview/Renderer.h"
 #include "geometry/PolySet.h"
 #include "core/CSGNode.h"
+#include "core/EvaluationCancellation.h"
 #include <unordered_set>
 
 // Match VBOBuilder's prepared surface tessellation: triangles, split quads, then center fans.
@@ -10,6 +11,7 @@ inline std::optional<uint64_t> preparedTriangleCount(const PolySet& polyset)
 {
   uint64_t count=0;
   for (const auto& face:polyset.indices) {
+    evaluationCheckpoint();
     if (face.size()<3) return std::nullopt;
     count+=face.size()==3 ? 1 : face.size()==4 ? 2 : face.size();
   }
@@ -25,6 +27,7 @@ inline Renderer::TriangleStatistics previewTriangleStatistics(
   for (const auto& group:{root,highlights,background}) if (group) {
     for (const auto& product:group->products) {
       for (const auto* chain:{&product.intersections,&product.subtractions}) for (const auto& object:*chain) {
+        evaluationCheckpoint();
         const auto leaf=object.leaf.get();
         if (leaf && leaf->polyset && seen.insert(leaf).second) {
           dimension=std::max(dimension,int(leaf->polyset->getDimension()));

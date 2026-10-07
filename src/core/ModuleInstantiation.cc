@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 #include "core/ModuleInstantiation.h"
 
 #include <cstddef>
@@ -78,6 +79,7 @@ std::shared_ptr<AbstractNode> ModuleInstantiation::evaluate(
     return nullptr;
   }
 
+  evaluationCheckpoint();
   try {
     auto node = module->module->instantiate(module->defining_context, this, context);
     return node;

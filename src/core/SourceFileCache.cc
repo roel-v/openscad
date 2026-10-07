@@ -166,16 +166,22 @@ void SourceFileCache::clear()
 
 SourceFile *SourceFileCache::lookup(const std::string& filename)
 {
-  std::string key = filename;
+  const std::string *key = &filename;
   if (inputs) {
-    const auto absolute = std::filesystem::absolute(filename).generic_string();
-    auto found = resolvedPaths.find(absolute);
+    // Library resolution already supplies absolute filenames. Keep a cache hit free
+    // of path conversion and Windows GetFullPathName calls in the evaluator hot path.
+    auto found = resolvedPaths.find(filename);
     if (found == resolvedPaths.end()) {
-      found = resolvedPaths.emplace(absolute, EvaluationInputs::fileKey(absolute)).first;
+      const std::filesystem::path path(filename);
+      const auto absolute = path.is_absolute() ? filename : std::filesystem::absolute(path).generic_string();
+      found = resolvedPaths.find(absolute);
+      if (found == resolvedPaths.end()) {
+        found = resolvedPaths.emplace(absolute, EvaluationInputs::fileKey(absolute)).first;
+      }
     }
-    key = found->second;
+    key = &found->second;
   }
-  auto it = this->entries.find(key);
+  auto it = this->entries.find(*key);
   return it != this->entries.end() ? it->second.file : nullptr;
 }
 

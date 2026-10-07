@@ -315,7 +315,10 @@ void TestNavigation::documentMetadataLifetimeProbe()
   QVERIFY(source.open(QIODevice::WriteOnly));
   source.write("cube(10);\n");
   source.close();
-  window->tabManager->open(path);
+  // open() can reuse the sole pristine tab; closing it would close the test window.
+  const auto originalTabs = window->tabManager->count();
+  window->tabManager->createTab(path);
+  QCOMPARE(window->tabManager->count(), originalTabs + 1);
   auto editor = window->activeEditor;
   const auto displayedOwner = window->displayedDocument();
   editor->setProperty("navigation-metadata-probe", "unsaved metadata");
@@ -330,6 +333,7 @@ void TestNavigation::documentMetadataLifetimeProbe()
   QVERIFY(editor->toPlainText().contains("sphere"));
   editor->setContentModified(false);
   window->tabManager->closeCurrentTab();
+  QCOMPARE(window->tabManager->count(), originalTabs);
 }
 
 void TestNavigation::cubeTargetsAndGestures()

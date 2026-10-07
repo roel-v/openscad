@@ -48,4 +48,6 @@ private:
     std::time_t includes_mtime{};  // time the includes last changed
   };
   std::unordered_map<std::string, cache_entry> entries;
+  // Request-local only: avoid filesystem identity work on every function/module lookup.
+  std::unordered_map<std::string, std::string> resolvedPaths;
 };

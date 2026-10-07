@@ -48,6 +48,31 @@ TEST_CASE("Evaluation inputs capture dirty editors and retain exact UTF8 CRLF BO
   REQUIRE(inputs.read(include).utf8 == exact);
 }
 
+TEST_CASE("Library lookup aliases stay within their captured evaluation", "[evaluation-inputs]")
+{
+  InputFixture fixture;
+  const auto root = fixture.write("root.scad", "cube(1);");
+  const auto library = fixture.write("library.scad", "module old_shape() { cube(1); }");
+  EvaluationInputs first(fixture.input(root, "cube(1);"));
+  SourceFileCache firstCache(&first);
+  SourceFile *oldFile = nullptr;
+  firstCache.process(root.string(), library.string(), oldFile);
+  REQUIRE(oldFile);
+  const auto alias = (fixture.directory / "nested/../library.scad").string();
+  REQUIRE(firstCache.lookup(alias) == oldFile);
+  fixture.write("library.scad", "module new_shape() { sphere(1); }");
+  REQUIRE(firstCache.lookup(alias) == oldFile);
+  EvaluationInputs second(fixture.input(root, "cube(1);"));
+  SourceFileCache secondCache(&second);
+  SourceFile *newFile = nullptr;
+  secondCache.process(root.string(), library.string(), newFile);
+  REQUIRE(newFile);
+  REQUIRE(newFile != oldFile);
+  REQUIRE(secondCache.lookup(alias) == newFile);
+  REQUIRE(second.consumed().at(EvaluationInputs::fileKey(library)).utf8 !=
+          first.consumed().at(EvaluationInputs::fileKey(library)).utf8);
+}
+
 TEST_CASE("Evaluation inputs read each disk dependency once and freeze consumed sources", "[evaluation-inputs]")
 {
   InputFixture fixture;

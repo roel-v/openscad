@@ -161,11 +161,21 @@ std::time_t SourceFileCache::process(const std::string& mainFile, const std::str
 void SourceFileCache::clear()
 {
   this->entries.clear();
+  resolvedPaths.clear();
 }
 
 SourceFile *SourceFileCache::lookup(const std::string& filename)
 {
-  auto it = this->entries.find(inputs ? EvaluationInputs::fileKey(std::filesystem::path(filename)) : filename);
+  std::string key = filename;
+  if (inputs) {
+    const auto absolute = std::filesystem::absolute(filename).generic_string();
+    auto found = resolvedPaths.find(absolute);
+    if (found == resolvedPaths.end()) {
+      found = resolvedPaths.emplace(absolute, EvaluationInputs::fileKey(absolute)).first;
+    }
+    key = found->second;
+  }
+  auto it = this->entries.find(key);
   return it != this->entries.end() ? it->second.file : nullptr;
 }
 

@@ -39,6 +39,7 @@
 #include <QPushButton>
 #include <QLineF>
 #include "gui/QSettingsCached.h"
+#include "gui/evaluation/EvaluationController.h"
 #include <QCryptographicHash>
 #include <QFileInfo>
 #include <QWindow>
@@ -52,8 +53,8 @@ bool compile(MainWindow& window, const QString& source, bool final = false) {
   QSignalSpy completed(&window, &MainWindow::compilationDone);
   if (final) window.designActionRender->trigger(); else window.actionRenderPreview();
   QElapsedTimer timer; timer.start();
-  while ((completed.empty() || GuiLocker::isLocked()) && timer.elapsed()<20000) QTest::qWait(10);
-  return !completed.empty() && window.evaluationBinding->current() && !GuiLocker::isLocked();
+  while ((completed.empty() || GuiLocker::isLocked() || window.backgroundEvaluation->busy()) && timer.elapsed()<20000) QTest::qWait(10);
+  return !completed.empty() && window.evaluationBinding->current() && !GuiLocker::isLocked() && !window.backgroundEvaluation->busy();
 }
 QPointF projected(QGLView& view, const Vector3d& world) {
   view.makeCurrent(); view.setupCamera();

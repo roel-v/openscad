@@ -1890,11 +1890,16 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
     delete sourceFile;
     sourceFile = nullptr;
   }
+  const std::shared_ptr<SourceFile> parsedSource(sourceFile);
 
   editor->resetHighlighting();
   if (sourceFile) {
     // add parameters as annotation in AST
     CommentParser::collectParameters(fulltext, sourceFile);
+    // Customizer's FileContext evaluates top-level assignments. Resolve use
+    // libraries first, inside the caller's evaluation scope, so those
+    // assignments can call library functions even with a fresh captured cache.
+    sourceFile->handleDependencies();
     editor->parameterWidget->setParameters(sourceFile, fulltext);
     editor->parameterWidget->setProperty("agentSourceRevision", QString::number(editor->sourceRevision));
     editor->parameterWidget->setProperty("agentSourceFingerprint", editor->sourceFingerprint);
@@ -1902,7 +1907,7 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
     if(evaluationOverrides && (evaluationOverrides->editor!=editor ||
        !editor->parameterWidget->applyEvaluationValues(evaluationOverrides->parameters,sourceFile))){
       LOG(message_group::Error,"Captured evaluation parameters no longer match the document");
-      delete sourceFile;return {};
+      return {};
     }
     editor->parameterWidget->setEnabled(true);
     editor->setIndicator(sourceFile->indicatorData);
@@ -1910,7 +1915,7 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
     editor->parameterWidget->setEnabled(false);
   }
 
-  return std::shared_ptr<SourceFile>(sourceFile);
+  return parsedSource;
 }
 
 void MainWindow::parseTopLevelDocument()

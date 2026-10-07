@@ -2,6 +2,7 @@
 
 #include "geometry/linalg.h"
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <optional>
@@ -88,6 +89,9 @@ private:
   bool sealed = false;
   std::shared_ptr<const EvaluationInputs> capturedInputs;
   std::map<std::string, std::string> aliases;
+  // Per-snapshot identities, never shared between evaluations. Sealed copies only read this map.
+  mutable std::map<std::string, std::string> resolvedPaths;
+  std::string fileKey(const std::filesystem::path& path) const;
   std::map<SyntaxKey, Site> records;
   std::map<std::string, uint64_t> ordinals;
   mutable std::map<std::string, std::vector<uint64_t>> lineStarts;

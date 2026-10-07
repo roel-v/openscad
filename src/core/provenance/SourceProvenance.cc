@@ -16,7 +16,7 @@ SyntaxTable::SyntaxTable(std::shared_ptr<const EvaluationInputs> inputs) : captu
   if (!capturedInputs) throw std::invalid_argument("Provenance requires captured evaluation inputs");
 }
 SyntaxTable::SyntaxTable(const SyntaxTable& other, bool sealed)
-  : sealed(sealed), capturedInputs(other.capturedInputs), aliases(other.aliases), records(other.records),
+  : sealed(sealed), capturedInputs(other.capturedInputs), aliases(other.aliases), resolvedPaths(other.resolvedPaths), records(other.records),
     ordinals(other.ordinals), lineStarts(other.lineStarts) {
   for (const auto& [key, input] : capturedInputs->consumed()) {
     if (lineStarts.count(key)) continue;
@@ -24,9 +24,17 @@ SyntaxTable::SyntaxTable(const SyntaxTable& other, bool sealed)
     for (size_t i = 0; i < input.utf8.size(); ++i) if (input.utf8[i] == '\n') starts.push_back(i+1);
   }
 }
+std::string SyntaxTable::fileKey(const std::filesystem::path& path) const {
+  // Absolute lexical paths distinguish relative names across parser working directories without I/O.
+  const auto absolute = std::filesystem::absolute(path).generic_string();
+  if (auto found = resolvedPaths.find(absolute); found != resolvedPaths.end()) return found->second;
+  auto key = EvaluationInputs::fileKey(absolute);
+  if (!sealed) resolvedPaths.emplace(absolute, key);
+  return key;
+}
 void SyntaxTable::bindParseFile(const std::string& path, const std::string& parserText) {
   if (sealed) throw std::logic_error("Published provenance syntax is immutable");
-  const auto key = EvaluationInputs::fileKey(path);
+  const auto key = fileKey(path);
   const auto& consumed = capturedInputs->consumed();
   auto found = consumed.find(key);
   const SourceInput *input = found == consumed.end() ? nullptr : &found->second;
@@ -39,7 +47,7 @@ void SyntaxTable::bindParseFile(const std::string& path, const std::string& pars
 }
 const SourceInput *SyntaxTable::source(const Location& location) const {
   if (location.isNone() || location.fileName().empty()) return nullptr;
-  auto key = EvaluationInputs::fileKey(location.filePath());
+  auto key = fileKey(location.filePath());
   auto alias = aliases.find(key);
   if (alias != aliases.end()) key = alias->second;
   const auto found = capturedInputs->consumed().find(key);

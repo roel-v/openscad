@@ -160,28 +160,31 @@ std::time_t SourceFileCache::process(const std::string& mainFile, const std::str
 
 void SourceFileCache::clear()
 {
+  resolvedEntries.clear();
   this->entries.clear();
-  resolvedPaths.clear();
 }
 
 SourceFile *SourceFileCache::lookup(const std::string& filename)
 {
-  const std::string *key = &filename;
+  // An unresolved use directive has no cache entry, including in a captured session.
+  if (filename.empty()) return nullptr;
   if (inputs) {
     // Library resolution already supplies absolute filenames. Keep a cache hit free
     // of path conversion and Windows GetFullPathName calls in the evaluator hot path.
-    auto found = resolvedPaths.find(filename);
-    if (found == resolvedPaths.end()) {
-      const std::filesystem::path path(filename);
-      const auto absolute = path.is_absolute() ? filename : std::filesystem::absolute(path).generic_string();
-      found = resolvedPaths.find(absolute);
-      if (found == resolvedPaths.end()) {
-        found = resolvedPaths.emplace(absolute, EvaluationInputs::fileKey(absolute)).first;
-      }
-    }
-    key = &found->second;
+    if (auto found = resolvedEntries.find(filename); found != resolvedEntries.end())
+      return found->second->file;
+    const std::filesystem::path path(filename);
+    const auto absolute = path.is_absolute() ? filename : std::filesystem::absolute(path).generic_string();
+    if (auto found = resolvedEntries.find(absolute); found != resolvedEntries.end())
+      return found->second->file;
+    auto entry = entries.find(EvaluationInputs::fileKey(absolute));
+    // Do not memoize misses: process()/seedCaptured() may insert this library later.
+    // Only absolute spellings are cached, so relative names follow the current directory.
+    if (entry == entries.end()) return nullptr;
+    resolvedEntries.emplace(absolute, &entry->second);
+    return entry->second.file;
   }
-  auto it = this->entries.find(*key);
+  auto it = this->entries.find(filename);
   return it != this->entries.end() ? it->second.file : nullptr;
 }
 

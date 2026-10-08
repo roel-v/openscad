@@ -23,7 +23,7 @@ ViewportToolRouter::ViewportToolRouter(MainWindow *window) : QObject(window->qgl
   });
   connect(window->evaluationBinding,&EvaluationBinding::invalidated,this,[this] {
     if(active() && (router.mode()!=SelectionRouter::Mode::External ||
-       (!focusGroup.empty() && !this->window->evaluationBinding->validateModel(request.expected))))cancel(active(),CancelReason::ResultChanged);
+       (!focusGroup.empty() && !this->window->evaluationBinding->modelDisplayCurrent(request.expected))))cancel(active(),CancelReason::ResultChanged);
   });
   connect(window->tabManager,&TabManager::currentEditorChanged,this,[this](auto) { cancel(active(),CancelReason::DocumentChanged); });
 }

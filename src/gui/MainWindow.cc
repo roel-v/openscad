@@ -1075,6 +1075,7 @@ void MainWindow::compileEnded()
   clearCurrentOutput();
   GuiLocker::unlock();
   if (designActionAutoReload->isChecked()) autoReloadTimer->start();
+  emit evaluationBinding->evaluationFinished(activeEditor);
 #ifdef ENABLE_GUI_TESTS
   emit compilationDone(this->rootFile.get());
 #endif
@@ -1143,6 +1144,7 @@ void MainWindow::instantiateRoot()
     SourceProvenance::ParseScope syntaxScope(evaluationBacking->syntax.get());
     evaluationBacking->session = std::make_shared<EvaluationSession>(doc.parent_path().string());
     evaluationBacking->session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(evaluationBacking->syntax);
+    evaluationBacking->session->capturedInputs = evaluationInputs;
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(evaluationBacking->session.get())};
     evaluationBacking->builtin = *builtin_context;
     setRenderVariables(builtin_context);
@@ -1176,6 +1178,7 @@ void MainWindow::instantiateRoot()
       evaluationInputs->freeze();
       auto scene = std::make_shared<Selection::EvaluatedScene>();
       scene->semantic = evaluationBacking->session->semanticCollector->finish();
+      scene->inspectionPrepared = true; // This owner has no optional source tracing.
       scene->backing = evaluationBacking;
       scene->designObjects = evaluationBacking->session->designCollector->finish();
       scene->inputs = evaluationInputs;

@@ -7,7 +7,9 @@
 #include "gui/parameter/ParameterWidget.h"
 #include "gui/annotations/AnnotationStore.h"
 #include "gui/annotations/AnnotationController.h"
+#include "gui/QSettingsCached.h"
 #include <QSet>
+#include <algorithm>
 
 namespace {
 QSet<EditorInterface *> openEditors(MainWindow& current)
@@ -28,6 +30,30 @@ SourceInput editorInput(EditorInterface& editor)
 }
 
 namespace Selection {
+bool EvaluationBinding::inspectionRequested(EditorInterface *editor) const
+{
+  if (QSettingsCached().value("advanced/alwaysPrepareInspector", false).toBool()) return true;
+  return editor && std::any_of(inspectionRequests.begin(), inspectionRequests.end(),
+    [editor](const auto& entry) { return entry.second.editor == editor; });
+}
+bool EvaluationBinding::inspectionReady() const
+{
+  return retainedScene && retainedScene->inspectionPrepared && validate(installedStamp);
+}
+void EvaluationBinding::requestInspection(QObject *consumer, EditorInterface *editor)
+{
+  if (!consumer || !editor) return;
+  releaseInspection(consumer);
+  inspectionRequests.emplace(consumer, InspectionRequest{editor,
+    connect(consumer, &QObject::destroyed, this, [this, consumer] { releaseInspection(consumer); })});
+}
+void EvaluationBinding::releaseInspection(QObject *consumer)
+{
+  const auto found = inspectionRequests.find(consumer);
+  if (found == inspectionRequests.end()) return;
+  disconnect(found->second.destroyed);
+  inspectionRequests.erase(found);
+}
 EvaluationBinding::EvaluationBinding(MainWindow *window) : QObject(window), window(window)
 {
   if (auto app = qobject_cast<OpenSCADApp *>(QCoreApplication::instance()))
@@ -43,7 +69,7 @@ EvaluationBinding::EvaluationBinding(MainWindow *window) : QObject(window), wind
     [this](EditorInterface *) { emit invalidated(); });
   connect(window->tabManager, &TabManager::editorAboutToClose, this, [this](EditorInterface *editor) {
     if (owner == editor) invalidate(tr("Result document closed"));
-    else if (retainedScene && !inputsCurrent(*retainedScene->inputs, *this->window))
+    else if (fresh && retainedScene && !inputsCurrent(*retainedScene->inputs, *this->window))
       invalidate(tr("An evaluation dependency closed"));
   });
 }
@@ -59,23 +85,28 @@ std::shared_ptr<EvaluationInputs> EvaluationBinding::capture(MainWindow& window,
 bool EvaluationBinding::inputsCurrent(const EvaluationInputs& inputs, MainWindow& window, QString *detail)
 {
   auto fail = [detail](const QString& message) { if (detail) *detail = message; return false; };
-  const auto editors = openEditors(window);
   try {
+    // Capture each live editor once, rather than copying/canonicalizing it for
+    // every included file. Still compare exact bytes at every action boundary.
+    std::vector<SourceInput> editors;
+    for (auto editor : openEditors(window)) {
+      auto live = editorInput(*editor);
+      live.fingerprint = EvaluationInputs::fingerprint(live.utf8);
+      editors.push_back(std::move(live));
+    }
     for (const auto& [key, input] : inputs.validationInputs()) {
       bool matched = false;
-      for (auto editor : editors) {
-        const auto live = editorInput(*editor);
+      for (const auto& live : editors) {
         if (live.fileKey != key) continue;
         matched = true;
-        if (EvaluationInputs::fingerprint(live.utf8) != input.fingerprint)
+        if (live.fingerprint != input.fingerprint)
           return fail(QObject::tr("An open evaluation input changed: %1").arg(QString::fromStdString(key)));
       }
       for (const auto& captured : inputs.capturedEditors()) {
         if (captured.fileKey != key) continue;
         bool found = false;
-        for (auto editor : editors) {
-          if (editor->annotations->sessionId.toStdString() == captured.editorId.value_or("")) {
-            const auto live = editorInput(*editor);
+        for (const auto& live : editors) {
+          if (live.editorId == captured.editorId) {
             found = live.fileKey == key && live.editorRevision == captured.editorRevision;
             break;
           }
@@ -201,17 +232,30 @@ bool EvaluationBinding::current() const
     owner->sourceRevision == installedStamp.sourceRevision &&
     owner->sourceFingerprint == installedStamp.sourceFingerprint;
 }
+bool EvaluationBinding::displayCurrent(const Stamp& expected) const
+{
+  return !hypotheticalPixels && installedStamp == expected && current() && window->activeEditor == owner;
+}
+bool EvaluationBinding::modelDisplayCurrent(const Stamp& expected) const
+{
+  auto model = expected, installed = installedStamp;
+  model.viewportGeneration = installed.viewportGeneration = 0;
+  return model == installed && current() && window->activeEditor == owner;
+}
+std::shared_ptr<const EvaluatedScene> EvaluationBinding::displayScene(const Stamp& expected) const
+{
+  return displayCurrent(expected) ? retainedScene : nullptr;
+}
 bool EvaluationBinding::validate(const Stamp& expected, QString *detail) const
 {
-  const bool valid = !hypotheticalPixels && installedStamp == expected && current() && window->activeEditor == owner &&
+  const bool valid = displayCurrent(expected) &&
     inputsCurrent(*retainedScene->inputs, *window, detail);
   if (!valid && detail) *detail = reason.isEmpty() ? tr("Stale or wrong-document evaluated result") : reason;
   return valid;
 }
 bool EvaluationBinding::validateModel(const Stamp& expected, QString *detail) const
 {
-  auto model=expected,installed=installedStamp;model.viewportGeneration=installed.viewportGeneration=0;
-  const bool valid=model==installed && current() && window->activeEditor==owner &&
+  const bool valid=modelDisplayCurrent(expected) &&
     inputsCurrent(*retainedScene->inputs, *window, detail);
   if(!valid && detail)*detail=reason.isEmpty()?tr("Stale or wrong-document model inputs"):reason;
   return valid;

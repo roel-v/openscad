@@ -10,6 +10,7 @@ private slots:
   void dirtyDependencies();
   void reloadIgnoresUnsavedEdits();
   void cachedDisplayFreshness();
+  void inspectionDemandLifetime();
   void conflictingBuffers();
   void staleAndWrongDocument();
   void retainedSceneAfterClose();

@@ -34,6 +34,8 @@ struct EvaluationBacking {
 struct EvaluatedScene {
   std::shared_ptr<const Semantic::Scene> semantic;
   std::shared_ptr<const Design::Result> designObjects;
+  // Optional inspection data is independent of geometry/input freshness.
+  bool inspectionPrepared = false;
   std::shared_ptr<const EvaluationBacking> backing;
   std::string documentPath;
   std::shared_ptr<const EvaluationInputs> inputs;
@@ -56,6 +58,11 @@ public:
   // Cheap display state. Disk notifications may arrive on the next event-loop turn.
   bool current() const;
   bool takeDiskChanges() { const bool changed=diskInputsChanged; diskInputsChanged=false; return changed; }
+  // Display-only checks: no filesystem reads or source hashing. Do not use these
+  // to authorize edits, exports, picking or asynchronous result installation.
+  bool displayCurrent(const Stamp& expected) const;
+  bool modelDisplayCurrent(const Stamp& expected) const;
+  std::shared_ptr<const EvaluatedScene> displayScene(const Stamp& expected) const;
   // Actions must still verify exact dependency bytes through validate()/scene().
   bool validate(const Stamp& expected, QString *detail = nullptr) const;
   bool validateModel(const Stamp& expected, QString *detail = nullptr) const;
@@ -63,7 +70,13 @@ public:
   const Stamp& stamp() const { return installedStamp; }
   std::shared_ptr<const EvaluatedScene> scene(const Stamp& expected) const;
   QString staleReason() const { return reason; }
+  bool inspectionRequested(EditorInterface *editor) const;
+  bool inspectionReady() const;
+  void requestInspection(QObject *consumer, EditorInterface *editor);
+  void releaseInspection(QObject *consumer);
 signals:
+  // Emitted once a foreground/background evaluation attempt has terminated.
+  void evaluationFinished(EditorInterface *editor);
   void invalidated();
   void installed();
 private:
@@ -88,5 +101,10 @@ private:
   QFileSystemWatcher inputWatcher;
   void editorsChanged();
   bool diskInputsChanged = false;
+  struct InspectionRequest {
+    QPointer<EditorInterface> editor;
+    QMetaObject::Connection destroyed;
+  };
+  std::map<QObject *, InspectionRequest> inspectionRequests;
 };
 }

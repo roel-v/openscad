@@ -4,6 +4,7 @@
 #include "gui/selection/ViewportToolRouter.h"
 #include "gui/MainWindow.h"
 #include "gui/QGLView.h"
+#include "gui/TabManager.h"
 #include "glview/ColorMap.h"
 #include "gui/annotations/AnnotationController.h"
 #include "gui/Dock.h"
@@ -12,6 +13,8 @@
 #include <QVBoxLayout>
 #include <QScrollArea>
 #include <QMenu>
+#include <QTimer>
+#include <QHideEvent>
 #include <algorithm>
 #include <utility>
 namespace Selection {
@@ -27,7 +30,8 @@ InspectorDock::InspectorDock(MainWindow *window) : QDockWidget(tr("Inspector"),w
   setObjectName("inspectorDock");
   auto body=new QWidget(this); auto layout=new QVBoxLayout(body);
   layout->setSizeConstraint(QLayout::SetMinAndMaxSize);
-  auto help=new QLabel(tr("Preview (F5), then select a surface in the viewport or a component in Model structure. "
+  auto help=new QLabel(tr("Select a surface in the viewport or a component in Model structure. "
+    "Inspector prepares source information on demand. Clear the selection or close Inspector to finish inspection. "
     "The box marks the selected component, preview primitive, or final result bounds; the dot marks the picked point. "
     "Use the source links or component controls below when available."),body);
   help->setWordWrap(true);layout->addWidget(help);
@@ -46,6 +50,16 @@ InspectorDock::InspectorDock(MainWindow *window) : QDockWidget(tr("Inspector"),w
   connect(selectAction,&QAction::triggered,this,&InspectorDock::beginSelection);
   connect(select,&QPushButton::clicked,this,&InspectorDock::beginSelection);
   connect(clear,&QPushButton::clicked,window->selectionService,&SelectionService::clear);
+  connect(clear,&QPushButton::clicked,this,&InspectorDock::finishInspection);
+  connect(window->tabManager,&TabManager::currentEditorChanged,this,[this](auto) { finishInspection(); });
+  connect(window->evaluationBinding,&EvaluationBinding::evaluationFinished,this,[this](EditorInterface *editor) {
+    if (!preparingEditor || preparingEditor != editor) return;
+    const auto serial = preparationSerial;
+    QPointer<EditorInterface> owner = editor;
+    QTimer::singleShot(0, this, [this, owner, serial] {
+      if (owner && serial == preparationSerial) preparationFinished(owner);
+    });
+  });
   connect(window->selectionService,&SelectionService::selectionChanged,this,&InspectorDock::refresh);
   connect(window->evaluationBinding,&EvaluationBinding::installed,this,&InspectorDock::refresh);
   connect(window->evaluationBinding,&EvaluationBinding::invalidated,this,&InspectorDock::refresh);
@@ -62,13 +76,74 @@ void InspectorDock::addPanel(QWidget *panel) { panels->addWidget(panel); }
 void InspectorDock::beginSelection()
 {
   show(); raise();
+  if (preparingEditor) return;
+  if (GuiLocker::isLocked()) {
+    message->setText(tr("Wait for the current evaluation to finish, then select geometry."));
+    return;
+  }
+  auto editor = window->activeEditor;
+  if (!editor) return;
+  if (tool) window->viewportTools->finish(tool);
+  tool = 0;
+  window->evaluationBinding->requestInspection(this, editor);
+  if (window->evaluationBinding->inspectionReady()) { selectPreparedGeometry(); return; }
+  preparingEditor = editor;
+  preparingRevision = editor->sourceRevision;
+  const auto serial = ++preparationSerial;
+  message->setText(tr("Preparing Inspector…"));
+  // Use the normal Preview entry point: the background evaluator replaces this
+  // implementation in compositions. Never read a live editor from its worker.
+  QTimer::singleShot(0, this, [this, serial] {
+    if (!preparingEditor || serial != preparationSerial) return;
+    if (preparingEditor != window->activeEditor || preparingEditor->sourceRevision != preparingRevision ||
+        GuiLocker::isLocked()) {
+      finishInspection();
+      message->setText(tr("Inspector preparation cancelled. Select geometry to try again."));
+      return;
+    }
+    window->actionRenderPreview();
+  });
+}
+void InspectorDock::preparationFinished(EditorInterface *editor)
+{
+  if (!preparingEditor || preparingEditor != editor) return;
+  const bool ready = editor == window->activeEditor && editor->sourceRevision == preparingRevision &&
+    window->evaluationBinding->inspectionReady();
+  preparingEditor.clear();
+  if (ready) selectPreparedGeometry();
+  else {
+    finishInspection();
+    message->setText(tr("Inspector preparation did not complete. Check the evaluation messages, then select geometry to retry."));
+  }
+}
+void InspectorDock::selectPreparedGeometry()
+{
   message->setText(tr("Click a surface. Drag to navigate, or press Escape to cancel."));
   tool=window->viewportTools->beginPick({"Inspector",window->evaluationBinding->stamp(),true},this,[this](const PickResult& result) {
     tool=0;
-    if (result.error==PickError::None) message->setText(tr("Selected. Picking is finished; you can use Inspector or Sections."));
+    if (result.error==PickError::None) message->setText(tr("Selected. Picking is finished; you can use Inspector or Cross sections."));
     else if (result.error==PickError::Cancelled) message->setText(tr("Selection cancelled."));
     else message->setText(result.detail.isEmpty() ? tr("Surface picking is unavailable for this display.") : result.detail);
+    if (result.error!=PickError::None && !window->selectionService->state().object)
+      window->evaluationBinding->releaseInspection(this);
   });
+  if (!tool) {
+    window->evaluationBinding->releaseInspection(this);
+    message->setText(tr("Finish the active viewport tool, then select geometry."));
+  }
+}
+void InspectorDock::finishInspection()
+{
+  ++preparationSerial;
+  preparingEditor.clear();
+  if (window && window->evaluationBinding) window->evaluationBinding->releaseInspection(this);
+  if (window && window->viewportTools) window->viewportTools->finish(tool);
+  tool = 0;
+}
+void InspectorDock::hideEvent(QHideEvent *event)
+{
+  finishInspection();
+  QDockWidget::hideEvent(event);
 }
 void InspectorDock::drawSelection(const OverlayContext& context)
 {
@@ -96,7 +171,7 @@ void InspectorDock::drawSelection(const OverlayContext& context)
     if(state.surface){glPointSize(static_cast<float>((pass?6:10)*context.dpr));glBegin(GL_POINTS);glVertex3dv(state.surface->worldPoint.data());glEnd();}
   }
 }
-InspectorDock::~InspectorDock() { if (window && window->viewportTools) window->viewportTools->finish(tool); }
+InspectorDock::~InspectorDock() { finishInspection(); }
 InspectorDock::Token InspectorDock::registerContribution(InspectorContribution contribution)
 {
   if (contribution.id.isEmpty() || !contribution.lifetime || !contribution.build || entries.count(contribution.id)) return {};
@@ -112,7 +187,7 @@ void InspectorDock::remove(const QString& id)
 void InspectorDock::refresh()
 {
   const auto state=window->selectionService->state(); const auto stamp=window->evaluationBinding->stamp();
-  if (!state.object && !tool) message->setText(tr("No selection. Choose Select geometry, then click a surface."));
+  if (!state.object && !tool && !preparingEditor) message->setText(tr("No selection. Choose Select geometry, then click a surface."));
   auto vector=[](const Vector3d& point) { return QString("[%1, %2, %3]").arg(point.x(),0,'g',10).arg(point.y(),0,'g',10).arg(point.z(),0,'g',10); };
   QString text=tr("Evaluation: %1\nResult: %2\nObject: %3\nWorld point: %4\nOutward normal: %5\nLocal point: %6\nLocal frame: %7")
     .arg(window->evaluationBinding->current() ? tr("current") : tr("stale or unavailable"),stamp.resultId.isEmpty() ? tr("unavailable") : stamp.resultId,

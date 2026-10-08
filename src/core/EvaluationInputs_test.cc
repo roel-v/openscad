@@ -48,6 +48,36 @@ TEST_CASE("Evaluation inputs capture dirty editors and retain exact UTF8 CRLF BO
   REQUIRE(inputs.read(include).utf8 == exact);
 }
 
+TEST_CASE("Input observation follows consumed dependencies and ends when frozen", "[evaluation-inputs]")
+{
+  InputFixture fixture;
+  const auto root = fixture.write("root.scad", "cube(1);");
+  const auto dependency = fixture.write("dependency.scad", "height=1;");
+  EvaluationInputs inputs(fixture.input(root, "cube(1);"), {fixture.input(dependency, "height=2;", "dependency")});
+  std::vector<std::string> observed;
+  inputs.observeReads([&](const SourceInput& input) { observed.push_back(input.editorId.value_or("disk")); });
+  REQUIRE(observed.empty());
+  REQUIRE(inputs.read(dependency).utf8 == "height=2;");
+  inputs.read(dependency);
+  REQUIRE(observed == std::vector<std::string>{"dependency", "dependency"});
+  inputs.freeze();
+  inputs.read(dependency);
+  REQUIRE(observed.size() == 2);
+}
+
+TEST_CASE("Unresolved library lookups do not consume captured inputs", "[evaluation-inputs]")
+{
+  InputFixture fixture;
+  const auto root = fixture.write("root.scad", "use <>\ncube(1);");
+  EvaluationInputs inputs(fixture.input(root, "use <>\ncube(1);"));
+  SourceFileCache cache(&inputs);
+  const auto consumed = inputs.consumed().size();
+  REQUIRE(cache.lookup("") == nullptr);
+  inputs.freeze();
+  REQUIRE(cache.lookup("") == nullptr);
+  REQUIRE(inputs.consumed().size() == consumed);
+}
+
 TEST_CASE("Library lookup aliases stay within their captured evaluation", "[evaluation-inputs]")
 {
   InputFixture fixture;
@@ -216,6 +246,38 @@ TEST_CASE("Captured AST cache seeding owns native declarations and ignores later
   REQUIRE_THROWS_AS(seeded.seedCaptured(inputs.root().fileKey, *seeded.lookup(root.string())), EvaluationInputError);
   SourceFile missing(root.parent_path().string(), "missing.scad"); REQUIRE_THROWS_AS(seeded.seedCaptured("uncaptured", missing), EvaluationInputError);
   SourceFileCache global; REQUIRE_THROWS_AS(global.seedCaptured(inputs.root().fileKey, *seeded.lookup(root.string())), EvaluationInputError);
+}
+
+TEST_CASE("Captured library lookup aliases survive growth and clear without caching misses", "[evaluation-inputs]")
+{
+  InputFixture fixture;
+  const auto root = fixture.write("root.scad", "cube(1);");
+  const auto library = fixture.write("library.scad", "module retained(){cube(2);}");
+  EvaluationInputs inputs(fixture.input(root, EvaluationInputs::diskBytes(root)));
+  SourceFileCache cache(&inputs);
+  NativeEvaluationScope native(inputs, cache);
+  const auto alias = (fixture.directory / "nested" / ".." / "library.scad").string();
+  REQUIRE(cache.lookup(alias) == nullptr);
+  SourceFile *parsed = nullptr;
+  cache.process(root.string(), library.string(), parsed);
+  REQUIRE(parsed);
+  REQUIRE(cache.lookup(alias) == parsed);
+  REQUIRE(cache.lookup(library.string()) == parsed);
+  for (int i = 0; i < 100; ++i) {
+    const auto path = fixture.write("grow" + std::to_string(i) + ".scad", "module extra(){}");
+    SourceFile *extra = nullptr;
+    cache.process(root.string(), path.string(), extra);
+    REQUIRE(extra);
+  }
+  REQUIRE(cache.lookup(alias) == parsed); // Entry addresses survive unordered_map rehash.
+  const auto key = EvaluationInputs::fileKey(library);
+  auto retained = std::make_unique<SourceFile>(*parsed);
+  cache.clear();
+  REQUIRE(cache.lookup(alias) == nullptr);
+  cache.seedCaptured(key, *retained);
+  REQUIRE(cache.lookup(alias));
+  REQUIRE(cache.lookup(alias)->scope == retained->scope);
+  REQUIRE(cache.lookup("") == nullptr);
 }
 
 TEST_CASE("Sealed inputs retain dirty nested sources and never read missing disk bytes", "[sealed-evaluation-inputs][evaluation-inputs]")

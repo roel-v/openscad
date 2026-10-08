@@ -10,6 +10,8 @@
 #include "gui/selection/ViewportToolRouter.h"
 #include "gui/selection/ViewportOverlays.h"
 #include "gui/selection/InspectorDock.h"
+#include "gui/QSettingsCached.h"
+#include <QScopeGuard>
 #include <QLabel>
 #include <QVBoxLayout>
 #include <QScrollArea>
@@ -41,6 +43,39 @@ bool writeSource(const QString& path, const QByteArray& bytes)
   QFile file(path);
   return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
 }
+}
+
+void TestSelection::inspectionDemandLifetime()
+{
+  QSettingsCached settings;
+  const auto previous=settings.value("advanced/alwaysPrepareInspector");
+  const auto restore=qScopeGuard([&] {
+    if(previous.isValid())settings.setValue("advanced/alwaysPrepareInspector",previous);
+    else settings.remove("advanced/alwaysPrepareInspector");
+  });
+  settings.setValue("advanced/alwaysPrepareInspector",false);
+  window->inspectorDock->hide();
+  auto binding=window->evaluationBinding;
+  auto first=window->activeEditor;
+  auto consumer=std::make_unique<QObject>();
+  QVERIFY(!binding->inspectionRequested(first));
+  binding->requestInspection(consumer.get(),first);
+  QVERIFY(binding->inspectionRequested(first));
+  window->tabManager->createTab(QString());
+  auto second=window->activeEditor;
+  QVERIFY(first!=second);
+  QVERIFY(!binding->inspectionRequested(second));
+  QVERIFY(binding->inspectionRequested(first));
+  binding->requestInspection(consumer.get(),second);
+  QVERIFY(!binding->inspectionRequested(first));
+  QVERIFY(binding->inspectionRequested(second));
+  consumer.reset();
+  QVERIFY(!binding->inspectionRequested(second));
+  settings.setValue("advanced/alwaysPrepareInspector",true);
+  QVERIFY(binding->inspectionRequested(first));
+  QVERIFY(binding->inspectionRequested(second));
+}
+namespace {
 BoundingBox evaluatedBounds(const std::shared_ptr<const Selection::EvaluatedScene>& scene)
 {
   Tree tree(scene->root, scene->documentPath);
@@ -268,7 +303,7 @@ void TestSelection::visibleSelectionFeedback()
     view->setColorScheme(*oldScheme);
   }
   window->inspectorDock->beginSelection();
-  QVERIFY(window->viewportTools->active());
+  QTRY_VERIFY(window->viewportTools->active());
   QTest::mouseClick(view,Qt::LeftButton,Qt::NoModifier,projectedPixel(*view,{8,-5,0}).toPoint());
   QVERIFY(!window->viewportTools->active());
   QVERIFY(window->selectionService->state().surface);
@@ -358,7 +393,8 @@ void TestSelection::dirtyDependencies()
   const auto values = directory.filePath("nested/values.scad");
   const auto nested = directory.filePath("nested/more.scad");
   const auto library = directory.filePath("helper.scad");
-  QVERIFY(writeSource(root, "include <nested/values.scad>\nuse <helper.scad>\ncube([height,size_value(),depth]);\n"));
+  QVERIFY(writeSource(root, "include <nested/values.scad>\nuse <helper.scad>\n"
+    "derived=assert(!is_undef(size_value())) size_value();\ncube([height,derived,depth]);\n"));
   QVERIFY(writeSource(values, "include <more.scad>\nheight=1;\n"));
   QVERIFY(writeSource(nested, "depth=13;\r\n"));
   QVERIFY(writeSource(library, "function size_value()=2;\n"));
@@ -432,12 +468,28 @@ void TestSelection::cachedDisplayFreshness()
   QTRY_VERIFY(binding->current());
   const auto stamp = binding->stamp();
   QVERIFY(binding->validate(stamp));
+  const auto scene = binding->displayScene(stamp);
+  QVERIFY(scene != nullptr);
+  auto wrongStamp = stamp;
+  ++wrongStamp.viewportGeneration;
+  QVERIFY(!binding->displayCurrent(wrongStamp));
+  QVERIFY(!binding->displayScene(wrongStamp));
+  QVERIFY(binding->modelDisplayCurrent(wrongStamp));
+  wrongStamp.resultId += "-old";
+  QVERIFY(!binding->modelDisplayCurrent(wrongStamp));
   QVERIFY(writeSource(dependency, "size=2;\n"));
   // No event delivery yet: display checks must not read the changed file.
-  for (int i = 0; i < 1000; ++i) QVERIFY(binding->current());
+  for (int i = 0; i < 1000; ++i) {
+    QVERIFY(binding->displayCurrent(stamp));
+    QVERIFY(binding->modelDisplayCurrent(stamp));
+    QCOMPARE(binding->displayScene(stamp), scene);
+  }
   // Action validation must reject changed bytes even before the watcher fires.
   QVERIFY(!binding->validate(stamp));
+  QVERIFY(!binding->validateModel(stamp));
+  QVERIFY(!binding->scene(stamp));
   QTRY_VERIFY(!binding->current());
+  QVERIFY(!binding->displayScene(stamp));
   window->checkAutoReload();
   QTRY_VERIFY(binding->current());
   QCOMPARE(evaluatedBounds(binding->scene(binding->stamp())).max().x(), 2.0);
@@ -500,6 +552,9 @@ void TestSelection::staleAndWrongDocument()
   window->tabManager->actionNew();
   QVERIFY(window->activeEditor != editor);
   QVERIFY(!binding->validate(stamp));
+  QVERIFY(!binding->displayCurrent(stamp));
+  QVERIFY(!binding->modelDisplayCurrent(stamp));
+  QVERIFY(!binding->displayScene(stamp));
 }
 
 void TestSelection::retainedSceneAfterClose()
@@ -732,7 +787,7 @@ void TestSelection::inspectorExtensions()
   QSignalSpy compiled(window,&MainWindow::compilationDone); window->actionRenderPreview(); QTRY_VERIFY(!compiled.empty());
   auto view=window->qglview;
   view->navigation()->apply({CameraPose::upright({0,-1,0}),{0,5,0},50,45,Camera::ProjectionType::ORTHOGONAL});
-  window->inspectorDock->beginSelection(); QTest::qWait(20);
+  window->inspectorDock->beginSelection(); QTRY_VERIFY(window->viewportTools->active());
   QTest::mouseClick(view,Qt::LeftButton,Qt::NoModifier,projectedPixel(*view,{0,-5,0}).toPoint());
   QVERIFY(window->selectionService->state().surface);
   auto text=window->inspectorDock->findChild<QLabel*>("geometricProperties"); QVERIFY(text);

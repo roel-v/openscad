@@ -250,7 +250,7 @@ def check_transparent_container_pixels(openscad, output_dir):
     fixture = os.path.join(output_dir, "transparent-animation.scad")
     with open(fixture, "w", encoding="utf-8") as fh:
         fh.write('color([1, 0.2, 0.1, 0.5]) rotate([0, 0, 360*$t]) cube(10, center=true);\n')
-    for mode, render_options in (("preview", []), ("render", ["--render"])):
+    for mode, render_options in (("preview", []), ("render", ["--render=force"])):
         extra = ["--view", "transparent", "--camera=25,25,25,0,0,0"] + render_options
         images = []
         for name, processes in (("sequential", 1), ("parallel", PROCESSES)):

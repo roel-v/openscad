@@ -13,6 +13,7 @@ public:
   struct Path {
     std::vector<int> indices;  // indices into DxfData::points
     bool is_closed{false}, is_inner{false};
+    Color4f color{};
     Path() = default;
   };
 

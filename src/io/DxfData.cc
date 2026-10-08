@@ -70,8 +70,9 @@ namespace fs = std::filesystem;
 struct Line {
   int idx[2] = {-1, -1};  // indices into DxfData::points
   bool disabled{false};
+  Color4f color{};
   Line() = default;
-  Line(int i1, int i2) : idx{i1, i2} {}
+  Line(int i1, int i2, const Color4f& c) : idx{i1, i2}, color(c) {}
 };
 
 /*!
@@ -93,6 +94,7 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
   auto in_entities_section = false;
   auto in_blocks_section = false;
   std::string current_block;
+  Color4f entityColor{};
 
 #define ADD_LINE(_x1, _y1, _x2, _y2)                                                         \
   do {                                                                                       \
@@ -103,9 +105,9 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
     grid.align(_p2x, _p2y);                                                                  \
     grid.data(_p1x, _p1y).push_back(lines.size());                                           \
     grid.data(_p2x, _p2y).push_back(lines.size());                                           \
-    if (in_entities_section) lines.emplace_back(addPoint(_p1x, _p1y), addPoint(_p2x, _p2y)); \
+    if (in_entities_section) lines.emplace_back(addPoint(_p1x, _p1y), addPoint(_p2x, _p2y), entityColor); \
     if (in_blocks_section && !current_block.empty())                                         \
-      blockdata[current_block].emplace_back(addPoint(_p1x, _p1y), addPoint(_p2x, _p2y));     \
+      blockdata[current_block].emplace_back(addPoint(_p1x, _p1y), addPoint(_p2x, _p2y), entityColor); \
   } while (0)
 
   std::string mode, layer, name, iddata;
@@ -267,7 +269,10 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
             const double py1 = (sin_degrees(a) * lx1 + cos_degrees(a) * ly1) * scale + yverts.at(0);
             const double px2 = (cos_degrees(a) * lx2 - sin_degrees(a) * ly2) * scale + xverts.at(0);
             const double py2 = (sin_degrees(a) * lx2 + cos_degrees(a) * ly2) * scale + yverts.at(0);
+            const auto insertColor = entityColor;
+            if (blockdata[iddata][i].color.hasRgb()) entityColor = blockdata[iddata][i].color;
             ADD_LINE(px1, py1, px2, py2);
+            entityColor = insertColor;
           }
         } else if (mode == "DIMENSION" && (layername.empty() || layername == layer)) {
           this->dims.emplace_back();
@@ -291,6 +296,7 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
         }
         mode = data;
         layer.erase();
+        entityColor = Color4f{};
         name.erase();
         iddata.erase();
         dimtype = 0;
@@ -310,6 +316,16 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
       case 1:  name = data; break;
       case 2:  iddata = data; break;
       case 8:  layer = data; break;
+      case 420: {  // Explicit true color, also emitted by our colored DXF exporter.
+        const int rgb = boost::lexical_cast<int>(data);
+        if (rgb >= 0 && rgb <= 0xffffff) {
+          entityColor = Color4f(((rgb >> 16) & 255) / 255.0f,
+                               ((rgb >> 8) & 255) / 255.0f, (rgb & 255) / 255.0f, 1.0f);
+        } else {
+          LOG(message_group::Warning, "Illegal DXF true color '%1$s' in '%2$s'", data, filename);
+        }
+        break;
+      }
       case 10: [[fallthrough]];
       case 11:
         if (in_blocks_section) {
@@ -397,7 +413,7 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
                 QuotedString(fs_uncomplete(filename, fs::current_path()).generic_string()));
             continue;
           }
-          if (k == idx || lines[k].disabled) continue;
+          if (k == idx || lines[k].disabled || lines[k].color != lines[idx].color) continue;
           goto next_open_path_j;
         }
         current_line = idx;
@@ -412,6 +428,7 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
   create_open_path:
     this->paths.emplace_back();
     Path *this_path = &this->paths.back();
+    this_path->color = lines[current_line].color;
 
     this_path->indices.push_back(lines[current_line].idx[current_point]);
     while (true) {
@@ -426,7 +443,7 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
               QuotedString(fs_uncomplete(filename, fs::current_path()).generic_string()));
           continue;
         }
-        if (lines[k].disabled) continue;
+        if (lines[k].disabled || lines[k].color != this_path->color) continue;
         auto idk0 = lines[k].idx[0];  // make it easier to read and debug
         auto idk1 = lines[k].idx[1];
         if (grid.eq(ref_point[0], ref_point[1], this->points[idk0][0], this->points[idk0][1])) {
@@ -453,6 +470,7 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
     this->paths.emplace_back();
     auto& this_path = this->paths.back();
     this_path.is_closed = true;
+    this_path.color = lines[current_line].color;
 
     this_path.indices.push_back(lines[current_line].idx[current_point]);
     while (true) {
@@ -467,7 +485,7 @@ DxfData::DxfData(CurveDiscretizer discretizer, const std::string& filename, cons
               QuotedString(fs_uncomplete(filename, fs::current_path()).generic_string()));
           continue;
         }
-        if (lines[k].disabled) continue;
+        if (lines[k].disabled || lines[k].color != this_path.color) continue;
         auto idk0 = lines[k].idx[0];  // make it easier to read and debug
         auto idk1 = lines[k].idx[1];
         if (grid.eq(ref_point[0], ref_point[1], this->points[idk0][0], this->points[idk0][1])) {
@@ -576,6 +594,7 @@ std::unique_ptr<Polygon2d> DxfData::toPolygon2d() const
   auto poly = std::make_unique<Polygon2d>();
   for (const auto& path : this->paths) {
     Outline2d outline;
+    outline.color = path.color;
     size_t endidx = path.indices.size();
     // We don't support open paths; closing them to be compatible with existing behavior
     if (!path.is_closed) endidx++;

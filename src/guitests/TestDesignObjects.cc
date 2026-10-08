@@ -136,6 +136,25 @@ void TestDesignObjects::dirtyIncludeGuardsAndSourceOnlyFields(){
   QVERIFY(!edits.prepare("middle",{label},stamp));QVERIFY(owner==window->activeEditor);
   included->setContentModified(false);window->tabManager->open(library);window->tabManager->closeCurrentTab();window->tabManager->open(root);window->tabManager->closeCurrentTab();
 }
+void TestDesignObjects::publicationUsesDisplaySnapshotButEditsCheckDisk(){
+  QTemporaryDir directory;QVERIFY(directory.isValid());
+  const auto root=directory.filePath("root.scad"),library=directory.filePath("library.scad");
+  QVERIFY(write(library,"height=4;\n"));
+  QVERIFY(write(root,"include <library.scad>\n@{type:Section} cut={id:\"cut\",origin:[0,0,0],normal:[0,0,1],up:[0,1,0]};cube(height);\n"));
+  window->designActionAutoReload->setChecked(false);
+  window->tabManager->open(root);auto *editor=window->activeEditor;
+  QVERIFY(compile(*window));
+  const auto stamp=window->evaluationBinding->stamp();
+  // No event-loop turn between the disk edit and UI synchronization: watcher
+  // invalidation is deliberately pending. Actions must nevertheless reject it.
+  QVERIFY(write(library,"height=5;\n"));
+  Design::DesignDocument display(editor,window);
+  QVERIFY(display.sourceDisplayRecords().count("cut"));
+  Design::FieldChange label{Design::ChangeKind::Label};label.label="Changed";
+  QVERIFY(!display.prepareSourceEdit(*display.sourceDisplayRecords().at("cut"),{label}));
+  QVERIFY(!window->evaluationBinding->validate(stamp));
+  QVERIFY(!editor->toPlainText().contains("Changed"));
+}
 void TestDesignObjects::scopedLifecycleAdapters(){
   struct State { Design::Records records; int rebound=0; };
   auto state=std::make_shared<State>();std::weak_ptr<State> weak=state;

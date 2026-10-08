@@ -340,8 +340,17 @@ void evaluate(const Request& request, Result& result, Job& job)
       result.previewTriangles = previewTriangleStatistics(result.products, result.highlights, result.background);
     }
     stage("Preparing inspection");
-    result.inspection = AgentAnnotations::inspectModel(result.absoluteRoot.get(), result.root.get(), parsed,
-                                                     request.metadata);
+    // Serialization is needed only by agent access. Weak ownership must not keep
+    // historical evaluations alive just for optional inspection history.
+    result.inspection = [owner = std::weak_ptr<Selection::EvaluationBacking>(result.backing),
+                         absolute = std::weak_ptr<AbstractNode>(result.absoluteRoot),
+                         effective = std::weak_ptr<AbstractNode>(result.root), metadata = request.metadata] {
+      const auto backing = owner.lock();
+      const auto root = absolute.lock(), selected = effective.lock();
+      if (!backing || !root) return AgentAnnotations::InspectionTree{};
+      return AgentAnnotations::inspectModel(root.get(), selected.get(), backing->parsedRoot.get(),
+                                           backing->libraries.get(), metadata);
+    };
     result.scene = std::make_shared<Selection::EvaluatedScene>();
     result.scene->backing = result.backing;
     result.scene->provenance = std::move(provenance);

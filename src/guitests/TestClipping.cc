@@ -39,6 +39,7 @@
 #include <QPushButton>
 #include <QLineF>
 #include "gui/QSettingsCached.h"
+#include "gui/evaluation/EvaluationController.h"
 #include <QCryptographicHash>
 #include <QFileInfo>
 #include <QWindow>
@@ -52,8 +53,8 @@ bool compile(MainWindow& window, const QString& source, bool final = false) {
   QSignalSpy completed(&window, &MainWindow::compilationDone);
   if (final) window.designActionRender->trigger(); else window.actionRenderPreview();
   QElapsedTimer timer; timer.start();
-  while ((completed.empty() || GuiLocker::isLocked()) && timer.elapsed()<20000) QTest::qWait(10);
-  return !completed.empty() && window.evaluationBinding->current() && !GuiLocker::isLocked();
+  while ((completed.empty() || GuiLocker::isLocked() || window.backgroundEvaluation->busy()) && timer.elapsed()<20000) QTest::qWait(10);
+  return !completed.empty() && window.evaluationBinding->current() && !GuiLocker::isLocked() && !window.backgroundEvaluation->busy();
 }
 QPointF projected(QGLView& view, const Vector3d& world) {
   view.makeCurrent(); view.setupCamera();
@@ -110,8 +111,14 @@ void TestClipping::rearSurfacesAndFrozenPreview() {
     ClipMeshJob jobs(window); auto presentation=window->inspectionPresentation;
     auto provider=presentation->registerMeshProvider("clipping-root-test",0,&jobs,[&jobs](auto scene,auto stamp,auto done){return jobs.start(scene,stamp,done);});
     Effect effect(*window); auto request=presentation->requestMeshes("clipping-test",&jobs);
-    QTRY_VERIFY_WITH_TIMEOUT(presentation->status()==Status::Ready,20000);
-    QVERIFY2(presentation->status()==Status::Ready,qPrintable(presentation->reason()));
+    // A queued renderer restoration can briefly mark presentation stale before refreshing it.
+    // Await the requested meshes, then prove that they still belong to this exact evaluation.
+    QElapsedTimer ready;ready.start();
+    while(presentation->status()!=Status::Ready && ready.elapsed()<20000)QTest::qWait(10);
+    QVERIFY2(presentation->status()==Status::Ready,qPrintable(QString("Fixture %1, final %2: %3; binding: %4; evaluation busy: %5")
+      .arg(qulonglong(i)).arg(final).arg(presentation->reason(),window->evaluationBinding->staleReason())
+      .arg(window->backgroundEvaluation->busy())));
+    QVERIFY(window->evaluationBinding->scene(window->evaluationBinding->stamp())==scene);
     QVERIFY(presentation->meshes());
     QVERIFY(window->qglview->renderer->getBoundingBox().min().isApprox(reference->getBoundingBox().min()));
     QVERIFY(window->qglview->renderer->getBoundingBox().max().isApprox(reference->getBoundingBox().max()));
@@ -139,7 +146,8 @@ void TestClipping::suppliedPiecesAndOwnership() {
   auto supplied=std::make_shared<InspectionMeshSet>(); supplied->resultId=window->evaluationBinding->stamp().resultId.toStdString(); supplied->geometryGeneration=22;
   Transform3d mirror=Transform3d::Identity();mirror.scale(Vector3d(-1,1,1));Transform3d rear=mirror;rear.translate(Vector3d(0,14,0));
   supplied->pieces={{uint64_t(1)<<40,{},mesh,mirror,Color4f(1.f,0.f,0.f,1.f)},{77,{},mesh,rear,Color4f(0.f,1.f,0.f,1.f)}};
-  auto high=presentation->registerMeshProvider("piece-fixture",200,&owner,[supplied](auto,auto,auto done){done({Status::Ready,supplied,{}});return InspectionPresentationController::Cancel{};});
+  auto high=presentation->registerMeshProvider("piece-fixture",500,&owner,[supplied](auto,auto,auto done){done({Status::Ready,supplied,{}});return InspectionPresentationController::Cancel{};});
+  QVERIFY(high);
   Effect effect(*window);auto request=presentation->requestMeshes("piece-owner",&owner);
   QTRY_VERIFY(presentation->status()==Status::Ready);
   QVERIFY(request.setMask({1,{77}},presentation->stamp(),22));
@@ -148,10 +156,10 @@ void TestClipping::suppliedPiecesAndOwnership() {
   auto picked=window->selectionService->pick(projected(*view,{0,19,0}),window->evaluationBinding->stamp());QVERIFY(picked.hit);QCOMPARE(picked.hit->object.drawId,uint64_t(77));QVERIFY(std::abs(picked.hit->worldPoint.y()-19)<1e-4);QVERIFY(picked.hit->outwardNormal.dot(Vector3d::UnitY())>.999);
   effect.effect.reset();QVERIFY(presentation->meshes()==supplied);
   picked=window->selectionService->pick(projected(*view,{0,9,0}),window->evaluationBinding->stamp());QVERIFY(picked.hit);QCOMPARE(picked.hit->object.drawId,uint64_t(77));QVERIFY(std::abs(picked.hit->worldPoint.y()-9)<1e-4);
-  high.reset();auto failed=presentation->registerMeshProvider("failed-pieces",200,&owner,[](auto,auto,auto done){done({Status::Failed,{},"fixture failure"});return InspectionPresentationController::Cancel{};});
-  QTRY_VERIFY(presentation->status()==Status::Failed);QCOMPARE(root.metrics().jobs.load(),uint64_t(0));
-  failed.reset(); auto pending=presentation->registerMeshProvider("pending-pieces",200,&owner,[](auto,auto,auto){return InspectionPresentationController::Cancel{};});
-  QTRY_VERIFY(presentation->status()==Status::Preparing);presentation->cancelPreparation();QCOMPARE(presentation->status(),Status::Cancelled);QCOMPARE(root.metrics().jobs.load(),uint64_t(0));
+  high.reset();auto failed=presentation->registerMeshProvider("failed-pieces",500,&owner,[](auto,auto,auto done){done({Status::Failed,{},"fixture failure"});return InspectionPresentationController::Cancel{};});
+  QVERIFY(failed);QTRY_VERIFY(presentation->status()==Status::Failed);QCOMPARE(root.metrics().jobs.load(),uint64_t(0));
+  failed.reset(); auto pending=presentation->registerMeshProvider("pending-pieces",500,&owner,[](auto,auto,auto){return InspectionPresentationController::Cancel{};});
+  QVERIFY(pending);QTRY_VERIFY(presentation->status()==Status::Preparing);presentation->cancelPreparation();QCOMPARE(presentation->status(),Status::Cancelled);QCOMPARE(root.metrics().jobs.load(),uint64_t(0));
   request.reset();pending.reset();low.reset();
 }
 void TestClipping::uniformUpdatesAndPerformance() {
@@ -194,7 +202,8 @@ void TestClipping::numericalGpuBoundaries() {
     auto sheet=[](double height){auto mesh=std::make_shared<PolySet>(3);mesh->vertices={{-1,-1,height},{1,-1,height},{1,1,height},{-1,1,height}};mesh->indices={{0,1,2},{0,2,3}};mesh->setTriangular(true);return mesh;};
     auto set=std::make_shared<InspectionMeshSet>();set->resultId=presentation->stamp().resultId.toStdString();set->geometryGeneration=1;
     set->pieces={{101,{},sheet(0),transform,Color4f(1.f,0.f,0.f,1.f)},{202,{},sheet(separation),transform,Color4f(0.f,1.f,0.f,1.f)}};
-    QObject owner;auto provider=presentation->registerMeshProvider("numerical-sheets",200,&owner,[set](auto,auto,auto done){done({Status::Ready,set,{}});return InspectionPresentationController::Cancel{};});
+    QObject owner;auto provider=presentation->registerMeshProvider("numerical-sheets",500,&owner,[set](auto,auto,auto done){done({Status::Ready,set,{}});return InspectionPresentationController::Cancel{};});
+    QVERIFY(provider);
     Effect effect(*window);auto request=presentation->requestMeshes("numerics",&owner);QTRY_VERIFY(presentation->status()==Status::Ready);
     auto view=window->qglview;const Vector3d point=center+normal*separation*scale;
     view->navigation()->apply({CameraPose::upright(-normal),-point,3.5*scale,45,Camera::ProjectionType::ORTHOGONAL});

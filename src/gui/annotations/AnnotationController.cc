@@ -603,21 +603,6 @@ void Controller::finishEvaluation(bool success)
   } else window->evaluationBinding->invalidate(tr("Evaluation failed"));
   if (success) {
     lastAttempt["result_id"] = lastAttempt.value("attempt_id");
-    // Detach while both root SourceFile and cached library ModuleInstantiations are alive.
-    // Never recover mappings later from an old renderer's raw modinst pointers.
-    try {
-      auto tree = std::move(preparedInspection.value());
-      tree.metadata["result_id"] = lastAttempt.value("result_id");
-      tree.metadata["source"] = lastAttempt;
-      if (Bridge::instance()->retainTree(tree)) {
-        lastAttempt["tree_id"] = tree.metadata.value("tree_id");
-        lastAttempt["tree_complete"] = tree.metadata.value("complete");
-        lastAttempt["instantiated_node_count"] = tree.metadata.value("node_count");
-        lastAttempt["dependencies"] = tree.metadata.value("dependencies");
-      } else lastAttempt["tree_unavailable_reason"] = "Inspection retention budget exceeded.";
-    } catch (const std::exception&) {
-      lastAttempt["tree_unavailable_reason"] = "Inspection could not serialize this result.";
-    }
   }
   const auto document = lastAttempt.value("document_id").toString();
   observeBackgroundAttempt(lastAttempt);
@@ -646,18 +631,22 @@ void Controller::finishEvaluation(bool success)
     if (it->second.renderer.expired()) it = installed.erase(it);
     else ++it;
   }
+  if (success && preparedInspection)
+    deferredInspections.insert(lastAttempt.value("result_id").toString(),
+                               {lastAttempt, std::move(preparedInspection), false});
+  pruneInspection();
   refresh();
   emit changed();
 }
 QJsonObject Controller::finishBackgroundEvaluation(EditorInterface *editor, QJsonObject metadata,
-                                            InspectionTree inspection)
+                                            std::function<InspectionTree()> inspection)
 {
   evaluationOwner = editor;
   evaluation = std::move(metadata);
   evaluationTimer.start();
   preparedInspection = std::move(inspection);
   finishEvaluation(true);
-  preparedInspection.reset();
+  preparedInspection = {};
   return lastAttempt;
 }
 void Controller::observeBackgroundAttempt(QJsonObject metadata)
@@ -672,6 +661,9 @@ void Controller::observeBackgroundAttempt(QJsonObject metadata)
     if (attempts[i].toObject().value("attempt_id") == id) attempts.removeAt(i);
   attempts.append(metadata);
   trimHistory(attempts, 64);
+  const auto tree = deferredInspections.constFind(id.toString());
+  if (tree != deferredInspections.cend() && tree->attempted)
+    updateInspectionMetadata(id.toString(), tree->fields);
   emit changed();
 }
 QJsonObject Controller::diagnosticContext() const
@@ -715,6 +707,65 @@ void Controller::pruneInspection()
     for (auto it = history->begin(); it != history->end();)
       if (!live.contains(it.key())) it = history->erase(it);
       else ++it;
+  QSet<QString> retained;
+  for (const auto& history : resultHistory)
+    for (const auto& entry : history) retained.insert(entry.toObject().value("result_id").toString());
+  for (auto it = deferredInspections.begin(); it != deferredInspections.end();)
+    if (!retained.contains(it.key())) it = deferredInspections.erase(it);
+    else ++it;
+}
+void Controller::updateInspectionMetadata(const QString& id, const QJsonObject& fields)
+{
+  auto update = [&](QJsonObject& value) {
+    if (value.value("result_id").toString() != id) return;
+    for (const auto key : {"tree_id", "tree_complete", "instantiated_node_count", "dependencies", "tree_unavailable_reason"})
+      value.remove(key);
+    for (auto it = fields.begin(); it != fields.end(); ++it) value[it.key()] = it.value();
+  };
+  update(lastAttempt); update(result);
+  for (auto& [renderer, entry] : installed) update(entry.result);
+  for (auto history : {&attemptHistory, &resultHistory})
+    for (auto it = history->begin(); it != history->end(); ++it)
+      for (int i = 0; i < it->size(); ++i) {
+        auto value = it->at(i).toObject(); update(value); (*it)[i] = value;
+      }
+}
+void Controller::prepareInspectionTrees()
+{
+  // Called only while publishing agent access. Factories lock the exact retained
+  // evaluation, never current disk files or raw pointers from an old renderer.
+  for (auto it = deferredInspections.begin(); it != deferredInspections.end(); ++it) {
+    if (it->attempted) continue;
+    it->attempted = true;
+    QJsonObject fields;
+    try {
+      auto tree = it->prepare();
+      if (tree.metadata.isEmpty()) {
+        fields["tree_unavailable_reason"] = "Evaluation is no longer retained.";
+      } else {
+        tree.metadata["result_id"] = it.key();
+        tree.metadata["source"] = it->metadata;
+        if (Bridge::instance()->retainTree(tree)) {
+          fields = {{"tree_id", tree.metadata.value("tree_id")},
+                    {"tree_complete", tree.metadata.value("complete")},
+                    {"instantiated_node_count", tree.metadata.value("node_count")},
+                    {"dependencies", tree.metadata.value("dependencies")}};
+        } else fields["tree_unavailable_reason"] = "Inspection retention budget exceeded.";
+      }
+    } catch (const std::exception&) {
+      fields["tree_unavailable_reason"] = "Inspection could not serialize this result.";
+    }
+    it->fields = fields;
+    updateInspectionMetadata(it.key(), fields);
+  }
+}
+void Controller::releaseInspectionTrees()
+{
+  for (auto it = deferredInspections.begin(); it != deferredInspections.end(); ++it) {
+    it->attempted = false;
+    it->fields = {};
+    updateInspectionMetadata(it.key(), {});
+  }
 }
 void Controller::rendererChanged()
 {

@@ -69,7 +69,10 @@ void Bridge::stop(bool remember)
   sources.clear();
   trees.clear();
   parseOutcomes.clear();
-  for (const auto& controller : controllers) if (controller) controller->cancelCapture();
+  for (const auto& controller : controllers) if (controller) {
+    controller->cancelCapture();
+    controller->releaseInspectionTrees();
+  }
   QMetaObject::invokeMethod(transport, [this] { transport->stop(); }, Qt::BlockingQueuedConnection);
   emit accessChanged({}, {});
 }
@@ -187,6 +190,7 @@ void Bridge::publish()
     auto controller = it->data();
     ++it;
     controller->pruneInspection();
+    controller->prepareInspectionTrees();
     viewports.append(controller->status());
     snapshot.reads.insert("/v1/windows/" + controller->windowId + "/diagnostics",
       {{"window_id", controller->windowId}, {"diagnostics", controller->inspection("").value("diagnostics")}, {"history_complete", false}});

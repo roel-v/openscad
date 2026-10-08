@@ -158,7 +158,16 @@ void TestAnchors::includedOwnerAndRetainedResolverGuards(){
   auto root=window->activeEditor;const QString source="include <owner.scad>\n@{type:Component,id:\"piece\"}piece();\n";root->setPlainText(source);QVERIFY(window->tabManager->saveAs(root,rootPath));evaluate(source);if(QTest::currentTestFailed())return;
   auto controller=window->anchorController;Anchors::ReferenceKey key{Anchors::instanceOwner("/piece",""),"mount"};auto change=std::make_shared<const Value>(Value("Edited"));QVERIFY(!controller->prepareEdit(key,{{"label",change}},window->evaluationBinding->stamp()));
   auto retained=controller->references();auto token=Anchors::anchorToken(key);auto stamp=window->evaluationBinding->stamp();QVERIFY(retained->resolve(*token,stamp.resultId.toStdString(),stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString()).frame);
-  QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::Append));QVERIFY(file.write("// changed on disk\n")>0);file.close();QCOMPARE(retained->resolve(*token,stamp.resultId.toStdString(),stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString()).state,Design::ResolutionState::Changed);QCOMPARE(root->toPlainText(),source);
+  QVERIFY(file.open(QIODevice::WriteOnly|QIODevice::Append));QVERIFY(file.write("// changed on disk\n")>0);file.close();
+  // Before the watcher event arrives, display refresh may still show the last
+  // snapshot. It must not synchronously reopen all dependencies to list it.
+  QVERIFY(controller->listedReferences());
+  window->inspectorDock->refresh();
+  QVERIFY(controller->listedReferences());
+  // Action and published-resolver checks still catch the changed bytes immediately.
+  QVERIFY(!window->evaluationBinding->validate(stamp));
+  QVERIFY(!controller->prepareEdit(key,{{"label",change}},stamp));
+  QCOMPARE(retained->resolve(*token,stamp.resultId.toStdString(),stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString()).state,Design::ResolutionState::Changed);QCOMPARE(root->toPlainText(),source);
   window->tabManager->open(ownerPath);auto owner=window->activeEditor;QVERIFY(owner!=root);window->tabManager->open(rootPath);evaluate(source);if(QTest::currentTestFailed())return;stamp=window->evaluationBinding->stamp();auto prepared=controller->prepareEdit(key,{{"label",change}},stamp);QVERIFY2(prepared,qPrintable(QString::fromStdString(prepared.error)));QCOMPARE(prepared.editor.data(),owner);
   owner->insertOrReplaceText("// concurrent included edit\n");auto concurrent=owner->toPlainText();QVERIFY(!window->evaluationBinding->current());QCOMPARE(SourceEditing::apply(*owner,prepared.request).error,SourceEditing::EditError::StaleSource);QCOMPARE(owner->toPlainText(),concurrent);QCOMPARE(root->toPlainText(),source);
   evaluate(source);if(QTest::currentTestFailed())return;prepared=controller->prepareEdit(key,{{"label",change}},window->evaluationBinding->stamp());QVERIFY(prepared);window->tabManager->open(ownerPath);owner->setContentModified(false);window->tabManager->closeCurrentTab();QVERIFY(!window->evaluationBinding->current());QVERIFY(!controller->editReference(key,{{"label",change}}));QCOMPARE(root->toPlainText(),source);

@@ -33,7 +33,7 @@ QWidget *Controller::buildInspector(){
   layout->addWidget(chooser);chooser->setEnabled(current);
   connect(chooser,&QComboBox::currentIndexChanged,this,[this,chooser](int row){if(row>0)if(auto key=referenceKey(chooser->itemData(row).toString().toStdString()))selectReference(*key);});
   if(!selected){layout->addWidget(new QLabel(current?tr("Named references retain their declared type and owner."):tr("References are stale or unavailable."),body));return body;}
-  const auto key=*selected;auto resolved=resolve(key);auto declaration=record(key);
+  const auto key=*selected;auto resolved=resolveForDisplay(key);auto declaration=record(key);
   QString text=tr("Owner: %1\nID: %2\nState: %3").arg(QString::fromStdString(key.owner.id),QString::fromStdString(key.id),resolved.state==Design::ResolutionState::Resolved?tr("Resolved"):QString::fromStdString(resolved.diagnostic));
   if(declaration){text+=tr("\nType: %1\nLabel: %2").arg(QString::fromStdString(declaration->kind),QString::fromStdString(declaration->label));
     if(declaration->source)text+=tr("\nSource: %1\nDeclaration uses: %2").arg(QString::fromStdString(declaration->source->fileKey)).arg(declarationUses(*declaration));
@@ -46,7 +46,7 @@ QWidget *Controller::buildInspector(){
   if(!declaration)return body;
   button(tr("Go to declaration"),"anchorGoToSource",current && declaration->source.has_value(),[this,key]{navigate(key);});
   const auto uses=declarationUses(*declaration);if(uses>1)button(tr("Edit shared declaration (%1 uses)").arg(uses),"anchorEditShared",current && !sharedEdits.count(key),[this,key]{allowSharedEdit(key);});
-  std::string error;const auto stamp=window->evaluationBinding->stamp();auto editable=prepareEdit(key,{field("label",Value(declaration->label))},stamp);
+  std::string error;const auto stamp=window->evaluationBinding->stamp();auto editable=planEdit(key,{field("label",Value(declaration->label))},stamp);
   if(!editable){auto *sourceOnly=new QLabel(QString::fromStdString(editable.error),body);sourceOnly->setObjectName("anchorSourceOnly");sourceOnly->setWordWrap(true);layout->addWidget(sourceOnly);}
   auto *form=new QFormLayout;layout->addLayout(form);auto *label=new QLineEdit(QString::fromStdString(declaration->label),body);label->setObjectName("anchorLabel");form->addRow(tr("Label"),label);
   std::array<QDoubleSpinBox *,3> translation{};std::array<QDoubleSpinBox *,4> quaternion{};QDoubleSpinBox *spin=nullptr;QComboBox *mode=nullptr;

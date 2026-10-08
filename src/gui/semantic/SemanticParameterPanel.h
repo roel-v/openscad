@@ -29,6 +29,9 @@ private:
   QLabel *status;
   QScrollArea *scroll;
   bool rebuilding=false;
+  QPointer<EditorInterface> preparingStructure;
+  uint64_t preparationSerial = 0;
+  QMetaObject::Connection structurePreparationConnection;
   void addParameter(QWidget *,TargetKey,const Parameter&,bool inspectionOnly,
                     std::shared_ptr<const Selection::EvaluatedScene>,Selection::Stamp);
   EditorInterface *owner(const Scene&,const ParameterEdit&,QString&) const;

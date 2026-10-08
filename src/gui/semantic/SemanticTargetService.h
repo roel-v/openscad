@@ -14,7 +14,10 @@ public:
   ~TargetService() override;
   std::shared_ptr<Targets> targets() const { return currentTargets; }
   PreparedTarget resolve(TargetKey);
+  PreparedTarget resolveForDisplay(TargetKey);
   void retry(TargetKey);
+  // Read-only UI eligibility; mutations and job results must use validate().
+  bool displayCurrent(const Selection::Stamp&) const;
   bool validate(const Selection::Stamp&) const;
   void cancel();
   bool exportTarget(TargetKey, ExportSpace, QString destination, ExportInfo);

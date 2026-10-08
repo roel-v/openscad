@@ -11,6 +11,7 @@
 #include "gui/QGLView.h"
 #include "gui/CameraNavigation.h"
 #include "gui/ScintillaEditor.h"
+#include "gui/QSettingsCached.h"
 #include "core/NativeExecutionGuard.h"
 #include "core/semantic/SemanticPlacement.h"
 #include "glview/RenderSettings.h"
@@ -107,7 +108,8 @@ void TestSemanticHierarchy::evaluate(const QString& source,bool final){
   window->activeEditor->setPlainText(source);QSignalSpy done(window,&MainWindow::compilationDone);
   if(final)window->designActionRender->trigger();else window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),15000);
   QTRY_VERIFY_WITH_TIMEOUT(window->evaluationBinding->current(),5000);
-  QTRY_COMPARE_WITH_TIMEOUT(window->inspectionPresentation->status(),InspectionPresentationController::Status::Ready,15000);
+  if(window->evaluatedScene && window->evaluatedScene->semantic && window->evaluatedScene->semantic->marked)
+    QTRY_COMPARE_WITH_TIMEOUT(window->inspectionPresentation->status(),InspectionPresentationController::Status::Ready,15000);
 }
 void TestSemanticHierarchy::hierarchyAndTargets(){
   evaluate(pair);if(QTest::currentTestFailed())return;auto *controller=window->semanticController;auto *model=controller->model();
@@ -118,8 +120,42 @@ void TestSemanticHierarchy::hierarchyAndTargets(){
   QVERIFY(controller->select({Semantic::TargetRole::Definition,"bracket"}));key={Semantic::TargetRole::Definition,"bracket"};QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);QCOMPARE(service->resolve(key).localBounds->max().x(),30.0);
   QVERIFY(controller->select({Semantic::TargetRole::Instance,"/pair"}));key={Semantic::TargetRole::Instance,"/pair"};QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);QCOMPARE(service->resolve(key).localBounds->max().x(),105.0);
 }
+void TestSemanticHierarchy::displayRefreshKeepsStrictEditGuards(){
+  QTemporaryDir directory;QVERIFY(directory.isValid());
+  const auto dependency=directory.filePath("width.scad");
+  auto write=[&](const QByteArray& bytes){QFile file(dependency);return file.open(QIODevice::WriteOnly) && file.write(bytes)==bytes.size();};
+  QVERIFY(write("width=30;\n"));
+  evaluate("include <"+dependency+">\n"+part+"@{type:Component,id:\"a\"} bracket(width);\n");
+  if(QTest::currentTestFailed())return;
+  auto *controller=window->semanticController;auto *service=controller->targetService();
+  const Semantic::TargetKey key{Semantic::TargetRole::Instance,"/a"};
+  QVERIFY(controller->select(key));
+  QTRY_VERIFY(service->resolve(key).state==Design::ResolutionState::Resolved);
+  auto *binding=window->evaluationBinding;const auto stamp=binding->stamp();
+  const auto captured=binding->scene(stamp);QVERIFY(captured!=nullptr);
+  const auto source=window->activeEditor->toPlainText();
+  QVERIFY(write("width=40;\n"));
+  // No watcher delivery: repeated read-only panel refreshes retain the display.
+  for(int i=0;i<20;++i){
+    controller->parameterPanel()->refresh();window->inspectorDock->refresh();
+    QVERIFY(service->displayCurrent(stamp));
+    QCOMPARE(service->resolveForDisplay(key).state,Design::ResolutionState::Resolved);
+    QVERIFY(controller->selectedTarget()==std::optional<Semantic::TargetKey>(key));
+  }
+  // Actions still reject changed disk contents before any event-loop turn.
+  QVERIFY(!service->validate(stamp));
+  QCOMPARE(service->resolve(key).state,Design::ResolutionState::Changed);
+  const auto& parameter=captured->semantic->instances.at("/a").parameters.at("width");
+  QString detail;
+  QVERIFY(!controller->parameterPanel()->applyCaptured(captured,stamp,key,parameter,Value(50.0),false,&detail));
+  QCOMPARE(window->activeEditor->toPlainText(),source);
+  QTRY_VERIFY(!service->displayCurrent(stamp));
+}
 void TestSemanticHierarchy::initializeUnstructuredModel(){
   window->inspectorDock->hide();
+  // This existing case exercises captured edit guards; prepare its input explicitly.
+  QObject inspectionConsumer;
+  window->evaluationBinding->requestInspection(&inspectionConsumer,window->activeEditor);
   auto preview=[&](const QString& source){window->activeEditor->setPlainText(source);QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),15000);QTRY_VERIFY(window->evaluationBinding->current());QTest::qWait(30);};
   const QString source="// Global parameters\nwidth = 12;\nmodule shape() { cube([width, 8, 3]); }\n// Geometry\nshape(); // Keep this comment";
   preview(source);if(QTest::currentTestFailed())return;
@@ -152,6 +188,43 @@ void TestSemanticHierarchy::initializeUnstructuredModel(){
   QVERIFY(!overlay->isVisible());QCOMPARE(info->pos(),QPoint(10,10));
   const auto oldStamp=window->evaluationBinding->stamp();const auto oldScene=window->evaluationBinding->scene(oldStamp);editor->setPlainText(source+"\n// changed");editor->clearUndoHistory();
   QVERIFY(!panel->initializeCaptured(oldScene,oldStamp,"Part",&detail));QCOMPARE(editor->toPlainText(),source+"\n// changed");QVERIFY(!editor->canUndo());
+}
+void TestSemanticHierarchy::onDemandInspectionAndStructure(){
+  QSettingsCached settings;
+  const auto previous=settings.value("advanced/alwaysPrepareInspector");
+  const auto restore=qScopeGuard([&]{
+    if(previous.isValid())settings.setValue("advanced/alwaysPrepareInspector",previous);
+    else settings.remove("advanced/alwaysPrepareInspector");
+  });
+  settings.setValue("advanced/alwaysPrepareInspector",false);
+  window->inspectorDock->hide();
+  evaluate("cube(4);");if(QTest::currentTestFailed())return;
+  auto binding=window->evaluationBinding;
+  auto plain=binding->scene(binding->stamp());
+  QVERIFY(plain && !plain->inspectionPrepared && !plain->provenance && !plain->backing->syntax);
+  window->inspectorDock->beginSelection();
+  QTRY_VERIFY_WITH_TIMEOUT(binding->inspectionReady(),15000);
+  QTRY_VERIFY(window->viewportTools->active()!=0);
+  window->inspectorDock->hide();
+  evaluate("cube(4);");if(QTest::currentTestFailed())return;
+  QVERIFY(!binding->inspectionReady());
+  auto *panel=window->semanticController->parameterPanel();QVERIFY(panel);
+  QTimer accept;
+  connect(&accept,&QTimer::timeout,this,[]{
+    if(auto dialog=qobject_cast<QInputDialog *>(QApplication::activeModalWidget())) {
+      dialog->setTextValue("Prepared part");dialog->accept();
+    }
+  });
+  accept.start(10);
+  panel->initializeStructureDialog();
+  QTRY_VERIFY_WITH_TIMEOUT(window->activeEditor->toPlainText().contains("Prepared part"),15000);
+  accept.stop();
+  QTRY_VERIFY_WITH_TIMEOUT(binding->current(),15000);
+  auto structured=binding->scene(binding->stamp());
+  QVERIFY(structured && structured->inspectionPrepared && structured->provenance);
+  QVERIFY(structured->semantic && structured->semantic->valid());
+  QCOMPARE(structured->semantic->instances.size(),size_t(1));
+  QVERIFY(!binding->inspectionRequested(window->activeEditor)); // Model requirement, not leaked UI demand.
 }
 void TestSemanticHierarchy::viewportStructureInteractions(){
   evaluate(pair);if(QTest::currentTestFailed())return;

@@ -11,6 +11,7 @@ namespace Semantic {
 class Collector {
 public:
   explicit Collector(EvaluationSession& session);
+  static bool requiresInspection(const SourceFile& root);
   void discover(const SourceFile& root);
   bool validateCall(const ModuleInstantiation&, const AbstractModule *, const std::shared_ptr<const Context>&);
   void captureComponent(Design::Record, const Design::EvaluatedDeclaration&);

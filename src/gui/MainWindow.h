@@ -75,7 +75,6 @@ class AIDock;
 #include "utils/scope_guard.hpp"
 
 class UXTest;
-namespace SourceProvenance { struct ParsedLibraryCache; }
 namespace AgentAnnotations { class Controller; }
 namespace BackgroundEvaluation { class Controller; }
 class InspectionPresentationController;
@@ -106,7 +105,6 @@ public:
   std::shared_ptr<EvaluationInputs> evaluationInputs;
   std::shared_ptr<Selection::EvaluationBacking> evaluationBacking;
   std::shared_ptr<const Selection::EvaluatedScene> evaluatedScene;
-  std::shared_ptr<SourceProvenance::ParsedLibraryCache> parsedLibraryCache;
   Preferences *prefs;
 
   QTimer *consoleUpdater;

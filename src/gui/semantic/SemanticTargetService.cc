@@ -13,6 +13,11 @@ TargetService::TargetService(MainWindow *window) : QObject(window), window(windo
   connect(window->evaluationBinding, &Selection::EvaluationBinding::invalidated, this, &TargetService::refresh);
 }
 TargetService::~TargetService() { cancel(); if (currentTargets) removeTargets(currentTargets->resultId()); }
+bool TargetService::displayCurrent(const Selection::Stamp& expected) const {
+  if (!window) return false;
+  auto source = expected; source.viewportGeneration = window->evaluationBinding->stamp().viewportGeneration;
+  return window->evaluationBinding->displayCurrent(source);
+}
 bool TargetService::validate(const Selection::Stamp& expected) const {
   if (!window || !window->evaluationBinding->current()) return false;
   auto source = expected; source.viewportGeneration = window->evaluationBinding->stamp().viewportGeneration;
@@ -21,10 +26,10 @@ bool TargetService::validate(const Selection::Stamp& expected) const {
 void TargetService::cancel() { for (auto& job : jobs) job->store(true); jobs.clear(); if (currentTargets) currentTargets->cancelPending(); emit changed(); }
 void TargetService::retry(TargetKey key) { if (currentTargets && validate(stamp)) { currentTargets->clearTarget(key); resolve(std::move(key)); emit changed(); } }
 void TargetService::refresh() {
-  if (currentTargets && validate(stamp)) return;
+  if (currentTargets && displayCurrent(stamp)) return;
   cancel(); if (currentTargets) removeTargets(currentTargets->resultId()); currentTargets.reset();
   if (window && window->evaluationBinding->current()) {
-    stamp = window->evaluationBinding->stamp(); auto scene = window->evaluationBinding->scene(stamp);
+    stamp = window->evaluationBinding->stamp(); auto scene = window->evaluationBinding->displayScene(stamp);
     if (scene && scene->semantic && scene->semantic->valid()) {
       QPointer<TargetService> service(this);
       auto delivery=dispatcher;
@@ -37,7 +42,11 @@ void TargetService::refresh() {
   emit changed();
 }
 PreparedTarget TargetService::resolve(TargetKey key) {
-  if (!currentTargets || !validate(stamp)) { PreparedTarget output; output.state=Design::ResolutionState::Changed; output.diagnostic="Semantic evaluation is stale or unavailable"; return output; }
+  if (!validate(stamp)) { PreparedTarget output; output.state=Design::ResolutionState::Changed; output.diagnostic="Semantic evaluation is stale or unavailable"; return output; }
+  return resolveForDisplay(std::move(key));
+}
+PreparedTarget TargetService::resolveForDisplay(TargetKey key) {
+  if (!currentTargets || !displayCurrent(stamp)) { PreparedTarget output; output.state=Design::ResolutionState::Changed; output.diagnostic="Semantic evaluation is stale or unavailable"; return output; }
   return currentTargets->resolve(targetToken(std::move(key)), stamp.resultId.toStdString());
 }
 void TargetService::request(TargetKey key) {

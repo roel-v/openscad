@@ -74,9 +74,10 @@ struct Result {
   CGALRenderer::PreparedGeometry preparedCGAL;
   bool usePolySet = true;
   ParameterObjects parameters;
-  AgentAnnotations::InspectionTree inspection;
+  std::function<AgentAnnotations::InspectionTree()> inspection;
   Camera camera;
   bool success = false;
+  size_t reusedLibraries = 0; // Parsed libraries reused by this request; no geometry cache implied.
   int parserError = -1, errors = 0, warnings = 0;
   size_t omittedMessages = 0;
   std::mutex diagnosticMutex;

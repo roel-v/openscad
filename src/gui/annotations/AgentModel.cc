@@ -29,7 +29,7 @@ QJsonValue scalar(double value)
 QString text(const std::string& value) { return QString::fromStdString(value).left(4096); }
 }
 InspectionTree inspectModel(const AbstractNode *root, const AbstractNode *effective,
-                            const SourceFile *source, const QJsonObject& result)
+                            const SourceFile *source, SourceFileCache *libraries, const QJsonObject& result)
 {
   InspectionTree tree;
   const auto id = QUuid::createUuid().toString(QUuid::WithoutBraces);
@@ -120,7 +120,7 @@ InspectionTree inspectModel(const AbstractNode *root, const AbstractNode *effect
       dependencies.append(QJsonObject{{"kind", "use"}, {"scope", "native_compile"},
         {"requested_path", QJsonValue::Null}, {"resolved_path", text(library)},
         {"disk_sha256", QJsonValue::Null}, {"bytes_observed", false}});
-      if (auto cached = SourceFileCache::instance()->lookup(library)) files.push_back(cached);
+      if (libraries) if (auto cached = libraries->lookup(library)) files.push_back(cached);
     }
   }
   tree.metadata["root_ids"] = roots;

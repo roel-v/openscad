@@ -248,6 +248,38 @@ TEST_CASE("Captured AST cache seeding owns native declarations and ignores later
   SourceFileCache global; REQUIRE_THROWS_AS(global.seedCaptured(inputs.root().fileKey, *seeded.lookup(root.string())), EvaluationInputError);
 }
 
+TEST_CASE("Captured library lookup aliases survive growth and clear without caching misses", "[evaluation-inputs]")
+{
+  InputFixture fixture;
+  const auto root = fixture.write("root.scad", "cube(1);");
+  const auto library = fixture.write("library.scad", "module retained(){cube(2);}");
+  EvaluationInputs inputs(fixture.input(root, EvaluationInputs::diskBytes(root)));
+  SourceFileCache cache(&inputs);
+  NativeEvaluationScope native(inputs, cache);
+  const auto alias = (fixture.directory / "nested" / ".." / "library.scad").string();
+  REQUIRE(cache.lookup(alias) == nullptr);
+  SourceFile *parsed = nullptr;
+  cache.process(root.string(), library.string(), parsed);
+  REQUIRE(parsed);
+  REQUIRE(cache.lookup(alias) == parsed);
+  REQUIRE(cache.lookup(library.string()) == parsed);
+  for (int i = 0; i < 100; ++i) {
+    const auto path = fixture.write("grow" + std::to_string(i) + ".scad", "module extra(){}");
+    SourceFile *extra = nullptr;
+    cache.process(root.string(), path.string(), extra);
+    REQUIRE(extra);
+  }
+  REQUIRE(cache.lookup(alias) == parsed); // Entry addresses survive unordered_map rehash.
+  const auto key = EvaluationInputs::fileKey(library);
+  auto retained = std::make_unique<SourceFile>(*parsed);
+  cache.clear();
+  REQUIRE(cache.lookup(alias) == nullptr);
+  cache.seedCaptured(key, *retained);
+  REQUIRE(cache.lookup(alias));
+  REQUIRE(cache.lookup(alias)->scope == retained->scope);
+  REQUIRE(cache.lookup("") == nullptr);
+}
+
 TEST_CASE("Sealed inputs retain dirty nested sources and never read missing disk bytes", "[sealed-evaluation-inputs][evaluation-inputs]")
 {
   InputFixture fixture;auto root=fixture.write("root.scad","cube(1);");

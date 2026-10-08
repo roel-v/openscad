@@ -51,5 +51,7 @@ private:
   };
   std::unordered_map<std::string, cache_entry> entries;
   // Request-local only: avoid filesystem identity work on every function/module lookup.
-  std::unordered_map<std::string, std::string> resolvedPaths;
+  // unordered_map keeps element addresses stable across insertions/rehashes.
+  // Cache the entry, not its file: processing may populate a previously failed parse.
+  std::unordered_map<std::string, cache_entry *> resolvedEntries;
 };

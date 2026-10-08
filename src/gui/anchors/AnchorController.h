@@ -30,6 +30,7 @@ public:
 private:
   QPointer<MainWindow> window;
   std::shared_ptr<References> service;
+  std::shared_ptr<References> displayService;
   std::optional<ReferenceKey> selected;
   std::set<ReferenceKey> sharedEdits;
   Selection::Stamp bound;
@@ -44,6 +45,8 @@ private:
   void refreshWidgets();
   Design::DesignDocument *document();
   std::shared_ptr<const Design::Record> record(const ReferenceKey&) const;
+  ReferenceResolution resolveForDisplay(const ReferenceKey&) const;
+  Design::PreparedEdit planEdit(const ReferenceKey&,const std::vector<LiteralChange>&,const Selection::Stamp&) const;
   Design::PreparedEdit insert(const Design::Draft&,const Selection::Stamp&) const;
   QWidget *buildInspector();
   void drawOverlay();

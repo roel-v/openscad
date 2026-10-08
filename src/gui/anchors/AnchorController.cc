@@ -40,12 +40,17 @@ void Controller::refresh(){
   if(refreshing || !window)return;QScopedValueRollback<bool> guard(refreshing,true);
   const auto stamp=window->evaluationBinding->stamp();
   if(service && window->evaluationBinding->current() && bound.resultId==stamp.resultId && bound.documentId==stamp.documentId){bound=stamp;refreshWidgets();return;}
-  if(service)removeReferences(service->resultId());service.reset();sharedEdits.clear();captureToken.reset();
+  if(service)removeReferences(service->resultId());service.reset();displayService.reset();sharedEdits.clear();captureToken.reset();
   if(window->evaluationBinding->current()){
-    bound=stamp;auto scene=window->evaluationBinding->scene(stamp);
+    bound=stamp;auto scene=window->evaluationBinding->displayScene(stamp);
     if(scene && scene->semantic && scene->semantic->valid()){
       QPointer<Semantic::TargetService> targets(window->semanticController->targetService());
       QPointer<Selection::EvaluationBinding> binding(window->evaluationBinding);
+      // The published resolver remains strict. UI lists and overlays resolve
+      // against the same immutable snapshot without rereading source files.
+      displayService=std::make_shared<References>(stamp.resultId.toStdString(),scene->semantic,stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString(),
+        [targets](Semantic::TargetKey key){return targets?targets->resolveForDisplay(std::move(key)):Semantic::PreparedTarget{};},
+        [binding,id=stamp.resultId]{return binding && binding->current() && binding->stamp().resultId==id;});
       service=std::make_shared<References>(stamp.resultId.toStdString(),scene->semantic,stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString(),[targets](Semantic::TargetKey key){if(targets)return targets->resolve(std::move(key));Semantic::PreparedTarget result;result.state=Design::ResolutionState::Changed;result.diagnostic="Target service closed";return result;},[binding,window=this->window,inputs=scene->inputs,id=stamp.resultId]{return binding && window && binding->current() && binding->stamp().resultId==id && Selection::EvaluationBinding::inputsCurrent(*inputs,*window);});publishReferences(service);document();
     }
   }
@@ -74,16 +79,23 @@ ReferenceResolution Controller::resolve(const ReferenceKey& key)const{
   auto token=anchorToken(key);if(!token){ReferenceResolution result;result.state=Design::ResolutionState::Unsupported;result.diagnostic="Reference owner cannot be represented by a retained semantic target";return result;}
   const auto& stamp=window->evaluationBinding->stamp();return service->resolve(*token,stamp.resultId.toStdString(),stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString());
 }
+ReferenceResolution Controller::resolveForDisplay(const ReferenceKey& key)const{
+  ReferenceResolution result;result.state=Design::ResolutionState::Changed;result.diagnostic="Evaluation is stale or unavailable";
+  if(!window || !displayService || !window->evaluationBinding->current())return result;
+  auto token=anchorToken(key);if(!token){result.state=Design::ResolutionState::Unsupported;result.diagnostic="Reference owner cannot be represented by a retained semantic target";return result;}
+  const auto& stamp=window->evaluationBinding->stamp();
+  return displayService->resolve(*token,stamp.resultId.toStdString(),stamp.sourceFingerprint.toStdString(),stamp.configurationFingerprint.toStdString());
+}
 std::shared_ptr<const Design::Record> Controller::record(const ReferenceKey& key)const{
-  auto reference=resolve(key);if(reference.declaration)return reference.declaration;
-  if(!window || !window->evaluationBinding->current())return {};auto scene=window->evaluationBinding->scene(window->evaluationBinding->stamp());auto refs=scene && scene->semantic?referenceScene(*scene->semantic):nullptr;
-  if(key.owner.role==OwnerRole::DefinitionDefault){auto segments=Semantic::pathSegments(key.owner.id);if(segments && !segments->empty()){auto prepared=window->semanticController->targetService()->resolve({Semantic::TargetRole::Definition,segments->front()});if(prepared.defaults && prepared.defaults->scene)refs=referenceScene(*prepared.defaults->scene);}}
+  auto reference=resolveForDisplay(key);if(reference.declaration)return reference.declaration;
+  if(!window || !window->evaluationBinding->current())return {};auto scene=window->evaluationBinding->displayScene(window->evaluationBinding->stamp());auto refs=scene && scene->semantic?referenceScene(*scene->semantic):nullptr;
+  if(key.owner.role==OwnerRole::DefinitionDefault){auto segments=Semantic::pathSegments(key.owner.id);if(segments && !segments->empty()){auto prepared=window->semanticController->targetService()->resolveForDisplay({Semantic::TargetRole::Definition,segments->front()});if(prepared.defaults && prepared.defaults->scene)refs=referenceScene(*prepared.defaults->scene);}}
   if(refs){auto attachment=refs->attachments.find(key);if(attachment!=refs->attachments.end())return attachment->second.declaration;}return {};
 }
 bool Controller::selectReference(ReferenceKey key){if(!record(key) && resolve(key).state==Design::ResolutionState::Changed)return false;selected=std::move(key);refreshWidgets();return true;}
 std::shared_ptr<const ReferenceScene> Controller::listedReferences(){
-  if(!window || !window->evaluationBinding->current())return {};auto scene=window->evaluationBinding->scene(window->evaluationBinding->stamp());
-  auto target=window->semanticController->selectedTarget();if(target && target->role==Semantic::TargetRole::Definition){auto prepared=window->semanticController->targetService()->resolve(*target);if(prepared.defaults && prepared.defaults->scene)return referenceScene(*prepared.defaults->scene);return {};}
+  if(!window || !window->evaluationBinding->current())return {};auto scene=window->evaluationBinding->displayScene(window->evaluationBinding->stamp());
+  auto target=window->semanticController->selectedTarget();if(target && target->role==Semantic::TargetRole::Definition){auto prepared=window->semanticController->targetService()->resolveForDisplay(*target);if(prepared.defaults && prepared.defaults->scene)return referenceScene(*prepared.defaults->scene);return {};}
   return scene && scene->semantic?referenceScene(*scene->semantic):nullptr;
 }
 std::optional<std::string> Controller::capture(const Selection::Hit& hit,std::optional<std::string> owner,std::string *error){
@@ -112,12 +124,17 @@ std::optional<Design::Draft> Controller::captureDraft()const{
 }
 void Controller::cancelCapture(){auto draft=captureDraft();captureToken.reset();if(draft && window && window->activeEditor)if(auto doc=window->activeEditor->findChild<Design::DesignDocument *>(QString(),Qt::FindDirectChildrenOnly))doc->cancelDraft(draft->token);refreshWidgets();}
 Design::LifecycleResult Controller::saveCapture(){auto draft=captureDraft();auto doc=document();if(!draft || !doc)return {false,"No current captured Anchor"};auto result=doc->promoteConsumer(draft->token);if(result)captureToken.reset();report(result.error);return result;}
-size_t Controller::declarationUses(const Design::Record& record)const{if(!record.source || !window || !window->evaluationBinding->current())return 0;auto scene=window->evaluationBinding->scene(window->evaluationBinding->stamp());auto refs=scene && scene->semantic?referenceScene(*scene->semantic):nullptr;if(!refs)return 0;auto found=refs->sourceUseCounts.find(sourceIdentity(*record.source));return found==refs->sourceUseCounts.end()?0:found->second;}
+size_t Controller::declarationUses(const Design::Record& record)const{if(!record.source || !window || !window->evaluationBinding->current())return 0;auto scene=window->evaluationBinding->displayScene(window->evaluationBinding->stamp());auto refs=scene && scene->semantic?referenceScene(*scene->semantic):nullptr;if(!refs)return 0;auto found=refs->sourceUseCounts.find(sourceIdentity(*record.source));return found==refs->sourceUseCounts.end()?0:found->second;}
 bool Controller::allowSharedEdit(const ReferenceKey& key){auto value=record(key);if(!value || declarationUses(*value)<=1)return false;sharedEdits.insert(key);refreshWidgets();return true;}
 Design::PreparedEdit Controller::prepareEdit(const ReferenceKey& key,const std::vector<LiteralChange>& input,const Selection::Stamp& stamp)const{
+  if(!window || !window->evaluationBinding->validate(stamp))return {{},{},"Evaluation is stale"};
+  return planEdit(key,input,stamp);
+}
+Design::PreparedEdit Controller::planEdit(const ReferenceKey& key,const std::vector<LiteralChange>& input,const Selection::Stamp& stamp)const{
   auto fail=[](const std::string& error){return Design::PreparedEdit{{},{},error};};
-  if(!window || !window->evaluationBinding->validate(stamp))return fail("Evaluation is stale");auto value=record(key);if(!value || !value->source)return fail("Source declaration is unavailable");
-  auto scene=window->evaluationBinding->scene(stamp);auto captured=scene->inputs->consumed().find(value->source->fileKey);if(captured==scene->inputs->consumed().end())return fail("Source was not captured");
+  auto scene=window?window->evaluationBinding->displayScene(stamp):nullptr;if(!scene)return fail("Evaluation is stale");
+  auto value=record(key);if(!value || !value->source)return fail("Source declaration is unavailable");
+  auto captured=scene->inputs->consumed().find(value->source->fileKey);if(captured==scene->inputs->consumed().end())return fail("Source was not captured");
   const auto& source=captured->second;EditorInterface *owner=nullptr;
   for(auto *editor:window->tabManager->editorList)if(source.editorId && source.editorRevision && editor->documentId().toStdString()==*source.editorId && editor->sourceRevision==*source.editorRevision && editor->sourceFingerprint.toStdString()==source.fingerprint && !editor->isSourceReadOnly()){if(owner)return fail("Source editor is ambiguous");owner=editor;}
   if(!owner)return fail("Open the writable source owner and reevaluate before editing");

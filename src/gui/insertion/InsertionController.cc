@@ -7,6 +7,7 @@
 #include "core/parsersettings.h"
 #include "core/SourceFile.h"
 #include "gui/MainWindow.h"
+#include "gui/TabManager.h"
 #include "gui/QGLView.h"
 #include "gui/CameraNavigation.h"
 #include "gui/selection/EvaluationBinding.h"
@@ -77,7 +78,19 @@ Controller::Controller(MainWindow *mainWindow):QObject(mainWindow),window(mainWi
   debounce.setSingleShot(true);debounce.setInterval(150);connect(&debounce,&QTimer::timeout,this,&Controller::launch);
   watch.setInterval(250);connect(&watch,&QTimer::timeout,this,[this]{if(currentState!=State::Idle && currentState!=State::Picking && currentState!=State::Committing && !current()){cancel();window->statusBar()->showMessage(tr("Insertion cancelled: source, configuration or provider input changed"),10000);}});
   elapsed.setInterval(1000);connect(&elapsed,&QTimer::timeout,this,[this]{if(process && process->running())status->setText(statusText+tr(" (%1 s; Cancel available)").arg(process->elapsedMilliseconds()/1000));});
-  connect(window->evaluationBinding,&Selection::EvaluationBinding::invalidated,this,[this]{if(currentState!=State::Idle && currentState!=State::Committing && !this->window->evaluationBinding->validateModel(stamp))cancel();});
+  connect(window->evaluationBinding,&Selection::EvaluationBinding::invalidated,this,[this]{if(currentState!=State::Idle && currentState!=State::Preparing && currentState!=State::Committing && !this->window->evaluationBinding->validateModel(stamp))cancel();});
+  connect(window->tabManager,&TabManager::currentEditorChanged,this,[this](auto){if(currentState==State::Preparing)cancel();});
+  connect(window->evaluationBinding,&Selection::EvaluationBinding::evaluationFinished,this,[this](EditorInterface *editor){
+    if(currentState!=State::Preparing || rootEditor!=editor)return;
+    const auto ticket=serial;
+    QTimer::singleShot(0,this,[this,ticket]{
+      if(ticket!=serial || currentState!=State::Preparing)return;
+      if(!rootEditor || rootEditor!=window->activeEditor || rootEditor->sourceRevision!=preparingRevision || !window->evaluationBinding->inspectionReady()) {
+        cancel();window->statusBar()->showMessage(tr("Insertion preparation did not complete. Check evaluation messages, then try Add again."),10000);return;
+      }
+      setState(State::Idle,{});add(); // The old hit was invalidated; pick against the new result.
+    });
+  });
   connect(window->inspectionPresentation,&InspectionPresentationController::draftDisplayChanged,this,[this](bool active,bool){if(!active && display && !closing && currentState!=State::Idle && currentState!=State::Committing)cancel();});
   setState(State::Idle,{});
 }
@@ -85,10 +98,33 @@ Controller::~Controller(){cancel();delete dock;}
 void Controller::setState(State state,QString message){currentState=state;statusText=std::move(message);status->setText(statusText);commitButton->setEnabled(state==State::Ready);
   for(const char *name:{"insertion.move","insertion.spin","insertion.flip","insertion.commit","insertion.cancel"})if(auto action=findChild<QAction *>(name))action->setEnabled(std::string(name)=="insertion.cancel"?state!=State::Idle:(std::string(name)=="insertion.commit"?state==State::Ready:placement.has_value() && state!=State::Committing));emit changed();}
 void Controller::stopProcess(){if(process){process->cancel();process->deleteLater();process.clear();}elapsed.stop();}
-void Controller::cancel(){if(closing)return;QScopedValueRollback<bool> guard(closing,true);debounce.stop();watch.stop();stopProcess();++serial;drag=Drag::None;if(window && window->viewportTools)window->viewportTools->finish(std::exchange(tool,0));overlay.reset();display.reset();plan.reset();result.reset();ghost.reset();placement.reset();fragment.reset();binding.reset();target.reset();targetOptions.clear();inventory.reset();capturedInputs.reset();scene.reset();hit.reset();rootEditor.clear();targetEditor.clear();controls.clear();setState(State::Idle,{});dock->hide();if(window && window->qglview)window->qglview->update();}
-bool Controller::add(){if(currentState!=State::Idle){cancel();return false;}if(!window->evaluationBinding->current())return false;const auto selected=window->selectionService->state().surface;if(selected && window->evaluationBinding->validate(selected->stamp))return begin(*selected);stamp=window->evaluationBinding->stamp();setState(State::Picking,tr("Pick a source-owned surface; Escape cancels"));tool=window->viewportTools->beginPick({"Insertion",stamp,true},this,[this](auto result){tool=0;if(result.hit)begin(*result.hit);else cancel();});return tool!=0;}
+void Controller::cancel(){if(closing)return;QScopedValueRollback<bool> guard(closing,true);if(window && window->evaluationBinding)window->evaluationBinding->releaseInspection(this);debounce.stop();watch.stop();stopProcess();++serial;drag=Drag::None;if(window && window->viewportTools)window->viewportTools->finish(std::exchange(tool,0));overlay.reset();display.reset();plan.reset();result.reset();ghost.reset();placement.reset();fragment.reset();binding.reset();target.reset();targetOptions.clear();inventory.reset();capturedInputs.reset();scene.reset();hit.reset();rootEditor.clear();targetEditor.clear();controls.clear();setState(State::Idle,{});dock->hide();if(window && window->qglview)window->qglview->update();}
+bool Controller::add(){
+  if(currentState!=State::Idle){cancel();return false;}
+  if(!window->activeEditor || GuiLocker::isLocked())return false;
+  rootEditor=window->activeEditor;
+  window->evaluationBinding->requestInspection(this,rootEditor);
+  if(!window->evaluationBinding->inspectionReady()) {
+    preparingRevision=rootEditor->sourceRevision;const auto ticket=++serial;
+    setState(State::Preparing,tr("Preparing source information for insertion…"));dock->show();dock->raise();
+    QTimer::singleShot(0,this,[this,ticket]{
+      if(ticket!=serial || currentState!=State::Preparing)return;
+      if(!rootEditor || rootEditor!=window->activeEditor || rootEditor->sourceRevision!=preparingRevision || GuiLocker::isLocked()){cancel();return;}
+      window->actionRenderPreview();
+    });
+    return true;
+  }
+  const auto selected=window->selectionService->state().surface;
+  if(selected && window->evaluationBinding->validate(selected->stamp))return begin(*selected);
+  stamp=window->evaluationBinding->stamp();setState(State::Picking,tr("Pick a source-owned surface; Escape cancels"));
+  tool=window->viewportTools->beginPick({"Insertion",stamp,true},this,[this](auto result){tool=0;if(result.hit)begin(*result.hit);else cancel();});
+  if(!tool)cancel();
+  return tool!=0;
+}
 bool Controller::begin(const Selection::Hit& picked){cancel();if(!window->evaluationBinding->validate(picked.stamp) || !picked.object.nodeIndex)return false;
-  try {stamp=picked.stamp;scene=window->evaluationBinding->scene(stamp);if(!scene || !scene->backing)return false;rootEditor=window->activeEditor;hit=picked;cameraUp=CameraPose::matrix(window->qglview->cam.object_rot).transpose()*Vector3d::UnitZ();configuration=captureConfiguration(*scene->backing->builtin,rootEditor->parameterWidget->evaluationValues());auto captured=SourceInventory::capture(scene->backing->parsedRoot,scene->backing->libraries,scene->inputs,scene->root,scene->provenance,scene->semantic,configuration.defines);if(!captured)throw ProtocolError(captured.diagnostic->message);inventory=std::move(*captured.value);
+  if(!window->evaluationBinding->inspectionReady())return add();
+  window->evaluationBinding->requestInspection(this,window->activeEditor);
+  try {stamp=picked.stamp;scene=window->evaluationBinding->scene(stamp);if(!scene || !scene->backing)throw ProtocolError("Evaluated source is unavailable");rootEditor=window->activeEditor;hit=picked;cameraUp=CameraPose::matrix(window->qglview->cam.object_rot).transpose()*Vector3d::UnitZ();configuration=captureConfiguration(*scene->backing->builtin,rootEditor->parameterWidget->evaluationValues());auto captured=SourceInventory::capture(scene->backing->parsedRoot,scene->backing->libraries,scene->inputs,scene->root,scene->provenance,scene->semantic,configuration.defines);if(!captured)throw ProtocolError(captured.diagnostic->message);inventory=std::move(*captured.value);
     const auto rootDirectory=EvaluationInputs::fileKey(scene->backing->parsedRoot->modulePath());auto resources=PlatformUtils::resourcePath("providers");discovered=Providers::discoverProviders({resources.empty()?"":EvaluationInputs::fileKey(resources),PlatformUtils::userConfigPath(),rootDirectory,{}});registry=Providers::ProviderRegistry::load(discovered.catalogs);auto live=Selection::EvaluationBinding::capture(*window,*rootEditor);capturedInputs=std::make_shared<EvaluationInputs>(live->root(),live->capturedEditors(),EvaluationInputs::ReadPolicy::CaptureMissing,scene->inputs->consumed());bindingContext=context(rootDirectory,capturedInputs);
     // Seeds retain versions; explicitly consume the whole displayed closure before constructing a worker request.
     for(const auto& [key,input]:scene->inputs->consumed()){

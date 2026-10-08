@@ -1,1 +1,2 @@
+# These fixtures are compared byte-for-byte with generated source.
 *.scad text eol=lf

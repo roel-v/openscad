@@ -24,7 +24,7 @@ namespace Insertion {
 class Controller:public QObject {
   Q_OBJECT
 public:
-  enum class State {Idle,Picking,Choosing,Configuring,Pending,Ready,Committing};
+  enum class State {Idle,Preparing,Picking,Choosing,Configuring,Pending,Ready,Committing};
   explicit Controller(MainWindow *);
   ~Controller() override;
   bool add();
@@ -74,6 +74,7 @@ private:
   InspectionPresentationController::DraftToken display;
   Selection::ViewportOverlays::Token overlay;
   uint64_t tool=0,serial=0;
+  uint64_t preparingRevision=0;
   State currentState=State::Idle;
   enum class Drag {None,Move,Spin} drag=Drag::None;
   QString statusText;

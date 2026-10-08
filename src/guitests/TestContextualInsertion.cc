@@ -10,6 +10,7 @@
 #include "gui/selection/EvaluationBinding.h"
 #include "gui/InspectionPresentationController.h"
 #include "gui/QGLView.h"
+#include "gui/QSettingsCached.h"
 #include "gui/ScintillaEditor.h"
 #include "gui/parameter/ParameterWidget.h"
 #include "core/SourceFile.h"
@@ -53,6 +54,7 @@
 #include <QMessageBox>
 #include <array>
 #include <algorithm>
+#include <cmath>
 namespace {
 using namespace Insertion;
 void traceEvent(const QString& event){
@@ -128,8 +130,26 @@ void TestContextualInsertion::initTestCase(){previousBackend=int(RenderSettings:
   connect(window->evaluationBinding,&Selection::EvaluationBinding::invalidated,this,[]{traceEvent("evaluationInvalidated");});
   connect(window->inspectionPresentation,&InspectionPresentationController::draftDisplayChanged,this,[](bool active,bool pixels){traceEvent(QString("draft active=%1 pixels=%2").arg(active).arg(pixels));});
 }
-void TestContextualInsertion::init(){QApplication::setActiveWindow(window);originalTabs=window->tabManager->editorList;window->tabManager->actionNew();window->activeEditor->setPlainText("cube(10);\n");QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty() && !GuiLocker::isLocked(),20000);QVERIFY(window->evaluationBinding->current());window->activeEditor->clearUndoHistory();traceConnection=connect(window->insertionController,&Controller::changed,this,[this]{QFile trace(qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT")+"/insertion-trace.log");if(trace.open(QIODevice::Append)){auto controller=window->insertionController;trace.write(QString("%1: %2 / %3\n").arg(int(controller->state())).arg(controller->message(),window->statusBar()->currentMessage()).toUtf8());}});}
-void TestContextualInsertion::cleanup(){disconnect(traceConnection);window->insertionController->cancel();window->inspectionPresentation->cancelDraft();while(window->tabManager->editorList.size()>originalTabs.size()){while(originalTabs.contains(window->activeEditor))window->tabManager->nextTab();SavedViews::forEditor(window->activeEditor)->load(window->activeEditor->filepath);window->activeEditor->annotations->load(window->activeEditor->filepath+".annotations");window->activeEditor->parameterWidget->setModified(false);window->activeEditor->setContentModified(false);window->tabManager->closeCurrentTab();}fixtureFolder.reset();}
+void TestContextualInsertion::init(){previousInspectorPreference=QSettingsCached().value("advanced/alwaysPrepareInspector");QSettingsCached().setValue("advanced/alwaysPrepareInspector",true);QApplication::setActiveWindow(window);originalTabs=window->tabManager->editorList;window->tabManager->actionNew();window->activeEditor->setPlainText("cube(10);\n");QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty() && !GuiLocker::isLocked(),20000);QVERIFY(window->evaluationBinding->current());window->activeEditor->clearUndoHistory();traceConnection=connect(window->insertionController,&Controller::changed,this,[this]{QFile trace(qEnvironmentVariable("OPENSCAD_GUI_TEST_OUTPUT")+"/insertion-trace.log");if(trace.open(QIODevice::Append)){auto controller=window->insertionController;trace.write(QString("%1: %2 / %3\n").arg(int(controller->state())).arg(controller->message(),window->statusBar()->currentMessage()).toUtf8());}});}
+void TestContextualInsertion::cleanup(){if(previousInspectorPreference.isValid())QSettingsCached().setValue("advanced/alwaysPrepareInspector",previousInspectorPreference);else QSettingsCached().remove("advanced/alwaysPrepareInspector");disconnect(traceConnection);window->insertionController->cancel();window->inspectionPresentation->cancelDraft();while(window->tabManager->editorList.size()>originalTabs.size()){while(originalTabs.contains(window->activeEditor))window->tabManager->nextTab();SavedViews::forEditor(window->activeEditor)->load(window->activeEditor->filepath);window->activeEditor->annotations->load(window->activeEditor->filepath+".annotations");window->activeEditor->parameterWidget->setModified(false);window->activeEditor->setContentModified(false);window->tabManager->closeCurrentTab();}fixtureFolder.reset();}
+void TestContextualInsertion::preparesInspectionOnDemand(){
+  QSettingsCached().setValue("advanced/alwaysPrepareInspector",false);
+  QSignalSpy done(window,&MainWindow::compilationDone);window->actionRenderPreview();
+  QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),20000);
+  auto binding=window->evaluationBinding;auto controller=window->insertionController;
+  QVERIFY(!binding->inspectionReady());
+  QVERIFY(controller->add());QCOMPARE(controller->state(),Controller::State::Preparing);
+  controller->cancel(); // Cancels the queued request before it can change the display.
+  QVERIFY(!binding->inspectionRequested(window->activeEditor));
+  QTest::qWait(20);QVERIFY(!binding->inspectionReady());
+  QVERIFY(controller->add());
+  QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Picking,20000);
+  QVERIFY(binding->inspectionReady());
+  QVERIFY(binding->inspectionRequested(window->activeEditor));
+  controller->cancel();QVERIFY(!binding->inspectionRequested(window->activeEditor));
+  done.clear();window->actionRenderPreview();QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),20000);
+  QVERIFY(!binding->inspectionReady());
+}
 void TestContextualInsertion::cleanupTestCase(){RenderSettings::inst()->backend3D=RenderBackend3D(previousBackend);QVERIFY2(criticalErrors.empty(),qPrintable(criticalErrors.join("\n")));}
 void TestContextualInsertion::isolatedCandidatePreservesLiveBase(){
   auto editor=window->activeEditor;auto bytes=editor->toPlainText();auto revision=editor->sourceRevision;auto stamp=window->evaluationBinding->stamp();auto scene=window->evaluationBinding->scene(stamp);auto renderer=window->qglview->renderer;QObject owner;std::optional<PreviewResponse> result;
@@ -175,8 +195,20 @@ void TestContextualInsertion::realPlaneMoveSpinFlipAndNavigation(){
   QVERIFY(controller->draftPlacement()->offset.head<2>().norm()>1);
   QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Ready,15000);
   const auto moved=*controller->draftPlacement();
-  const auto spinStart=projected(view,*frame.value*Vector3d(moved.offset.x()+15,moved.offset.y(),0));
-  const auto spinEnd=projected(view,*frame.value*Vector3d(moved.offset.x(),moved.offset.y()+15,0));
+  // The complete feature stack can leave a narrow viewport beside its docks.
+  // Centre the gesture and size its radius in pixels so both endpoints remain visible.
+  const Vector3d spinOrigin=*frame.value*Vector3d(moved.offset.x(),moved.offset.y(),0);
+  auto spinPose=view->navigation()->current();spinPose.translation=-spinOrigin;
+  view->navigation()->apply(spinPose);QTest::qWait(30);
+  const auto centre=projected(view,spinOrigin);
+  const auto unitX=projected(view,*frame.value*Vector3d(moved.offset.x()+1,moved.offset.y(),0))-centre;
+  const auto unitY=projected(view,*frame.value*Vector3d(moved.offset.x(),moved.offset.y()+1,0))-centre;
+  const double pixelsPerUnit=std::max(std::hypot(unitX.x(),unitX.y()),std::hypot(unitY.x(),unitY.y()));
+  QVERIFY(pixelsPerUnit>0);
+  const double radius=std::min(view->width(),view->height())*0.25/pixelsPerUnit;
+  const auto spinStart=projected(view,*frame.value*Vector3d(moved.offset.x()+radius,moved.offset.y(),0));
+  const auto spinEnd=projected(view,*frame.value*Vector3d(moved.offset.x(),moved.offset.y()+radius,0));
+  QVERIFY2(view->rect().contains(spinStart.toPoint()) && view->rect().contains(spinEnd.toPoint()),"Spin drag must stay inside the viewport");
   view->setFocus();QTest::qWait(30);QTest::keyClick(view,Qt::Key_R);QTest::qWait(30);QTest::mousePress(view,Qt::LeftButton,Qt::NoModifier,spinStart.toPoint());
   QTest::mouseMove(view,spinEnd.toPoint());QTest::mouseRelease(view,Qt::LeftButton,Qt::NoModifier,spinEnd.toPoint());
   QVERIFY2(std::abs(controller->draftPlacement()->spinDegrees-90)<1.5,qPrintable(QString("Actual spin: %1").arg(controller->draftPlacement()->spinDegrees)));QVERIFY(controller->draftPlacement()->offset==moved.offset);
@@ -262,8 +294,8 @@ void TestContextualInsertion::postCommitEvaluationFailureRetainsSourceAndUndo(){
   QTRY_VERIFY_WITH_TIMEOUT(controller->state()==Controller::State::Ready,15000);const auto candidate=controller->editPlan()->candidate;
   bool changed=false;auto hook=connect(editor,&EditorInterface::contentsChanged,this,[&]{changed=writeBytes(dependency,"width=[;\n");});
   done.clear();QVERIFY(controller->commit());disconnect(hook);QVERIFY(changed);
-  // Native parser failure uses exceptionCleanup(), which releases the GUI without compilationDone.
-  QTRY_VERIFY_WITH_TIMEOUT(!GuiLocker::isLocked(),20000);QVERIFY(window->compileErrors>0);
+  // Wait for the asynchronous failure notification; the last successful model stays installed.
+  QTRY_VERIFY_WITH_TIMEOUT(!done.empty(),20000);QVERIFY(window->compileErrors>0);
   QCOMPARE(window->lastCompiledDoc.toUtf8().toStdString(),candidate);QVERIFY(!window->evaluationBinding->current());
   QCOMPARE(editor->toPlainText().toUtf8().toStdString(),candidate);QVERIFY(!window->inspectionPresentation->draftActive());
   editor->undo();QCOMPARE(editor->toPlainText(),original);QVERIFY(!editor->canUndo());

@@ -4,6 +4,7 @@
 #include <QTemporaryDir>
 #include <QSet>
 #include <memory>
+#include <QVariant>
 class TestContextualInsertion:public UXTest {
   Q_OBJECT
 private slots:
@@ -11,6 +12,7 @@ private slots:
   void actualVimInsertionCommitKeepsTypingUndoSeparate();
   void initTestCase();void init();void cleanup();void cleanupTestCase();
   void isolatedCandidatePreservesLiveBase();
+  void preparesInspectionOnDemand();
   void invalidCandidatePreservesLiveBase();
   void cancellationDuringGeometryIsAsynchronous();
   void changedSourceRejectsLateDelivery();
@@ -35,6 +37,7 @@ private slots:
   void httpSnapshotsAndConcurrentSourceTransaction();
 private:
   int previousBackend=0;
+  QVariant previousInspectorPreference;
   QSet<EditorInterface *> originalTabs;
   std::unique_ptr<QTemporaryDir> fixtureFolder;
   QMetaObject::Connection traceConnection;

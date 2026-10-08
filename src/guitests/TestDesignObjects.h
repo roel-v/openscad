@@ -8,6 +8,7 @@ private slots:
   void promotionUndoRedoIdentityAndDelete();
   void transactionFailureHistoryAndLifetime();
   void dirtyIncludeGuardsAndSourceOnlyFields();
+  void publicationUsesDisplaySnapshotButEditsCheckDisk();
   void scopedLifecycleAdapters();
   void consumerTransientDraftValidationAndJointUndo();
   void personalViewsPromotionAndCamera();

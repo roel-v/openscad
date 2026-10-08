@@ -93,6 +93,7 @@ extern YYLTYPE parserlloc;
   parserlloc.first_column = parserlloc.last_column; \
   parserlloc.first_file = parserlloc.last_file = sourcefile().get(); \
   for (int i = 0; i < yyleng; ++i) { \
+    if ((i & 4095) == 0 && evaluationCancelled()) return 0; \
     if (yytext[i] == '\n') { ++parserlloc.last_line; parserlloc.last_column = 1; } \
     else ++parserlloc.last_column; \
   } \

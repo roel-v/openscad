@@ -71,7 +71,6 @@ public:
   void installEvaluation(ParameterObjects values, std::string source, std::shared_ptr<const void> backing);
   ParameterSet requestedValues() const;
   uint64_t evaluationRevision() const { return parameterRevision; }
-  void updateParameterStates();
 
 public slots:
   void setModified(bool modified = true);

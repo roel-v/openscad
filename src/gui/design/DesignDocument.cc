@@ -98,7 +98,10 @@ std::optional<std::string> DesignDocument::createTransient(const std::string& na
   transient.emplace(record->id,std::move(mutableRecord));emit changed();return record->id;
 }
 Records DesignDocument::records(const Selection::Stamp& stamp) const {
-  auto scene=valid(stamp)?window->evaluationBinding->scene(stamp):nullptr;
+  // Listing records is a display operation. Lifecycle/edit methods retain their
+  // strict validation, including checks before applying a source transaction.
+  auto scene=owner && window && stamp.documentId==owner->documentId()
+    ?window->evaluationBinding->displayScene(stamp):nullptr;
   Records result=sourceStateCurrent()?sourceState.records:scene && scene->designObjects?scene->designObjects->records:Records{};
   for (const auto& [id,record]:transient) { if (result.count(id)) result.erase(id); else result.emplace(id,record); }
   return result;
@@ -373,8 +376,11 @@ LifecycleResult DesignDocument::remove(const std::string& id,const Selection::St
   return applySourceEdit(std::move(prepared),{},{id});
 }
 void DesignDocument::synchronize(){
-  if(!window || !owner)return;auto stamp=window->evaluationBinding->stamp();if(!valid(stamp))return;
-  auto scene=window->evaluationBinding->scene(stamp);
+  if(!window || !owner)return;auto stamp=window->evaluationBinding->stamp();
+  if(stamp.documentId!=owner->documentId())return;
+  // Installation already validated the captured result. Synchronizing the UI
+  // must not reread every dependency; source-edit transactions still do so.
+  auto scene=window->evaluationBinding->displayScene(stamp);if(!scene)return;
   if(scene && scene->designObjects)sourceState={scene->designObjects->records,scene->inputs->consumed(),owner->documentId(),environmentRevision};
   if(scene && scene->backing && scene->backing->parsedRoot)for(const auto& assignment:scene->backing->parsedRoot->scope->assignmentOccurrences)sourceState.names.insert(assignment->getName());
   for(const auto& connection:sourceConnections)disconnect(connection);sourceConnections.clear();

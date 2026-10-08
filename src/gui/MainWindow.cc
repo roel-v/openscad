@@ -336,13 +336,13 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   annotationController = new AgentAnnotations::Controller(this);
   inspectionPresentation = new InspectionPresentationController(this);
   inspectorDock = new Selection::InspectorDock(this);
-  backgroundEvaluation = new BackgroundEvaluation::Controller(this);
   new SourceProvenance::ProvenanceService(this);
   semanticController = new Semantic::Controller(this);
   anchorController = new Anchors::Controller(this);
   insertionController = new Insertion::Controller(this);
   Design::SavedViewContribution::forWindow(*this);
   Clipping::Controller::forWindow(*this);
+  backgroundEvaluation = new BackgroundEvaluation::Controller(this);
   setupDocks();
   auto agentAccess = menuWindow->addAction(tr("Agent Access..."));
   connect(agentAccess, &QAction::triggered, this,

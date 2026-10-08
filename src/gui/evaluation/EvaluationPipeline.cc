@@ -2,6 +2,7 @@
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
 #include "core/EvaluationSession.h"
+#include "core/design/DesignCollector.h"
 #include "core/Context.h"
 #include "core/ScopeContext.h"
 #include "core/SourceFile.h"
@@ -242,6 +243,7 @@ void evaluate(const Request& request, Result& result, Job& job)
     result.scene = std::make_shared<Selection::EvaluatedScene>();
     result.scene->inspectionPrepared = true; // No optional tracing in this owner.
     result.scene->backing = result.backing;
+    result.scene->designObjects = backing.session->designCollector->finish();
     result.scene->inputs = backing.inputs;
     result.scene->root = result.root;
     result.scene->documentPath = directory;

@@ -39,7 +39,6 @@
 #include <utility>
 #include <tuple>
 #include <QApplication>
-#include <QImageWriter>
 #include <QSoundEffect>
 #include <QSignalBlocker>
 #include <QElapsedTimer>
@@ -583,11 +582,10 @@ void Controller::install(const std::shared_ptr<Pending>& attempt)
     window->selectPreviewViewMode();
     window->resetMeasurementsState(false, "Render to enable measurements");
     if (window->animateWidget->dumpPictures()) {
-      const auto frame = window->animateWidget->nextFrame();
-      const auto filename = window->exportPath("png", QString("frame%1").arg(frame, 5, 10, QChar('0')));
-      QImageWriter writer(filename, "PNG");
-      if (!writer.write(window->qglview->grabFrame())) {
-        window->consoleOutput(Message(writer.errorString().toStdString(), message_group::Error));
+      window->animateWidget->nextFrame();
+      if (window->animateWidget->dumpPictures() &&
+          !window->animateWidget->saveFrame(window->qglview->grabFrame())) {
+        window->animateWidget->e_dump->setChecked(false);
         window->animateWidget->pauseAnimation();
       }
     }

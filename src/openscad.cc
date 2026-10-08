@@ -1123,10 +1123,6 @@ void initializeNativeRuntime()
 
   StackCheck::inst();
 
-  // Kept for --animate-processes, which starts worker copies of this process with
-  // the same options. Captured before any parsing so it is exactly what we were given.
-  original_args.assign(argv, argv + argc);
-
 #ifdef Q_OS_MACOS
   bool isGuiLaunched = getenv("GUI_LAUNCHED") != nullptr;
   auto nslog = [](const Message& msg, void *userdata) { CocoaUtils::nslog(msg.msg, userdata); };
@@ -1156,6 +1152,10 @@ void initializeNativeEvaluator()
 // OpenSCAD
 int openscad_main(int argc, char **argv)
 {
+  // Kept for --animate-processes, which starts worker copies of this process with
+  // the same options. Captured before any parsing so it is exactly what we were given.
+  original_args.assign(argv, argv + argc);
+
   initializeNativeRuntime();
   int rc = 0;
 

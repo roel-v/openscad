@@ -1,4 +1,5 @@
 #include "gui/evaluation/EvaluationPipeline.h"
+#include "openscad.h"
 #include "core/BuiltinContext.h"
 #include "core/Builtins.h"
 #include "core/EvaluationSession.h"
@@ -36,6 +37,21 @@
 extern bool parse(SourceFile *&, const std::string&, const std::string&, const std::string&, int);
 namespace BackgroundEvaluation {
 namespace {
+// This adapter owns the combination of background evaluation and provenance.
+// Keep one parse closure on the worker, never an evaluated session or renderer.
+// Every request receives its own SourceFile wrappers and syntax table.
+struct ParsedLibraries {
+  QString document;
+  std::vector<std::string> configuration;
+  FeatureSnapshot features;
+  bool modelRequiresInspection = false;
+  std::shared_ptr<EvaluationInputs> inputs;
+  std::shared_ptr<SourceFileCache> libraries;
+  std::shared_ptr<SourceProvenance::SyntaxTable> syntax;
+  std::vector<LibraryPathLookup> lookups;
+};
+thread_local std::unique_ptr<ParsedLibraries> parsedLibraries;
+
 void diagnostic(const Message& message, void *data)
 {
   auto& result = *static_cast<Result *>(data);
@@ -95,16 +111,71 @@ void evaluate(const Request& request, Result& result, Job& job)
   for (auto& input : editors) { evaluationCheckpoint(); canonicalize(input); }
   result.backing = std::make_shared<Selection::EvaluationBacking>();
   auto& backing = *result.backing;
-  backing.inputs = std::make_shared<EvaluationInputs>(std::move(rootInput), std::move(editors));
+  auto capture = [&] { return std::make_shared<EvaluationInputs>(rootInput, editors); };
+  backing.inputs = capture();
+  auto configuration = get_library_path();
+  configuration.insert(configuration.end(), {request.filename, request.definitions,
+    commandline_commands, std::filesystem::current_path().generic_string(), Feature::features()});
+  // Take the old entry out first: exceptions, cancellation and failed parses must
+  // not publish a partially updated cache or retain an older generation chain.
+  auto previous = std::move(parsedLibraries);
+  bool reusable = true;
+#ifdef ENABLE_PYTHON
+  reusable = !request.python;
+#endif
+  bool reuse = reusable && previous && previous->document == job.key &&
+    previous->configuration == configuration && previous->features == request.features &&
+    previous->inputs->root().fileKey == backing.inputs->root().fileKey &&
+    previous->inputs->root().fingerprint == backing.inputs->root().fingerprint;
+  bool collect = request.prepareInspection;
+  if (reuse) {
+    collect = collect || (request.mode != Mode::Parameters && previous->modelRequiresInspection);
+    reuse = bool(previous->syntax) == collect;
+  }
+  if (reuse) {
+    try {
+      reuse = LibraryPathLookupScope::current(previous->lookups);
+      for (const auto& [key, input] : previous->inputs->consumed()) {
+        evaluationCheckpoint();
+        if (!reuse) break;
+        const auto& current = key == backing.inputs->root().fileKey
+          ? backing.inputs->root() : backing.inputs->read(key);
+        reuse = current.fingerprint == input.fingerprint;
+      }
+    } catch (const EvaluationInputError&) { reuse = false; }
+      catch (const std::filesystem::filesystem_error&) { reuse = false; }
+  }
+  if (!reuse) {
+    // Discard dependencies read while checking an obsolete closure. They may
+    // no longer be used (or may now be shadowed by a different include).
+    if (backing.inputs->consumed().size() > 1) backing.inputs = capture();
+    previous.reset();
+    collect = request.prepareInspection;
+  }
   if (request.validity) {
-    request.validity->consume(backing.inputs->root());
+    // Cache validation has already consumed libraries. Register their current
+    // editor identities as well as future reads for cancellation on edits.
+    for (const auto& [key, input] : backing.inputs->consumed()) request.validity->consume(input);
     backing.inputs->observeReads([validity = request.validity](const SourceInput& input) { validity->consume(input); });
   }
   backing.libraries = std::make_shared<SourceFileCache>(backing.inputs.get());
-  if (request.prepareInspection)
-    backing.syntax = std::make_shared<SourceProvenance::SyntaxTable>(backing.inputs);
+  if (collect)
+    backing.syntax = reuse ? previous->syntax->reuseForParse(backing.inputs)
+                          : std::make_shared<SourceProvenance::SyntaxTable>(backing.inputs);
+  auto next = std::make_unique<ParsedLibraries>();
+  if (reuse) {
+    backing.libraries->seedCapturedLibraries(*previous->libraries);
+    result.reusedLibraries = backing.libraries->size();
+    next->lookups = previous->lookups;
+  }
+  previous.reset();
+  LibraryPathLookupScope lookupScope(next->lookups);
   auto syntaxScope = std::make_unique<SourceProvenance::ParseScope>(backing.syntax.get());
-  NativeEvaluationScope scope(*backing.inputs, *backing.libraries);
+  const auto parentGuard = nativeParserCapabilityGuard;
+  NativeEvaluationScope scope(*backing.inputs, *backing.libraries, [&](NativeCapability capability) {
+    reusable = false; // External parser effects, including fonts, must run again.
+    if (parentGuard) parentGuard(capability);
+  });
   auto fulltext = request.root.utf8 + "\n\x03\n" + request.definitions;
 #ifdef ENABLE_PYTHON
   if (request.python) {
@@ -132,7 +203,8 @@ void evaluate(const Request& request, Result& result, Job& job)
   stage("Loading dependencies");
   parsed->handleDependencies();
   evaluationCheckpoint();
-  if (!backing.syntax && request.mode != Mode::Parameters && SourceProvenance::modelRequiresInspection(*parsed)) {
+  next->modelRequiresInspection = SourceProvenance::modelRequiresInspection(*parsed);
+  if (!backing.syntax && request.mode != Mode::Parameters && next->modelRequiresInspection) {
     // Model structure requires mappings. Reparse the captured source closure
     // with tracing before evaluating any geometry or applying Customizer values.
     backing.parsedRoot.reset();
@@ -151,6 +223,9 @@ void evaluate(const Request& request, Result& result, Job& job)
     parsed->handleDependencies();
     evaluationCheckpoint();
   }
+  // Do not hide parser diagnostics on a later cache hit. The root is always
+  // reparsed and is never cached after Customizer mutates its assignments.
+  reusable = reusable && !result.errors && !result.warnings;
   CommentParser::collectParameters(fulltext, parsed);
   if (request.completionMode == "ParsedFileMode")
     result.completion = ScadApi::completionFromSource(parsed, request.completionVariables,
@@ -286,5 +361,17 @@ void evaluate(const Request& request, Result& result, Job& job)
   }
   result.success = result.errors == 0;
   stage("Ready");
+  if (result.success && reusable && !result.warnings) {
+    next->document = job.key;
+    next->configuration = std::move(configuration);
+    next->features = request.features;
+    next->inputs = backing.inputs;
+    // Detach mutable wrappers and lookup indexes before the scene reaches the
+    // GUI. Only immutable library scopes/per-file syntax records are shared.
+    next->libraries = std::make_shared<SourceFileCache>(backing.inputs.get());
+    next->libraries->seedCapturedLibraries(*backing.libraries);
+    if (backing.syntax) next->syntax = backing.syntax->reuseForParse(backing.inputs);
+    parsedLibraries = std::move(next);
+  }
 }
 }

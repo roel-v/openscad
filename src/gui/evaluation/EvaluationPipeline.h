@@ -74,7 +74,7 @@ struct Result {
   CGALRenderer::PreparedGeometry preparedCGAL;
   bool usePolySet = true;
   ParameterObjects parameters;
-  AgentAnnotations::InspectionTree inspection;
+  std::function<AgentAnnotations::InspectionTree()> inspection;
   Camera camera;
   bool success = false;
   int parserError = -1, errors = 0, warnings = 0;

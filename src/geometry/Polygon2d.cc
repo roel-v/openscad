@@ -1,6 +1,7 @@
 #include "geometry/Polygon2d.h"
 
 #include <cstddef>
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <sstream>
@@ -47,9 +48,24 @@ std::optional<Color4f> Polygon2d::uniformColor() const
 std::unique_ptr<Polygon2d> Polygon2d::unionedContours() const
 {
   if (uniformColor()) return nullptr;
-  Polygon2d merged(*this);
-  merged.setColor(Color4f{});
-  return ClipperUtils::sanitize(merged);
+  // Colored contours are individually unioned, but different colors may overlap.
+  // EvenOdd sanitation would remove their overlap. Preserve hole membership and
+  // normalize winding (including mirrored contours), then form a NonZero union.
+  Polygon2d kept(*this);
+  kept.setSanitized(true);
+  const int scale_bits = ClipperUtils::scaleBitsFromPrecision();
+  auto paths = ClipperUtils::fromPolygon2d(kept, scale_bits);
+  for (size_t i = 0; i < paths.size(); ++i) {
+    if (Clipper2Lib::IsPositive(paths[i]) != theoutlines[i].positive) {
+      std::reverse(paths[i].begin(), paths[i].end());
+    }
+  }
+  Clipper2Lib::Clipper64 clipper;
+  clipper.PreserveCollinear(false);
+  clipper.AddSubject(paths);
+  Clipper2Lib::PolyTree64 result;
+  clipper.Execute(Clipper2Lib::ClipType::Union, Clipper2Lib::FillRule::NonZero, result);
+  return ClipperUtils::toPolygon2d(result, scale_bits);
 }
 
 BoundingBox Outline2d::getBoundingBox() const
@@ -202,9 +218,7 @@ std::unique_ptr<PolySet> Polygon2d::tessellate() const
   // Export reads these colored contours directly. Render, extrusion, and area use
   // this mesh, so overlapping colors are unioned here and match an uncolored union.
   if (!uniformColor()) {
-    Polygon2d merged(*this);
-    merged.setColor(Color4f{});
-    const auto unified = ClipperUtils::sanitize(merged);
+    const auto unified = unionedContours();
     if (!unified) return std::make_unique<PolySet>(2);
     return unified->tessellate();
   }

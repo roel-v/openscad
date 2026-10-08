@@ -1,3 +1,4 @@
+#include "gui/evaluation/EvaluationService.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -857,14 +858,20 @@ void Preferences::on_cgalCacheSizeMBEdit_textChanged(const QString& text)
 {
   QSettingsCached settings;
   settings.setValue("advanced/cgalCacheSizeMB", text);
-  CGALCache::instance()->setMaxSizeMB(text.toULong());
+  auto job = std::make_shared<BackgroundEvaluation::Job>();
+  job->key = "maintenance:cgal-cache-size";
+  job->compute = [size = text.toULong()] { CGALCache::instance()->setMaxSizeMB(size); };
+  BackgroundEvaluation::Service::instance().submit(job);
 }
 
 void Preferences::on_polysetCacheSizeMBEdit_textChanged(const QString& text)
 {
   QSettingsCached settings;
   settings.setValue("advanced/polysetCacheSizeMB", text);
-  GeometryCache::instance()->setMaxSizeMB(text.toULong());
+  auto job = std::make_shared<BackgroundEvaluation::Job>();
+  job->key = "maintenance:geometry-cache-size";
+  job->compute = [size = text.toULong()] { GeometryCache::instance()->setMaxSizeMB(size); };
+  BackgroundEvaluation::Service::instance().submit(job);
 }
 
 void Preferences::on_opencsgLimitEdit_textChanged(const QString& text)

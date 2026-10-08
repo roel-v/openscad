@@ -5,6 +5,8 @@
 #include <QTest>
 #include <QFile>
 #include <QTemporaryDir>
+#include "gui/evaluation/EvaluationController.h"
+#include "gui/parameter/ParameterWidget.h"
 
 #include "platform/PlatformUtils.h"
 
@@ -27,10 +29,10 @@ void TestMainWindow::customizerLoadsUseBeforeEvaluatingAssignments()
   const bool autoReload = window->designActionAutoReload->isChecked();
   window->designActionAutoReload->setChecked(false);
   window->tabManager->open(root);
-  // parseDocument initializes Customizer before any geometry evaluation.
-  // The old ordering throws from the assertion while creating FileContext.
-  const auto parsed = window->parseDocument(window->activeEditor);
-  QVERIFY(parsed != nullptr);
+  // Metadata evaluation is asynchronous and must resolve use before FileContext.
+  window->backgroundEvaluation->request(window->activeEditor, BackgroundEvaluation::Mode::Parameters);
+  QTRY_VERIFY_WITH_TIMEOUT(!window->backgroundEvaluation->busy(), 10000);
+  QVERIFY(window->activeEditor->parameterWidget->annotationValues().contains("width"));
   window->tabManager->closeCurrentTab();
   window->designActionAutoReload->setChecked(autoReload);
 }
@@ -59,13 +61,15 @@ void TestMainWindow::checkOpenTabPropagateToWindow()
 void TestMainWindow::checkSaveToShouldUpdateWindowTitle()
 {
   restoreWindowInitialState();
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
 
   QString filename = fixturePath("basic-ux/empty.scad");
 
   // When we open a new file,
   window->tabManager->open(filename);
 
-  window->tabManager->saveAs(window->activeEditor, "test-tmp.scad");
+  QVERIFY(window->tabManager->saveAs(window->activeEditor, directory.filePath("test-tmp.scad")));
 
   // The window title must also have the name of open file
   QCOMPARE(window->windowTitle(), "test-tmp.scad");

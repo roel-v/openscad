@@ -1,4 +1,5 @@
 #include "gui/Animate.h"
+#include "gui/evaluation/EvaluationController.h"
 
 #include <QAction>
 #include <QDoubleValidator>
@@ -147,6 +148,7 @@ void Animate::on_e_dump_toggled(bool checked)
 // Only called from animate_timer
 void Animate::incrementTVal()
 {
+  if (mainWindow->backgroundEvaluation && mainWindow->backgroundEvaluation->busy(mainWindow->activeEditor)) return;
   if (this->animNumSteps == 0) return;
 
   if (mainWindow->parameterDock->isVisible()) {

@@ -61,16 +61,18 @@ EvaluationBinding::EvaluationBinding(MainWindow *window) : QObject(window), wind
       &EvaluationBinding::editorsChanged, Qt::QueuedConnection);
   connect(&inputWatcher, &QFileSystemWatcher::fileChanged, this, [this] {
     diskInputsChanged = true;
-    if (fresh && retainedScene && !inputsCurrent(*retainedScene->inputs, *this->window))
-      invalidate(tr("An evaluation file changed"));
+    if (fresh && retainedScene) invalidate(tr("An evaluation file changed"));
   });
   connect(window->qglview, &QGLView::rendererReplaced, this, &EvaluationBinding::rendererChanged);
   connect(window->tabManager, &TabManager::currentEditorChanged, this,
     [this](EditorInterface *) { emit invalidated(); });
   connect(window->tabManager, &TabManager::editorAboutToClose, this, [this](EditorInterface *editor) {
     if (owner == editor) invalidate(tr("Result document closed"));
-    else if (fresh && retainedScene && !inputsCurrent(*retainedScene->inputs, *this->window))
-      invalidate(tr("An evaluation dependency closed"));
+    else if (fresh && retainedScene)
+      for (const auto& [key, input] : retainedScene->inputs->consumed())
+        if (input.editorId == editor->annotations->sessionId.toStdString()) {
+          invalidate(tr("An evaluation dependency closed")); break;
+        }
   });
 }
 
@@ -128,7 +130,7 @@ void EvaluationBinding::install(std::shared_ptr<const EvaluatedScene> scene, Edi
   owner = editor;
   installedStamp = {editor->annotations->sessionId, resultId, editor->sourceFingerprint, configuration,
     editor->sourceRevision, viewportGeneration};
-  fresh = retainedScene && window && inputsCurrent(*retainedScene->inputs, *window);
+  fresh = retainedScene && window && owner;
   reason = fresh ? QString() : tr("Evaluation inputs changed before result installation");
   auto retainRenderer = [this](const std::shared_ptr<Renderer>& renderer) {
     renderers[renderer.get()] = {renderer, owner, retainedScene, installedStamp};
@@ -164,7 +166,8 @@ void EvaluationBinding::rendererChanged()
     owner = found->second.owner;
     retainedScene = found->second.scene;
     installedStamp = found->second.stamp;
-    fresh = found->second.eligible && owner && inputsCurrent(*retainedScene->inputs, *window);
+    fresh = found->second.eligible && owner && retainedScene;
+    fresh = current();
   } else fresh = false;
   installedStamp.viewportGeneration = viewportGeneration;
   observeInputs();
@@ -185,7 +188,7 @@ bool EvaluationBinding::replacePresentationRenderer(std::shared_ptr<Renderer> re
 void EvaluationBinding::editorsChanged()
 {
   observeInputs();
-  if (retainedScene && fresh && !inputsCurrent(*retainedScene->inputs, *window))
+  if (retainedScene && fresh)
     invalidate(tr("An open evaluation input changed"));
 }
 
@@ -202,8 +205,11 @@ void EvaluationBinding::observeInputs()
     inputConnections.push_back(connect(openWindow->tabManager, &TabManager::tabCountChanged,
       this, &EvaluationBinding::editorsChanged, Qt::QueuedConnection));
   for (auto editor : openEditors(*window)) {
-    const auto key = editorInput(*editor).fileKey;
-    if (!retainedScene->inputs->validationInputs().count(key)) continue;
+    bool used = false;
+    for (const auto& captured : retainedScene->inputs->capturedEditors())
+      if (captured.editorId == editor->annotations->sessionId.toStdString() &&
+          retainedScene->inputs->validationInputs().count(captured.fileKey)) { used = true; break; }
+    if (!used) continue;
     inputConnections.push_back(connect(editor, &EditorInterface::contentsChanged, this,
       [this] { invalidate(tr("An evaluation input was edited")); }));
     inputConnections.push_back(connect(editor, &QObject::destroyed, this,
@@ -211,13 +217,13 @@ void EvaluationBinding::observeInputs()
     inputConnections.push_back(connect(editor->annotations, &AgentAnnotations::Store::sessionChanged, this,
       [this] { invalidate(tr("An evaluation document was replaced")); }));
     if (editor == owner)
-      inputConnections.push_back(connect(editor->parameterWidget, &ParameterWidget::parametersChanged, this,
+      inputConnections.push_back(connect(editor->parameterWidget, &ParameterWidget::metadataRequested, this,
         [this] { invalidate(tr("Evaluation parameters changed")); }));
   }
   QStringList paths;
   for (const auto& [key, input] : retainedScene->inputs->validationInputs()) {
     const auto path = QString::fromStdString(key);
-    if (!path.startsWith("session:")) paths.append(path);
+    if (!input.editorId && !path.startsWith("session:")) paths.append(path);
   }
   if (!paths.isEmpty() && !inputWatcher.addPaths(paths).isEmpty()) {
     fresh = false;

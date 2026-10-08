@@ -1,13 +1,14 @@
 #include "core/progress.h"
+#include "core/EvaluationCancellation.h"
 
 #include <memory>
 
 #include "core/node.h"
 
-int progress_report_count;
-int progress_mark_;
-void (*progress_report_f)(const std::shared_ptr<const AbstractNode>&, void *, int);
-void *progress_report_userdata;
+thread_local int progress_report_count;
+thread_local int progress_mark_;
+thread_local void (*progress_report_f)(const std::shared_ptr<const AbstractNode>&, void *, int);
+thread_local void *progress_report_userdata;
 namespace { thread_local std::function<void()> workerProgress; }
 ScopedProgressCallback::ScopedProgressCallback(std::function<void()> callback)
   : previous(std::move(workerProgress)) { workerProgress = std::move(callback); }
@@ -33,6 +34,7 @@ void progress_report_fin()
 
 void progress_update(const std::shared_ptr<const AbstractNode>& node, int mark)
 {
+  evaluationCheckpoint();
   if (workerProgress) { workerProgress(); return; }
   if (progress_report_f) {
     progress_mark_ = mark;
@@ -42,6 +44,7 @@ void progress_update(const std::shared_ptr<const AbstractNode>& node, int mark)
 
 void progress_tick()
 {
+  evaluationCheckpoint();
   if (workerProgress) { workerProgress(); return; }
   if (progress_report_f)
     progress_report_f(std::shared_ptr<const AbstractNode>(), progress_report_userdata, ++progress_mark_);

@@ -49,6 +49,8 @@ public:
   explicit EvaluationBinding(MainWindow *window);
   static std::shared_ptr<EvaluationInputs> capture(MainWindow& window, EditorInterface& root);
   static bool inputsCurrent(const EvaluationInputs& inputs, MainWindow& window, QString *detail = nullptr);
+  // Caller has validated bytes on the evaluation worker and rechecked revisions
+  // and watcher epochs immediately before this non-reentrant publication.
   void install(std::shared_ptr<const EvaluatedScene> scene, EditorInterface *owner,
                const QString& resultId, const QString& configurationFingerprint);
   void invalidate(const QString& reason);

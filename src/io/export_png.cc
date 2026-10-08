@@ -29,6 +29,7 @@
 #endif  // ENABLE_OPENCSG
 
 #include "glview/preview/ThrownTogetherRenderer.h"
+#include "glview/TriangleStatistics.h"
 
 namespace {
 
@@ -99,6 +100,8 @@ std::unique_ptr<OffscreenView> prepare_preview(Tree& tree, const ViewOptions& op
   PRINTD("prepare_preview_common");
   CsgInfo csgInfo = CsgInfo();
   csgInfo.compile_products(tree);
+  const auto triangles = previewTriangleStatistics(csgInfo.root_products, csgInfo.highlights_products,
+                                                   csgInfo.background_products);
 
   std::unique_ptr<OffscreenView> glview;
   try {
@@ -113,7 +116,7 @@ std::unique_ptr<OffscreenView> prepare_preview(Tree& tree, const ViewOptions& op
 #ifdef ENABLE_OPENCSG
     PRINTD("Initializing OpenCSGRenderer");
     renderer = std::make_shared<OpenCSGRenderer>(csgInfo.root_products, csgInfo.highlights_products,
-                                                 csgInfo.background_products);
+                                                 csgInfo.background_products, triangles);
 #else
     fprintf(stderr, "This openscad was built without OpenCSG support\n");
     return 0;
@@ -121,7 +124,7 @@ std::unique_ptr<OffscreenView> prepare_preview(Tree& tree, const ViewOptions& op
   } else {
     PRINTD("Initializing ThrownTogetherRenderer");
     renderer = std::make_shared<ThrownTogetherRenderer>(
-      csgInfo.root_products, csgInfo.highlights_products, csgInfo.background_products);
+      csgInfo.root_products, csgInfo.highlights_products, csgInfo.background_products, triangles);
   }
 
   glview->setRenderer(renderer);

@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 /*
  *  OpenSCAD (www.openscad.org)
  *  Copyright (C) 2009-2011 Clifford Wolf <clifford@clifford.at> and
@@ -105,6 +106,7 @@ static inline bool check_arguments(const char *function_name, const Arguments& a
     return false;
   }
   for (size_t i = 0; i < N; i++) {
+    evaluationCheckpoint();
     if (arguments[i]->type() != expected_types[i]) {
       if (warn) {
         print_argConvert_positioned_warning(function_name, "argument " + STR(i), arguments[i]->clone(),
@@ -195,10 +197,11 @@ Value builtin_rands(Arguments arguments, const Location& loc)
   VectorType vec(arguments.session());
   vec.reserve(numresults);
   if (min >= max) {  // uniform_real_distribution doesn't allow min == max
-    for (size_t i = 0; i < numresults; ++i) vec.emplace_back(min);
+    for (size_t i = 0; i < numresults; ++i) { evaluationCheckpoint(); vec.emplace_back(min); }
   } else {
     std::uniform_real_distribution<> distributor(min, max);
     for (size_t i = 0; i < numresults; ++i) {
+      evaluationCheckpoint();
       vec.emplace_back(distributor(deterministic_rng));
     }
   }
@@ -222,6 +225,7 @@ static std::vector<double> min_max_arguments(const Arguments& arguments, const L
       return {};
     }
     for (size_t i = 0; i < elements.size(); i++) {
+      evaluationCheckpoint();
       const auto& element = elements[i];
       // 4/20/14 semantic change per discussion:
       // break on any non-number
@@ -234,6 +238,7 @@ static std::vector<double> min_max_arguments(const Arguments& arguments, const L
     }
   } else {
     for (size_t i = 0; i < arguments.size(); i++) {
+      evaluationCheckpoint();
       const auto& argument = arguments[i];
       // 4/20/14 semantic change per discussion:
       // break on any non-number
@@ -416,6 +421,7 @@ Value builtin_str(Arguments arguments, const Location& /*loc*/)
 {
   std::ostringstream stream;
   for (const auto& argument : arguments) {
+    evaluationCheckpoint();
     stream << argument->toString();
   }
   return {stream.str()};
@@ -425,6 +431,7 @@ Value builtin_chr(Arguments arguments, const Location& /*loc*/)
 {
   std::ostringstream stream;
   for (const auto& argument : arguments) {
+    evaluationCheckpoint();
     stream << argument->chrString();
   }
   return {stream.str()};
@@ -454,6 +461,7 @@ Value builtin_concat(Arguments arguments, const Location& /*loc*/)
   VectorType result(arguments.session());
   result.reserve(arguments.size());
   for (auto& argument : arguments) {
+    evaluationCheckpoint();
     if (argument->type() == Value::Type::VECTOR) {
       result.emplace_back(EmbeddedVectorType(std::move(argument->toVectorNonConst())));
     } else {
@@ -475,6 +483,7 @@ static std::string builtin_object_unnamed(ObjectType& result, const Value& value
   case Value::Type::OBJECT: {
     const auto& obj = value.toObject();
     for (const auto& key : obj.keys()) {
+      evaluationCheckpoint();
       result.set(key, obj.get(key).clone());
     }
     return "";
@@ -483,6 +492,7 @@ static std::string builtin_object_unnamed(ObjectType& result, const Value& value
     const VectorType& vector = value.toVector();
     int element = 0;
     for (const auto& member : vector) {
+      evaluationCheckpoint();
       std::string prior_entries = "Element " + std::to_string(element++) + " ";
 
       if (member.type() != Value::Type::VECTOR) {
@@ -603,6 +613,7 @@ Value builtin_object(const std::shared_ptr<const Context>& context, const Functi
   ObjectType result(context->session());
   int n = 0;
   for (const auto& argument : call->arguments) {
+    evaluationCheckpoint();
     Value value = argument->getExpr()->evaluate(context);
     if (argument->getName().empty()) {
       const auto error = builtin_object_unnamed(result, value, n);
@@ -617,6 +628,7 @@ Value builtin_object(const std::shared_ptr<const Context>& context, const Functi
   }
   std::vector<Context *> contexts;
   for (Value& value : result.ptr->values) {
+    evaluationCheckpoint();
     if (value.type() == Value::Type::FUNCTION) {
       auto& function = value.toFunction();
       auto it = function.findAssignmentByName(Parameters::THIS_PARAMETER);
@@ -635,6 +647,7 @@ Value builtin_object(const std::shared_ptr<const Context>& context, const Functi
   }
   Value object(result);
   for (Context *c : contexts) {
+    evaluationCheckpoint();
     c->set_variable(Parameters::THIS_CONTEXT, object.clone());
   }
   return object;
@@ -674,6 +687,8 @@ Value builtin_lookup(Arguments arguments, const Location& loc)
   high_v = low_v;
 
   for (++it; it != vec.end(); ++it) {
+
+    evaluationCheckpoint();
     double this_p, this_v;
     if (it->getVec2(this_p, this_v)) {
       if (this_p <= p && (this_p > low_p || low_p > p)) {
@@ -750,10 +765,12 @@ static VectorType search(const str_utf8_wrapper& find, const str_utf8_wrapper& t
   size_t findThisSize = find.get_utf8_strlen();
   size_t searchTableSize = table.get_utf8_strlen();
   for (size_t i = 0; i < findThisSize; ++i) {
+    evaluationCheckpoint();
     unsigned int matchCount = 0;
     VectorType resultvec(session);
     const auto ft = find[i];
     for (size_t j = 0; j < searchTableSize; ++j) {
+      evaluationCheckpoint();
       const auto st = table[j];
       if (!ft.empty() && !st.empty() && ft.get_utf8_char() == st.get_utf8_char()) {
         matchCount++;
@@ -784,10 +801,12 @@ static VectorType search(const str_utf8_wrapper& find, const VectorType& table,
   unsigned int findThisSize = find.get_utf8_strlen();
   unsigned int searchTableSize = table.size();
   for (size_t i = 0; i < findThisSize; ++i) {
+    evaluationCheckpoint();
     unsigned int matchCount = 0;
     VectorType resultvec(session);
     const auto ft = find[i];
     for (size_t j = 0; j < searchTableSize; ++j) {
+      evaluationCheckpoint();
       const auto& entryVec = table[j].toVector();
       if (entryVec.size() <= index_col_num) {
         LOG(message_group::Warning, loc, session->documentRoot(),
@@ -841,6 +860,7 @@ Value builtin_search(Arguments arguments, const Location& loc)
     unsigned int matchCount = 0;
     size_t j = 0;
     for (const auto& search_element : searchTable.toVector()) {
+      evaluationCheckpoint();
       if ((index_col_num == 0 && (findThis == search_element).toBool()) ||
           (index_col_num < search_element.toVector().size() &&
            (findThis == search_element.toVector()[index_col_num]).toBool())) {
@@ -861,11 +881,13 @@ Value builtin_search(Arguments arguments, const Location& loc)
   } else if (findThis.type() == Value::Type::VECTOR) {
     const auto& findVec = findThis.toVector();
     for (const auto& find_value : findVec) {
+      evaluationCheckpoint();
       unsigned int matchCount = 0;
       VectorType resultvec(arguments.session());
 
       size_t j = 0;
       for (const auto& search_element : searchTable.toVector()) {
+        evaluationCheckpoint();
         if ((index_col_num == 0 && (find_value == search_element).toBool()) ||
             (index_col_num < search_element.toVector().size() &&
              (find_value == search_element.toVector()[index_col_num]).toBool())) {
@@ -946,6 +968,7 @@ Value builtin_norm(Arguments arguments, const Location& loc)
   }
   double sum = 0;
   for (const auto& v : arguments[0]->toVector()) {
+    evaluationCheckpoint();
     if (v.type() == Value::Type::NUMBER) {
       double x = v.toDouble();
       sum += x * x;
@@ -975,6 +998,7 @@ Value builtin_cross(Arguments arguments, const Location& loc)
     return Value::undefined.clone();
   }
   for (unsigned int a = 0; a < 3; ++a) {
+    evaluationCheckpoint();
     if ((v0[a].type() != Value::Type::NUMBER) || (v1[a].type() != Value::Type::NUMBER)) {
       LOG(message_group::Warning, loc, arguments.documentRoot(),
           "Invalid value in parameter vector for cross()");

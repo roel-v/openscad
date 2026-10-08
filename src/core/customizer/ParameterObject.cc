@@ -1,3 +1,4 @@
+#include "core/EvaluationCancellation.h"
 #include "core/customizer/ParameterObject.h"
 
 #include <boost/algorithm/string.hpp>
@@ -39,7 +40,7 @@ Value resolveValue(const Expression *expr, const Context *context)
   if (context) {
     try {
       return expr->evaluate(context->get_shared_ptr());
-    } catch (...) {
+    } catch (const EvaluationCancelled&) { throw; } catch (...) {
     }
   }
   if (const auto *lit = dynamic_cast<const Literal *>(expr)) {
@@ -721,14 +722,14 @@ void ParameterObject::updateAttributes(const Context *context)
       try {
         bool newLocked = this->lockedExpr->evaluate(context->get_shared_ptr()).toBool();
         this->setLocked(newLocked);
-      } catch (...) {
+      } catch (const EvaluationCancelled&) { throw; } catch (...) {
       }
     }
     if (this->hiddenExpr) {
       try {
         bool newHidden = this->hiddenExpr->evaluate(context->get_shared_ptr()).toBool();
         this->setHidden(newHidden);
-      } catch (...) {
+      } catch (const EvaluationCancelled&) { throw; } catch (...) {
       }
     }
   }

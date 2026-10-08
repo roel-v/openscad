@@ -8,6 +8,7 @@
 #include "geometry/Geometry.h"
 #include "geometry/linalg.h"
 #include "geometry/Polygon2d.h"
+#include "geometry/PolySet.h"
 #include "glview/ShaderUtils.h"
 #include "glview/ColorMap.h"
 #include "glview/VertexState.h"
@@ -18,6 +19,17 @@
 class CGALRenderer : public VBORenderer
 {
 public:
+  struct PreparedGeometry {
+    std::vector<std::shared_ptr<const PolySet>> polysets;
+    std::vector<std::pair<std::shared_ptr<const Polygon2d>, std::shared_ptr<const PolySet>>> polygons;
+#ifdef ENABLE_CGAL
+    std::vector<std::shared_ptr<class VBOPolyhedron>> polyhedrons;
+    std::vector<std::shared_ptr<const CGALNefGeometry>> nefs;
+#endif
+    void add(const std::shared_ptr<const Geometry>& geometry, const ColorScheme& colors);
+  };
+  static PreparedGeometry prepareGeometry(const std::shared_ptr<const Geometry>& geometry, const ColorScheme& colors);
+  explicit CGALRenderer(PreparedGeometry geometry);
   CGALRenderer(const std::shared_ptr<const class Geometry>& geom);
   ~CGALRenderer() override;
   void prepare(const ShaderUtils::ShaderInfo *shaderinfo = nullptr) override;
@@ -27,7 +39,6 @@ public:
   SurfaceContext prepareSurfacePick(const ShaderUtils::ShaderInfo *displayShader) override;
 
 private:
-  void addGeometry(const std::shared_ptr<const class Geometry>& geom);
 #ifdef ENABLE_CGAL
   const std::vector<std::shared_ptr<class VBOPolyhedron>>& getPolyhedrons() const
   {
@@ -48,6 +59,7 @@ private:
 #ifdef ENABLE_CGAL
   std::vector<std::shared_ptr<class VBOPolyhedron>> polyhedrons_;
   std::vector<std::shared_ptr<const CGALNefGeometry>> nefPolyhedrons_;
+  bool polyhedronsDirty = true;
 #endif
 
   std::vector<VertexStateContainer> vertex_state_containers_;

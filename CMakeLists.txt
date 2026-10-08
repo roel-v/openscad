@@ -1480,7 +1480,9 @@ set(GUI_SOURCES
   ${GUI_SOURCES}
   src/openscad_gui.cc
   src/gui/AutoUpdater.cc
-  src/gui/GeometryWorker.cc
+  src/gui/evaluation/EvaluationService.cc
+  src/gui/evaluation/EvaluationPipeline.cc
+  src/gui/evaluation/EvaluationController.cc
   src/gui/ViewportControl.cc
   src/gui/Console.cc
   src/gui/Dock.cc
@@ -1598,7 +1600,9 @@ set(GUI_HEADERS
     src/gui/Animate.h
     src/gui/AppleEvents.h
     src/gui/AutoUpdater.h
-    src/gui/GeometryWorker.h
+    src/gui/evaluation/EvaluationService.h
+    src/gui/evaluation/EvaluationPipeline.h
+    src/gui/evaluation/EvaluationController.h
     src/gui/Console.h
     src/gui/Dock.h
     src/gui/Editor.h
@@ -1771,6 +1775,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestDesignObjects.h
     src/guitests/TestClipping.h
     src/guitests/TestMainWindow.h
+    src/guitests/TestBackgroundEvaluation.h
     src/guitests/TestNavigation.h
     src/guitests/TestInspectionDraft.h
     src/guitests/TestSelection.h
@@ -1793,6 +1798,7 @@ if(ENABLE_GUI_TESTS)
     src/guitests/TestDesignObjects.cc
     src/guitests/TestClipping.cc
     src/guitests/TestMainWindow.cc
+    src/guitests/TestBackgroundEvaluation.cc
     src/guitests/TestNavigation.cc
     src/guitests/TestInspectionDraft.cc
     src/guitests/TestSelection.cc

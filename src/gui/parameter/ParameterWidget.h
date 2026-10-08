@@ -40,27 +40,23 @@
 #include "gui/qtgettext.h"  // IWYU pragma: keep
 #include "ui_ParameterWidget.h"
 class Context;
-class CustomizerContext;
 class ParameterWidget : public QWidget, public Ui::ParameterWidget
 {
   Q_OBJECT
 private:
   ParameterSets sets;
   std::string source;
+  std::shared_ptr<const void> evaluationBacking;
   ParameterObjects parameters;
+  uint64_t parameterRevision = 0;
   std::map<ParameterObject *, std::vector<ParameterVirtualWidget *>> widgets;
-  std::multimap<std::string, ParameterObject *> dependencyMap;
-  std::unique_ptr<CustomizerContext> evaluationContext;
 
   QString invalidJsonFile;  // set if a json file was read that could not be parsed
   QTimer autoPreviewTimer;
   bool modified = false;
   void updateSpacing();
 
-  void rebuildDependencyMap();
   void updateGroupVisibility();
-  void updateDependentAttributes(ParameterObject *parameter);
-  void updateDependentAttributes(ParameterObject *parameter, std::set<ParameterObject *>& visited);
 
 public:
   ParameterWidget(QWidget *parent = nullptr);
@@ -68,13 +64,13 @@ public:
   void readFile(const QString& scadFile);
   void saveFile(const QString& scadFile);
   void saveBackupFile(const QString& scadFile);
-  void setParameters(const SourceFile *sourceFile, const std::string& source);
-  void applyParameters(SourceFile *sourceFile);
   bool childHasFocus();
   bool isModified() const { return modified; }
   QJsonObject annotationValues() const;
   ParameterSet evaluationValues() const;
-  bool applyEvaluationValues(const ParameterSet&,SourceFile *);
+  void installEvaluation(ParameterObjects values, std::string source, std::shared_ptr<const void> backing);
+  ParameterSet requestedValues() const;
+  uint64_t evaluationRevision() const { return parameterRevision; }
   void updateParameterStates();
 
 public slots:
@@ -99,6 +95,7 @@ protected slots:
   void on_comboBoxDetails_currentIndexChanged(int);
 
 signals:
+  void metadataRequested();
   // emitted when the effective values of the parameters have changed,
   // and the model view can be updated
   void parametersChanged();

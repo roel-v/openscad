@@ -6,10 +6,10 @@
 class AbstractNode;
 
 // Reset to 0 in _prep() and increased for each Node instance in progress_prepare()
-extern int progress_report_count;
+extern thread_local int progress_report_count;
 
-extern void (*progress_report_f)(const std::shared_ptr<const AbstractNode>&, void *, int);
-extern void *progress_report_userdata;
+extern thread_local void (*progress_report_f)(const std::shared_ptr<const AbstractNode>&, void *, int);
+extern thread_local void *progress_report_userdata;
 
 void progress_report_prep(const std::shared_ptr<AbstractNode>& root,
                           void (*f)(const std::shared_ptr<const AbstractNode>& node, void *userdata,

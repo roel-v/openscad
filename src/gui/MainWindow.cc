@@ -147,7 +147,7 @@
 #include "glview/preview/CSGTreeNormalizer.h"
 #include "glview/preview/ThrownTogetherRenderer.h"
 #include "gui/AboutDialog.h"
-#include "gui/GeometryWorker.h"
+#include "gui/evaluation/EvaluationController.h"
 #include "gui/ColorList.h"
 #include "gui/Dock.h"
 #include "gui/ai/AIDock.h"
@@ -239,7 +239,6 @@ unsigned int GuiLocker::guiLocked = 0;
 bool MainWindow::undockMode = false;
 bool MainWindow::reorderMode = false;
 const int MainWindow::tabStopWidth = 15;
-QElapsedTimer *MainWindow::progressThrottle = new QElapsedTimer();
 
 namespace {
 
@@ -337,6 +336,7 @@ MainWindow::MainWindow(const QStringList& filenames) : rubberBandManager(this)
   annotationController = new AgentAnnotations::Controller(this);
   inspectionPresentation = new InspectionPresentationController(this);
   inspectorDock = new Selection::InspectorDock(this);
+  backgroundEvaluation = new BackgroundEvaluation::Controller(this);
   new SourceProvenance::ProvenanceService(this);
   semanticController = new Semantic::Controller(this);
   anchorController = new Anchors::Controller(this);
@@ -589,9 +589,15 @@ void MainWindow::loadDesignSettings()
     designActionAutoReload->setChecked(true);
   }
   auto polySetCacheSizeMB = GlobalPreferences::inst()->getValue("advanced/polysetCacheSizeMB").toUInt();
-  GeometryCache::instance()->setMaxSizeMB(polySetCacheSizeMB);
+
   auto cgalCacheSizeMB = GlobalPreferences::inst()->getValue("advanced/cgalCacheSizeMB").toUInt();
-  CGALCache::instance()->setMaxSizeMB(cgalCacheSizeMB);
+  auto cacheSettings = std::make_shared<BackgroundEvaluation::Job>();
+  cacheSettings->key = "maintenance:cache-settings";
+  cacheSettings->compute = [polySetCacheSizeMB, cgalCacheSizeMB] {
+    GeometryCache::instance()->setMaxSizeMB(polySetCacheSizeMB);
+    CGALCache::instance()->setMaxSizeMB(cgalCacheSizeMB);
+  };
+  BackgroundEvaluation::Service::instance().submit(cacheSettings);
   auto backend3D =
     GlobalPreferences::inst()->getValue("advanced/renderBackend3D").toString().toStdString();
   RenderSettings::inst()->backend3D =
@@ -675,6 +681,7 @@ void MainWindow::updateReorderMode(bool reorderMode)
 
 MainWindow::~MainWindow()
 {
+  delete backgroundEvaluation; backgroundEvaluation = nullptr;
   // Input capture walks the window inventory. Remove this window before child
   // destruction can trigger another window's freshness checks.
   scadApp->windowManager.remove(this);
@@ -715,7 +722,7 @@ MainWindow::~MainWindow()
     dock->removeEventFilter(this);
   }
 
-  delete this->geometryWorker;
+
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
@@ -732,6 +739,8 @@ void MainWindow::closeEvent(QCloseEvent *event)
   }
 
   isClosing = true;
+  delete backgroundEvaluation;
+  backgroundEvaluation = nullptr;
   progress_report_fin();
 
   if (this->tempFile) {
@@ -759,7 +768,7 @@ void MainWindow::closeEvent(QCloseEvent *event)
   if (scadApp->windowManager.getWindows().empty()) {
     // Quit application even in case some other windows like
     // Preferences are still open.
-    QApplication::quit();
+    BackgroundEvaluation::Service::instance().shutdownWhenIdle();
   }
 }
 
@@ -772,26 +781,6 @@ void MainWindow::saveWindowState()
   settings.setValue("window/state", windowState);
 }
 
-void MainWindow::report_func(const std::shared_ptr<const AbstractNode>&, void *vp, int mark)
-{
-  // limit to progress bar update calls to 5 per second
-  static const qint64 MIN_TIMEOUT = 200;
-  if (progressThrottle->hasExpired(MIN_TIMEOUT)) {
-    progressThrottle->start();
-
-    auto thisp = static_cast<MainWindow *>(vp);
-    auto v = static_cast<int>((mark * 1000.0) / progress_report_count);
-    auto permille = v < 1000 ? v : 999;
-    if (permille > thisp->progressWidget->value()) {
-      QMetaObject::invokeMethod(thisp->progressWidget, "setValue", Qt::QueuedConnection,
-                                Q_ARG(int, permille));
-      QApplication::processEvents();
-    }
-
-    // FIXME: Check if cancel was requested by e.g. Application quit
-    if (thisp->progressWidget->wasCanceled()) throw ProgressCancelException();
-  }
-}
 
 bool MainWindow::network_progress_func(const double permille)
 {
@@ -817,137 +806,6 @@ void MainWindow::updateRecentFiles(const QString& FileSavedOrOpened)
       mainWin->updateRecentFileActions();
     }
   }
-}
-
-/*!
-   compiles the design. Calls compileDone() if anything was compiled
- */
-void MainWindow::compile(bool reload, bool forcedone)
-{
-  if(inspectionPresentation)inspectionPresentation->cancelDraft();
-  OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
-  OpenSCAD::traceDepth = GlobalPreferences::inst()->getValue("advanced/traceDepth").toUInt();
-  OpenSCAD::traceUsermoduleParameters =
-    GlobalPreferences::inst()->getValue("advanced/enableTraceUsermoduleParameters").toBool();
-  OpenSCAD::parameterCheck =
-    GlobalPreferences::inst()->getValue("advanced/enableParameterCheck").toBool();
-  OpenSCAD::rangeCheck =
-    GlobalPreferences::inst()->getValue("advanced/enableParameterRangeCheck").toBool();
-
-  try {
-    bool shouldcompiletoplevel = false;
-    bool didcompile = false;
-
-    resetCompileMessageCounts();
-
-    this->renderStatistic.start();
-
-    // Reload checks the timestamp of the toplevel file and refreshes if necessary,
-    if (reload) {
-      // Refresh files if it has changed on disk
-      if (fileChangedOnDisk() && checkEditorModified()) {
-        shouldcompiletoplevel =
-          tabManager->refreshDocument();  // don't compile if we couldn't open the file
-        if (shouldcompiletoplevel &&
-            GlobalPreferences::inst()->getValue("advanced/autoReloadRaise").toBool()) {
-          // reloading the 'same' document brings the 'old' one to front.
-          this->raise();
-        }
-      }
-      // If the file has some content and there is no currently compiled content,
-      // then we force the top level compilation.
-      else {
-        auto current_doc = activeEditor->toPlainText();
-        if (current_doc.size() && lastCompiledDoc.size() == 0) {
-          shouldcompiletoplevel = true;
-        }
-      }
-    } else {
-      shouldcompiletoplevel = true;
-    }
-
-    // Disk dependency notifications require a new input snapshot. Dirty editor
-    // buffers only invalidate selection; they must not schedule an auto-preview.
-    if (reload && evaluationBinding->takeDiskChanges()) shouldcompiletoplevel = true;
-
-    if (this->parsedFile) {
-      auto mtime = this->parsedFile->includesChanged();
-      if (mtime > this->includesMTime) {
-        this->includesMTime = mtime;
-        shouldcompiletoplevel = true;
-      }
-    }
-
-    // Parsing and dependency handling must run to completion even with stop on errors to prevent auto
-    // reload picking up where it left off, thwarting the stop, so we turn off exceptions in PRINT.
-    no_exceptions_for_warnings();
-    if (shouldcompiletoplevel) {
-      initialize_rng();
-      this->errorLogWidget->clearModel();
-      if (GlobalPreferences::inst()->getValue("advanced/consoleAutoClear").toBool()) {
-        this->console->clear();
-      }
-      if (activeEditor->isContentModified() || activeEditor->hasViewChanges()) saveBackup();
-      parseTopLevelDocument();
-      didcompile = true;
-    }
-
-    if (didcompile && parser_error_pos != lastParserErrorPos) {
-      if (lastParserErrorPos >= 0) emit unhighlightLastError();
-      if (parser_error_pos >= 0) emit highlightError(parser_error_pos);
-      lastParserErrorPos = parser_error_pos;
-    }
-
-    if (this->rootFile) {
-      SourceProvenance::ParseScope syntaxScope(evaluationInputs && evaluationBacking ? evaluationBacking->syntax.get() : nullptr);
-      std::unique_ptr<NativeEvaluationScope> inputScope;
-      if (evaluationInputs && evaluationBacking)
-        inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
-      auto mtime = this->rootFile->handleDependencies();
-      if (mtime > this->depsMTime) {
-        this->depsMTime = mtime;
-        LOG("Used file cache size: %1$d files", SourceFileCache::instance()->size());
-        didcompile = true;
-      }
-    }
-
-    // Had any errors in the parse that would have caused exceptions via PRINT.
-    if (would_have_thrown()) throw HardWarningException("");
-    // If we're auto-reloading, listen for a cascade of changes by starting a timer
-    // if something changed _and_ there are any external dependencies
-    if (reload && didcompile && this->rootFile) {
-      if (this->rootFile->hasIncludes() || this->rootFile->usesLibraries()) {
-        this->waitAfterReloadTimer->start();
-        this->procevents = false;
-        return;
-      }
-    }
-
-    compileDone(didcompile | forcedone);
-  } catch (const HardWarningException&) {
-    exceptionCleanup();
-  } catch (const std::exception& ex) {
-    UnknownExceptionCleanup(ex.what());
-  } catch (...) {
-    UnknownExceptionCleanup();
-  }
-}
-
-void MainWindow::waitAfterReload()
-{
-  no_exceptions_for_warnings();
-  SourceProvenance::ParseScope syntaxScope(evaluationBacking ? evaluationBacking->syntax.get() : nullptr);
-  std::unique_ptr<NativeEvaluationScope> inputScope;
-  if (evaluationInputs && evaluationBacking)
-    inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
-  auto mtime = this->rootFile->handleDependencies();
-  auto stop = would_have_thrown();
-  if (mtime > this->depsMTime) this->depsMTime = mtime;
-  else if (!stop) {
-    compile(true, true);  // In case file itself or top-level includes changed during dependency updates
-    return;
-  }
-  this->waitAfterReloadTimer->start();
 }
 
 void MainWindow::on_toolButtonCompileResultClose_clicked()
@@ -994,55 +852,6 @@ void MainWindow::updateCompileResult()
   frameCompileResult->show();
 }
 
-void MainWindow::compileDone(bool didchange)
-{
-  OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
-  try {
-    const char *callslot;
-    if (didchange) {
-      // Automatic reload also calls compile() for unchanged files every 200 ms.
-      // Only an actual evaluation may supersede an in-flight camera transition.
-      qglview->navigation()->cancel();
-      if (annotationController) annotationController->beginEvaluation(lastCompiledDoc);
-      instantiateRoot();
-      updateCompileResult();
-      callslot = afterCompileSlot;
-    } else {
-      callslot = "compileEnded";
-    }
-
-    this->procevents = false;
-    QMetaObject::invokeMethod(this, callslot);
-  } catch (const HardWarningException&) {
-    exceptionCleanup();
-  }
-
-  if (didchange) {
-    const bool flagAutoCompleteIncludeVariables =
-      GlobalPreferences::inst()->getValue("editor/autoCompleteIncludeVariables").toBool();
-    const bool flagAutoCompleteIncludeModules =
-      GlobalPreferences::inst()->getValue("editor/autoCompleteIncludeModules").toBool();
-    const bool flagAutoCompleteIncludeFunctions =
-      GlobalPreferences::inst()->getValue("editor/autoCompleteIncludeFunctions").toBool();
-
-    const auto completionMode = Settings::SettingsAutoCompletion::autocompleteMode.value();
-
-    auto *scintillaEditor = dynamic_cast<ScintillaEditor *>(this->activeEditor);
-
-    if (scintillaEditor) {
-      if (completionMode == "ParsedFileMode") {
-        scintillaEditor->correctUserVarNamesForCompletionFromSourceFile(
-          parsedFile.get(), flagAutoCompleteIncludeVariables, flagAutoCompleteIncludeModules,
-          flagAutoCompleteIncludeFunctions);
-
-      } else if (completionMode == "RegexInputTextMode") {
-        scintillaEditor->correctUserVarNamesForCompletionFromInputText(flagAutoCompleteIncludeVariables,
-                                                                       flagAutoCompleteIncludeModules,
-                                                                       flagAutoCompleteIncludeFunctions);
-      }
-    }
-  }
-}
 
 void MainWindow::resetCompileMessageCounts()
 {
@@ -1065,261 +874,17 @@ void MainWindow::selectPreviewViewMode()
 #endif
 }
 
-void MainWindow::compileEnded()
-{
-  evaluationOverrides.reset();
-  if (compileErrors>0) qglview->statistics()->evaluationFailed();
-  // Late render diagnostics also need to replace the previous banner.
-  updateCompileResult();
-  if (annotationController) annotationController->finishEvaluation(compileErrors == 0 && rootFile != nullptr);
-  clearCurrentOutput();
-  GuiLocker::unlock();
-  if (designActionAutoReload->isChecked()) autoReloadTimer->start();
-  emit evaluationBinding->evaluationFinished(activeEditor);
-#ifdef ENABLE_GUI_TESTS
-  emit compilationDone(this->rootFile.get());
-#endif
-}
 
 #ifdef ENABLE_GUI_TESTS
-std::shared_ptr<AbstractNode> MainWindow::instantiateRootFromSource(SourceFile *file)
-{
-  SourceProvenance::ParseScope syntaxScope(file == rootFile.get() && evaluationInputs && evaluationBacking ? evaluationBacking->syntax.get() : nullptr);
-  std::unique_ptr<NativeEvaluationScope> inputScope;
-  if (file == rootFile.get() && evaluationInputs && evaluationBacking)
-    inputScope = std::make_unique<NativeEvaluationScope>(*evaluationInputs, *evaluationBacking->libraries);
-  EvaluationSession session{file->getFullpath()};
-  ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(&session)};
-  setRenderVariables(builtin_context);
 
-  std::shared_ptr<const FileContext> file_context;
-  std::shared_ptr<AbstractNode> node = this->rootFile->instantiate(*builtin_context, &file_context);
-
-  return node;
-}
 #endif  // ifdef ENABLE_GUI_TESTS
 
-void MainWindow::instantiateRoot()
-{
-  // Go on and instantiate root_node, then call the continuation slot
-  if (!rootFile || compileErrors != 0) return; // Retain the visibly stale last-good display.
-  // A new evaluation must not mutate backing already retained by a previous scene.
-  auto backing = std::make_shared<Selection::EvaluationBacking>();
-  backing->inputs = evaluationInputs;
-  backing->libraries = evaluationBacking->libraries;
-  backing->syntax = evaluationBacking->syntax;
-  backing->parsedRoot = rootFile;
-  evaluationBacking = std::move(backing);
-
-  // Invalidate renderers before we kill the CSG tree
-  this->qglview->setRenderer(nullptr);
-#ifdef ENABLE_OPENCSG
-  this->previewRenderer = nullptr;
-#endif
-  this->thrownTogetherRenderer = nullptr;
-
-  // Remove previous CSG tree
-  this->absoluteRootNode.reset();
-
-  this->csgRoot.reset();
-  this->normalizedRoot.reset();
-  this->rootProduct.reset();
-
-  this->rootNode.reset();
-  this->tree.setRoot(nullptr);
-
-  const std::filesystem::path doc(activeEditor->filepath.toStdString());
-  this->tree.setDocumentPath(doc.parent_path().string());
-
-  renderedEditor = activeEditor;
-  emit displayedDocumentChanged();
-
-  if (this->rootFile) {
-    // Evaluate CSG tree
-    LOG("Compiling design (CSG Tree generation)...");
-    this->processEvents();
-
-    NativeEvaluationScope inputScope(*evaluationInputs, *evaluationBacking->libraries);
-    AbstractNode::resetIndexCounter();
-    SourceProvenance::ParseScope syntaxScope(evaluationBacking->syntax.get());
-    evaluationBacking->session = std::make_shared<EvaluationSession>(doc.parent_path().string());
-    if (evaluationBacking->syntax)
-      evaluationBacking->session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(evaluationBacking->syntax);
-    evaluationBacking->session->capturedInputs = evaluationInputs;
-    ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(evaluationBacking->session.get())};
-    evaluationBacking->builtin = *builtin_context;
-    setRenderVariables(builtin_context);
-
-    std::shared_ptr<const FileContext> file_context;
-#ifdef ENABLE_PYTHON
-    if (python_result_node != NULL && this->python_active) this->absoluteRootNode = python_result_node;
-    else
-#endif
-      this->absoluteRootNode = this->rootFile->instantiate(*builtin_context, &file_context);
-    evaluationBacking->file = file_context;
-    if (file_context) {
-      this->qglview->cam.updateView(file_context, false);
-      viewportControlWidget->cameraChanged();
-    }
-
-    if (this->absoluteRootNode) {
-      // Do we have an explicit root node (! modifier)?
-      const Location *nextLocation = nullptr;
-      if (!(this->rootNode = find_root_tag(this->absoluteRootNode, &nextLocation))) {
-        this->rootNode = this->absoluteRootNode;
-      }
-      if (nextLocation) {
-        LOG(message_group::NONE, *nextLocation, builtin_context->documentRoot(),
-            "More than one Root Modifier (!)");
-      }
-
-      // FIXME: Consider giving away ownership of root_node to the Tree, or use reference counted
-      // pointers
-      this->tree.setRoot(this->rootNode);
-      evaluationInputs->freeze();
-      auto scene = std::make_shared<Selection::EvaluatedScene>();
-      scene->semantic = evaluationBacking->session->semanticCollector->finish();
-      scene->backing = evaluationBacking;
-      scene->designObjects = evaluationBacking->session->designCollector->finish();
-      scene->inputs = evaluationInputs;
-      scene->root = rootNode;
-      if (evaluationBacking->session->provenanceCollector)
-        scene->provenance = evaluationBacking->session->provenanceCollector->finish(*rootNode);
-      scene->inspectionPrepared = bool(scene->provenance);
-      scene->documentPath = doc.parent_path().string();
-      evaluatedScene = std::move(scene);
-    }
-  }
-
-  if (!this->rootNode) {
-    if (parser_error_pos < 0) {
-      LOG(message_group::Error, "Compilation failed! (no top level object found)");
-    } else {
-      LOG(message_group::Error, "Compilation failed!");
-    }
-    LOG(" ");
-    this->processEvents();
-  }
-}
 
 /*!
    Generates CSG tree for OpenCSG evaluation.
    Assumes that the design has been parsed and evaluated (this->root_node is set)
  */
-void MainWindow::compileCSG()
-{
-  OpenSCAD::hardwarnings = GlobalPreferences::inst()->getValue("advanced/enableHardwarnings").toBool();
-  try {
-    assert(this->rootNode);
-    LOG("Compiling design (CSG Products generation)...");
-    this->processEvents();
 
-    // Main CSG evaluation
-    updateStatusBar(true);
-
-    GeometryEvaluator geomevaluator(this->tree);
-#ifdef ENABLE_OPENCSG
-    CSGTreeEvaluator csgrenderer(this->tree, &geomevaluator);
-#endif
-
-    if (!isClosing) progress_report_prep(this->rootNode, report_func, this);
-    else return;
-    try {
-#ifdef ENABLE_OPENCSG
-      this->processEvents();
-      this->csgRoot = csgrenderer.buildCSGTree(*rootNode);
-#endif
-      renderStatistic.printCacheStatistic();
-      this->processEvents();
-    } catch (const ProgressCancelException&) {
-      LOG("CSG generation canceled.");
-    } catch (const HardWarningException&) {
-      LOG("CSG generation canceled due to hardwarning being enabled.");
-    }
-    progress_report_fin();
-    updateStatusBar(false);
-
-    LOG("Compiling design (CSG Products normalization)...");
-    this->processEvents();
-
-    const size_t normalizelimit =
-      2ul * GlobalPreferences::inst()->getValue("advanced/openCSGLimit").toUInt();
-    CSGTreeNormalizer normalizer(normalizelimit);
-
-    if (this->csgRoot) {
-      this->normalizedRoot = normalizer.normalize(this->csgRoot);
-      if (this->normalizedRoot) {
-        this->rootProduct = std::make_shared<CSGProducts>();
-        this->rootProduct->import(this->normalizedRoot);
-      } else {
-        this->rootProduct.reset();
-        LOG(message_group::Warning, "CSG normalization resulted in an empty tree");
-        this->processEvents();
-      }
-    }
-
-    const std::vector<std::shared_ptr<CSGNode>>& highlight_terms = csgrenderer.getHighlightNodes();
-    if (highlight_terms.size() > 0) {
-      LOG("Compiling highlights (%1$d CSG Trees)...", highlight_terms.size());
-      this->processEvents();
-
-      this->highlightsProducts = std::make_shared<CSGProducts>();
-      for (const auto& highlight_term : highlight_terms) {
-        auto nterm = normalizer.normalize(highlight_term);
-        if (nterm) {
-          this->highlightsProducts->import(nterm);
-        }
-      }
-    } else {
-      this->highlightsProducts.reset();
-    }
-
-    const auto& background_terms = csgrenderer.getBackgroundNodes();
-    if (background_terms.size() > 0) {
-      LOG("Compiling background (%1$d CSG Trees)...", background_terms.size());
-      this->processEvents();
-
-      this->backgroundProducts = std::make_shared<CSGProducts>();
-      for (const auto& background_term : background_terms) {
-        auto nterm = normalizer.normalize(background_term);
-        if (nterm) {
-          this->backgroundProducts->import(nterm);
-        }
-      }
-    } else {
-      this->backgroundProducts.reset();
-    }
-
-    if (evaluatedScene && evaluatedScene->provenance) {
-      std::vector<std::shared_ptr<CSGNode>> provenanceRoots{this->csgRoot};
-      provenanceRoots.insert(provenanceRoots.end(), highlight_terms.begin(), highlight_terms.end());
-      provenanceRoots.insert(provenanceRoots.end(), background_terms.begin(), background_terms.end());
-      auto scene = std::make_shared<Selection::EvaluatedScene>(*evaluatedScene);
-      scene->provenance = scene->provenance->withPreview(provenanceRoots);
-      evaluatedScene = std::move(scene);
-    }
-
-    if (this->rootProduct && (this->rootProduct->size() >
-                              GlobalPreferences::inst()->getValue("advanced/openCSGLimit").toUInt())) {
-      LOG(message_group::UI_Warning, "Normalized tree has %1$d elements!", this->rootProduct->size());
-      LOG(message_group::UI_Warning, "OpenCSG rendering has been disabled.");
-    }
-#ifdef ENABLE_OPENCSG
-    else {
-      LOG("Normalized tree has %1$d elements!", (this->rootProduct ? this->rootProduct->size() : 0));
-      this->previewRenderer = std::make_shared<OpenCSGRenderer>(
-        this->rootProduct, this->highlightsProducts, this->backgroundProducts);
-    }
-#endif  // ifdef ENABLE_OPENCSG
-    this->thrownTogetherRenderer = std::make_shared<ThrownTogetherRenderer>(
-      this->rootProduct, this->highlightsProducts, this->backgroundProducts);
-    LOG("Compile and preview finished.");
-    renderStatistic.printRenderingTime();
-    this->processEvents();
-  } catch (const HardWarningException&) {
-    exceptionCleanup();
-  }
-}
 
 void MainWindow::on_fileActionOpen_triggered()
 {
@@ -1648,7 +1213,7 @@ void MainWindow::hideFind()
   const int findCount =
     (activeEditor) ? activeEditor->updateFindIndicators(this->findInputField->text(), false) : 0;
   this->findInputField->setFindCount(findCount);
-  this->processEvents();
+  // UI updates are serviced by the event loop; no nested event pumping.
 }
 
 // Prepare the UI for the find (and replace if requested)
@@ -1657,7 +1222,7 @@ void MainWindow::hideFind()
 void MainWindow::showFind(bool doFindAndReplace)
 {
   findInputField->setFindCount(activeEditor->updateFindIndicators(findInputField->text()));
-  processEvents();
+
 
   if (doFindAndReplace) {
     findTypeComboBox->setCurrentIndex(1);
@@ -1693,7 +1258,7 @@ void MainWindow::findString(const QString& textToFind)
   if (!activeEditor) return;
 
   this->findInputField->setFindCount(activeEditor->updateFindIndicators(textToFind));
-  this->processEvents();
+  // UI updates are serviced by the event loop; no nested event pumping.
   activeEditor->find(textToFind);
 }
 
@@ -1897,177 +1462,16 @@ bool MainWindow::trust_python_file(const std::string& file, const std::string& c
 }
 #endif  // ifdef ENABLE_PYTHON
 
-namespace SourceProvenance {
-struct ParsedLibraryCache {
-  bool modelRequiresInspection = false;
-  std::shared_ptr<EvaluationInputs> inputs;
-  std::shared_ptr<SourceFileCache> libraries;
-  std::shared_ptr<SyntaxTable> syntax;
-  std::vector<LibraryPathLookup> lookups;
-  std::vector<std::string> configuration;
-};
-}
-
-std::shared_ptr<Selection::EvaluationBacking> MainWindow::parseCapturedDocument(EditorInterface *editor, bool requireInspection)
-{
-  NativeExecutionGuard execution;
-  bool collect = requireInspection || evaluationBinding->inspectionRequested(editor);
-  auto captured = Selection::EvaluationBinding::capture(*this, *editor);
-  auto configuration = get_library_path();
-  configuration.push_back(commandline_commands);
-  configuration.push_back(Feature::features());
-  configuration.push_back(fs::current_path().generic_string());
-  auto previous = parsedLibraryCache;
-  bool reuse = previous && previous->configuration == configuration &&
-    previous->inputs->root().fileKey == captured->root().fileKey &&
-    previous->inputs->root().fingerprint == captured->root().fingerprint;
-  if (reuse) {
-    try {
-      reuse = LibraryPathLookupScope::current(previous->lookups);
-      for (const auto& [key, input] : previous->inputs->consumed()) {
-        if (!reuse) break;
-        const auto& current = key == captured->root().fileKey ? captured->root() : captured->read(key);
-        reuse = current.fingerprint == input.fingerprint;
-      }
-    } catch (const EvaluationInputError&) { reuse = false; }
-      catch (const fs::filesystem_error&) { reuse = false; }
-  }
-  if (reuse) collect = collect || previous->modelRequiresInspection;
-  // A lean AST cache has no syntax ordinals/records. Enabling inspection must
-  // reparse the whole closure, including libraries, before publishing mappings.
-  if (reuse && collect && !previous->syntax) reuse = false;
-  if (!reuse) {
-    // Failed validation may have read dependencies that the new parse no longer uses.
-    captured = Selection::EvaluationBinding::capture(*this, *editor);
-    previous.reset();
-    parsedLibraryCache.reset();
-  }
-  auto backing = std::make_shared<Selection::EvaluationBacking>();
-  backing->inputs = captured;
-  backing->libraries = std::make_shared<SourceFileCache>(captured.get());
-  if (collect) backing->syntax = reuse ? previous->syntax->reuseForParse(captured)
-                                      : std::make_shared<SourceProvenance::SyntaxTable>(captured);
-  if (reuse) backing->libraries->seedCapturedLibraries(*previous->libraries);
-  auto cache = std::make_shared<SourceProvenance::ParsedLibraryCache>();
-  if (reuse) cache->lookups = previous->lookups;
-  const auto errors = compileErrors;
-  const auto warnings = compileWarnings;
-  bool reusable = !editor->filepath.endsWith(".py", Qt::CaseInsensitive);
-  const auto parentGuard = nativeParserCapabilityGuard;
-  NativeEvaluationScope inputScope(*captured, *backing->libraries, [&](NativeCapability capability) {
-    reusable = false; // Fonts/external parser side effects must execute on every parse.
-    if (parentGuard) parentGuard(capability);
-  });
-  SourceProvenance::ParseScope syntaxScope(backing->syntax.get());
-  LibraryPathLookupScope lookupScope(cache->lookups);
-  backing->parsedRoot = parseDocument(editor);
-  cache->modelRequiresInspection = backing->parsedRoot && SourceProvenance::modelRequiresInspection(*backing->parsedRoot);
-  if (!collect && cache->modelRequiresInspection) {
-    // A model-structure consumer needs complete mappings even with Inspector off.
-    // Drop the lean cache rather than pairing old AST ordinals with new records.
-    parsedLibraryCache.reset();
-    return parseCapturedDocument(editor, true);
-  }
-  if (backing->parsedRoot && reusable && compileErrors == errors && compileWarnings == warnings) {
-    cache->inputs = captured;
-    cache->libraries = backing->libraries;
-    cache->syntax = backing->syntax;
-    cache->configuration = std::move(configuration);
-    // One parse closure per window. Never retain an EvaluationSession, renderer,
-    // previous cache generation or parameter-mutated root in this cache.
-    parsedLibraryCache = std::move(cache);
-  } else parsedLibraryCache.reset();
-  return backing;
-}
-
-std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
-{
-  resetSuppressedMessages();
-
-  auto document = editor->toPlainText();
-  auto fulltext = std::string(document.toUtf8().constData()) + "\n\x03\n" + commandline_commands;
-
-  const std::string fname = editor->filepath.isEmpty() ? "" : editor->filepath.toStdString();
-#ifdef ENABLE_PYTHON
-  this->python_active = false;
-  if (boost::algorithm::ends_with(fname, ".py")) {
-    std::string content = std::string(this->lastCompiledDoc.toUtf8().constData());
-    if (Feature::ExperimentalPythonEngine.is_enabled() && trust_python_file(fname, content))
-      this->python_active = true;
-    else LOG(message_group::Warning, Location::NONE, "", "Python is not enabled");
-  }
-
-  if (this->python_active) {
-    auto fulltext_py = std::string(this->lastCompiledDoc.toUtf8().constData());
-
-    const auto& venv = venvBinDirFromSettings();
-    initPython(venv, this->animateWidget->getAnimTval());
-
-    if (venv.empty()) {
-      LOG("Running %1$s without venv.", python_version());
-    } else {
-      const auto& v = Settings::SettingsPython::pythonVirtualEnv.value();
-      LOG("Running %1$s in venv '%2$s'.", python_version(), v);
-    }
-    auto error = evaluatePython(fulltext_py, false);
-    if (error.size() > 0) LOG(message_group::Error, Location::NONE, "", error.c_str());
-    fulltext = "\n";
-  }
-#endif  // ifdef ENABLE_PYTHON
-
-  SourceFile *sourceFile;
-  if (!parse(sourceFile, fulltext, fname, fname, false)) {
-    delete sourceFile;
-    sourceFile = nullptr;
-  }
-  const std::shared_ptr<SourceFile> parsedSource(sourceFile);
-
-  editor->resetHighlighting();
-  if (sourceFile) {
-    // add parameters as annotation in AST
-    CommentParser::collectParameters(fulltext, sourceFile);
-    // Customizer's FileContext evaluates top-level assignments. Resolve use
-    // libraries first, inside the caller's evaluation scope, so those
-    // assignments can call library functions even with a fresh captured cache.
-    sourceFile->handleDependencies();
-    editor->parameterWidget->setParameters(sourceFile, fulltext);
-    editor->parameterWidget->setProperty("agentSourceRevision", QString::number(editor->sourceRevision));
-    editor->parameterWidget->setProperty("agentSourceFingerprint", editor->sourceFingerprint);
-    editor->parameterWidget->applyParameters(sourceFile);
-    if(evaluationOverrides && (evaluationOverrides->editor!=editor ||
-       !editor->parameterWidget->applyEvaluationValues(evaluationOverrides->parameters,sourceFile))){
-      LOG(message_group::Error,"Captured evaluation parameters no longer match the document");
-      return {};
-    }
-    editor->parameterWidget->setEnabled(true);
-    editor->setIndicator(sourceFile->indicatorData);
-  } else {
-    editor->parameterWidget->setEnabled(false);
-  }
-
-  return parsedSource;
-}
-
-void MainWindow::parseTopLevelDocument()
-{
-  resetSuppressedMessages();
-
-  this->lastCompiledDoc = activeEditor->toPlainText();
-  if (annotationController) annotationController->beginEvaluation(lastCompiledDoc);
-  evaluationBinding->invalidate(tr("Evaluation in progress"));
-  activeEditor->resetHighlighting();
-  evaluationBacking = parseCapturedDocument(activeEditor);
-  evaluationInputs = evaluationBacking->inputs;
-  this->rootFile = evaluationBacking->parsedRoot;
-  this->parsedFile = this->rootFile;
-  evaluationBacking->parsedRoot = rootFile;
-}
 
 void MainWindow::checkAutoReload()
 {
-  if (!activeEditor->filepath.isEmpty()) {
-    actionReloadRenderPreview();
+  if (!backgroundEvaluation || !activeEditor || activeEditor->filepath.isEmpty()) return;
+  bool changed = evaluationBinding->takeDiskChanges();
+  if (fileChangedOnDisk() && checkEditorModified()) {
+    tabManager->refreshDocument();
+    changed = true;
   }
+  if (changed) backgroundEvaluation->request(activeEditor, BackgroundEvaluation::Mode::Preview, true);
 }
 
 void MainWindow::on_designActionAutoReload_toggled(bool on)
@@ -2097,91 +1501,29 @@ bool MainWindow::checkEditorModified()
 
 void MainWindow::on_designActionReloadAndPreview_triggered()
 {
-  actionReloadRenderPreview();
+  if (fileChangedOnDisk() && checkEditorModified()) tabManager->refreshDocument();
+  on_designActionPreview_triggered();
 }
 
 void MainWindow::actionReloadRenderPreview()
 {
-  if (GuiLocker::isLocked()) return;
-  GuiLocker::lock();
-  autoReloadTimer->stop();
-  setCurrentOutput();
-
-  this->afterCompileSlot = "csgReloadRender";
-  this->procevents = true;
-  this->isPreview = true;
-  compile(true);
+  if (!backgroundEvaluation || !activeEditor) return;
+  if (fileChangedOnDisk() && checkEditorModified()) tabManager->refreshDocument();
+  backgroundEvaluation->request(activeEditor, BackgroundEvaluation::Mode::Preview);
 }
 
-void MainWindow::csgReloadRender()
-{
-  if (!rootFile || compileErrors != 0) { compileEnded(); return; }
-  if (this->rootNode) compileCSG();
-
-  selectPreviewViewMode();
-  compileEnded();
-}
-
-void MainWindow::prepareCompile(const char *afterCompileSlot, bool procevents, bool preview)
-{
-  qglview->statistics()->setStale(true);
-  qglview->navigation()->cancel();
-  setCurrentOutput();
-  autoReloadTimer->stop();
-  LOG(" ");
-  LOG("Parsing design (AST generation)...");
-  this->processEvents();
-  this->afterCompileSlot = afterCompileSlot;
-  this->procevents = procevents;
-  this->isPreview = preview;
-}
 
 void MainWindow::on_designActionPreview_triggered()
 {
-  actionRenderPreview();
+  if (backgroundEvaluation) backgroundEvaluation->request(activeEditor, BackgroundEvaluation::Mode::Preview);
 }
 
 void MainWindow::actionRenderPreview()
 {
-  static bool preview_requested;
-  preview_requested = true;
-
-  if (GuiLocker::isLocked()) return;
-
-  GuiLocker::lock();
-  preview_requested = false;
-
-  resetMeasurementsState(false, "Render (not preview) to enable measurements");
-
-  prepareCompile("csgRender", !animateDock->isVisible(), true);
-  compile(false, false);
-
-  if (preview_requested) {
-    // if the action was called when the gui was locked, we must request it one more time
-    // however, it's not possible to call it directly NOR make the loop
-    // it must be called from the mainloop
-    QTimer::singleShot(0, this, &MainWindow::actionRenderPreview);
-    return;
-  }
+  if (backgroundEvaluation) backgroundEvaluation->request(activeEditor, BackgroundEvaluation::Mode::Preview,
+                                                           !evaluationOverrides);
 }
 
-void MainWindow::csgRender()
-{
-  if (!rootFile || compileErrors != 0) { compileEnded(); return; }
-  if (this->rootNode) compileCSG();
-
-  selectPreviewViewMode();
-
-  if (animateWidget->dumpPictures()) {
-    animateWidget->nextFrame();
-    if (animateWidget->dumpPictures() && !animateWidget->saveFrame(this->qglview->grabFrame())) {
-      animateWidget->e_dump->setChecked(false);
-      animateWidget->pauseAnimation();
-    }
-  }
-
-  compileEnded();
-}
 
 void MainWindow::sendToExternalTool(ExternalToolInterface& externalToolService)
 {
@@ -2247,93 +1589,9 @@ void MainWindow::on_designAction3DPrint_triggered()
 
 void MainWindow::on_designActionRender_triggered()
 {
-  if (GuiLocker::isLocked()) return;
-  GuiLocker::lock();
-
-  prepareCompile("cgalRender", true, false);
-  compile(false);
+  if (backgroundEvaluation) backgroundEvaluation->request(activeEditor, BackgroundEvaluation::Mode::Render);
 }
 
-void MainWindow::cgalRender()
-{
-  if (!this->rootFile || !this->rootNode || compileErrors != 0) {
-    compileEnded();
-    return;
-  }
-
-  this->qglview->setRenderer(nullptr);
-  this->geomRenderer = nullptr;
-  rootGeom.reset();
-
-  LOG("Rendering Polygon Mesh using %1$s...",
-      renderBackend3DToString(RenderSettings::inst()->backend3D).c_str());
-
-  updateStatusBar(true);
-
-  if (!isClosing) progress_report_prep(this->rootNode, report_func, this);
-  else return;
-
-  this->geometryWorker->start(this->tree);
-}
-
-void MainWindow::actionRenderDone(const std::shared_ptr<const Geometry>& root_geom)
-{
-#ifdef ENABLE_PYTHON
-  python_lock();
-#endif
-  progress_report_fin();
-  if (root_geom) {
-    std::vector<std::string> options;
-    if (Settings::Settings::summaryCamera.value()) {
-      options.emplace_back(RenderStatistic::CAMERA);
-    }
-    if (Settings::Settings::summaryArea.value()) {
-      options.emplace_back(RenderStatistic::AREA);
-    }
-    if (Settings::Settings::summaryBoundingBox.value()) {
-      options.emplace_back(RenderStatistic::BOUNDING_BOX);
-    }
-    renderStatistic.printAll(root_geom, qglview->cam, options);
-    LOG("Rendering finished.");
-
-    this->rootGeom = root_geom;
-#if defined(USE_POLYSET_FOR_CGAL)
-    this->geomRenderer = std::make_shared<PolySetRenderer>(this->rootGeom);
-#else
-    // Choose PolySetRenderer for PolySet and Polygon2d, and for Manifold since we
-    // know that all geometries are convertible to PolySet.
-    if (RenderSettings::inst()->backend3D == RenderBackend3D::ManifoldBackend ||
-        std::dynamic_pointer_cast<const PolySet>(this->rootGeom) ||
-        std::dynamic_pointer_cast<const Polygon2d>(this->rootGeom)) {
-      this->geomRenderer = std::make_shared<PolySetRenderer>(this->rootGeom);
-    } else {
-      this->geomRenderer = std::make_shared<CGALRenderer>(this->rootGeom);
-    }
-#endif
-
-    // Go to CGAL view mode
-    viewModeRender();
-    resetMeasurementsState(true, "Click to start measuring");
-  } else {
-    resetMeasurementsState(false, "No top level geometry; render something to enable measurements");
-    LOG(message_group::UI_Warning, "No top level geometry to render");
-  }
-
-  updateStatusBar(false);
-
-  const bool renderSoundEnabled =
-    GlobalPreferences::inst()->getValue("advanced/enableSoundNotification").toBool();
-  const uint soundThreshold =
-    GlobalPreferences::inst()->getValue("advanced/timeThresholdOnRenderCompleteSound").toUInt();
-  if (renderSoundEnabled && soundThreshold <= renderStatistic.ms().count() / 1000) {
-    renderCompleteSoundEffect->play();
-  }
-
-  renderedEditor = activeEditor;
-  emit displayedDocumentChanged();
-  activeEditor->contentsRendered = true;
-  compileEnded();
-}
 
 void MainWindow::handleMeasurementClicked(QAction *clickedAction)
 {
@@ -2396,6 +1654,7 @@ void MainWindow::leftClick(QPoint mouse)
  */
 void MainWindow::rightClick(QPoint position)
 {
+  if (evaluationBinding && !evaluationBinding->validate(evaluationBinding->stamp())) return;
   // selecting without a renderer?!
   if (!this->qglview->renderer) {
     return;
@@ -2633,34 +1892,6 @@ void MainWindow::updateStatusBar(bool isProgress)
   }
 }
 
-void MainWindow::exceptionCleanup()
-{
-  evaluationOverrides.reset();
-  qglview->statistics()->evaluationFailed();
-  // Aborted parsing bypasses compileDone() and compileEnded().
-  updateCompileResult();
-  if (annotationController) annotationController->finishEvaluation(false);
-  LOG("Execution aborted");
-  LOG(" ");
-  GuiLocker::unlock();
-  if (designActionAutoReload->isChecked()) autoReloadTimer->start();
-}
-
-void MainWindow::UnknownExceptionCleanup(std::string msg)
-{
-  evaluationOverrides.reset();
-  qglview->statistics()->evaluationFailed();
-  if (annotationController) annotationController->finishEvaluation(false);
-  auto guard = scopedSetCurrentOutput();  // we need to show this error
-  if (msg.size() == 0) {
-    LOG(message_group::Error, "Compilation aborted by unknown exception");
-  } else {
-    LOG(message_group::Error, "Compilation aborted by exception: %1$s", msg);
-  }
-  LOG(" ");
-  GuiLocker::unlock();
-  if (designActionAutoReload->isChecked()) autoReloadTimer->start();
-}
 
 void MainWindow::showTextInWindow(const QString& type, const QString& content)
 {
@@ -2707,6 +1938,8 @@ void MainWindow::on_designActionDisplayCSGProducts_triggered()
 
 void MainWindow::on_designCheckValidity_triggered()
 {
+  if (BackgroundEvaluation::Service::instance().busy() ||
+      (evaluationBinding && !evaluationBinding->validate(evaluationBinding->stamp()))) return;
   if (GuiLocker::isLocked()) return;
   const GuiLocker lock;
   auto guard = scopedSetCurrentOutput();
@@ -2739,6 +1972,10 @@ void MainWindow::on_designCheckValidity_triggered()
 // Separated into its own function for re-use.
 bool MainWindow::canExport(unsigned int dim)
 {
+  if (BackgroundEvaluation::Service::instance().busy()) {
+    LOG(message_group::UI_Warning, "Wait for evaluation to finish or cancel it before exporting.");
+    return false;
+  }
   if(evaluationBinding && evaluationBinding->draftPixels()){
     LOG(message_group::UI_Warning,"Draft geometry is unavailable for export; Commit or cancel its display first.");return false;
   }
@@ -2948,15 +2185,18 @@ void MainWindow::on_editActionCopyViewport_triggered()
 
 void MainWindow::on_designActionFlushCaches_triggered()
 {
-  NativeExecutionGuard execution;
-  auto guard = scopedSetCurrentOutput();
-  GeometryCache::instance()->clear();
-  CGALCache::instance()->clear();
-  dxf_dim_cache.clear();
-  dxf_cross_cache.clear();
-  SourceFileCache::instance()->clear();
-
-  LOG("Caches Flushed");
+  auto job = std::make_shared<BackgroundEvaluation::Job>();
+  job->key = "maintenance:flush-caches";
+  job->compute = [] {
+    GeometryCache::instance()->clear();
+    CGALCache::instance()->clear();
+    dxf_dim_cache.clear();
+    dxf_cross_cache.clear();
+    SourceFileCache::instance()->clear();
+  };
+  QPointer<MainWindow> owner(this);
+  job->complete = [owner] { if (owner) owner->consoleOutput(Message("Caches flushed")); };
+  BackgroundEvaluation::Service::instance().submit(job);
 }
 
 void MainWindow::viewModeActionsUncheck()
@@ -3440,23 +2680,9 @@ void MainWindow::onTabManagerAboutToCloseEditor(EditorInterface *closingEditor)
   }
 }
 
-void MainWindow::onTabManagerEditorContentReloaded(EditorInterface *reloadedEditor)
+void MainWindow::onTabManagerEditorContentReloaded(EditorInterface *editor)
 {
-  try {
-    // when a new editor is created, it is important to compile the initial geometry
-    // so the customizer panels are ok.
-    parseCapturedDocument(reloadedEditor);
-  } catch (const HardWarningException&) {
-    exceptionCleanup();
-  } catch (const std::exception& ex) {
-    UnknownExceptionCleanup(ex.what());
-  } catch (...) {
-    UnknownExceptionCleanup();
-  }
-
-  // updates the content of the Recents Files menu to integrate the one possibly
-  // associated with the created editor. The reason is that an editor can be created
-  // or updated without a file associated with it.
+  if (backgroundEvaluation) backgroundEvaluation->request(editor, BackgroundEvaluation::Mode::Parameters, true);
   updateRecentFileActions();
 }
 
@@ -3481,7 +2707,8 @@ void MainWindow::onTabManagerEditorChanged(EditorInterface *newEditor)
 
   // If there is no renderedEditor we request for a new preview if the
   // auto-reload is enabled.
-  if (renderedEditor == nullptr && designActionAutoReload->isChecked() && !MainWindow::isEmpty()) {
+  if (renderedEditor == nullptr && designActionAutoReload->isChecked() && !MainWindow::isEmpty() &&
+      (!backgroundEvaluation || !backgroundEvaluation->hasDeferred(newEditor))) {
     actionRenderPreview();
   }
 }
@@ -3647,9 +2874,9 @@ void MainWindow::consoleOutput(const Message& msgObj)
   } else if (msgObj.group == message_group::Error) {
     ++this->compileErrors;
   }
-  // FIXME: scad parsing/evaluation should be done on separate thread so as not to block the gui.
-  // Then processEvents should no longer be needed here.
-  this->processEvents();
+
+
+  // UI updates are serviced by the event loop; no nested event pumping.
   if (consoleUpdater && !consoleUpdater->isActive()) {
     consoleUpdater->start(50);  // Limit console updates to 20 FPS
   }
@@ -3658,7 +2885,7 @@ void MainWindow::consoleOutput(const Message& msgObj)
 void MainWindow::consoleOutputRaw(const QString& html)
 {
   this->console->addHtml(html);
-  this->processEvents();
+  // UI updates are serviced by the event loop; no nested event pumping.
 }
 
 void MainWindow::errorLogOutput(const Message& log_msg, void *userdata)
@@ -3697,10 +2924,6 @@ void MainWindow::openCSGSettingsChanged()
 #endif
 }
 
-void MainWindow::processEvents()
-{
-  if (this->procevents) QApplication::processEvents();
-}
 
 QString MainWindow::exportPath(const QString& suffix, const QString& basename)
 {
@@ -3775,25 +2998,18 @@ void MainWindow::setupCoreSubsystems()
   renderCompleteSoundEffect = new QSoundEffect(this);
   renderCompleteSoundEffect->setSource(QUrl("qrc:/sounds/complete.wav"));
 
-  this->geometryWorker = new GeometryWorker();
-  connect(this->geometryWorker, &GeometryWorker::done, this, &MainWindow::actionRenderDone);
 
   autoReloadTimer = new QTimer(this);
   autoReloadTimer->setSingleShot(false);
   autoReloadTimer->setInterval(autoReloadPollingPeriodMS);
   connect(autoReloadTimer, &QTimer::timeout, this, &MainWindow::checkAutoReload);
 
-  waitAfterReloadTimer = new QTimer(this);
-  waitAfterReloadTimer->setSingleShot(true);
-  waitAfterReloadTimer->setInterval(autoReloadPollingPeriodMS);
-  connect(waitAfterReloadTimer, &QTimer::timeout, this, &MainWindow::waitAfterReload);
 
   consoleUpdater = new QTimer(this);
   consoleUpdater->setSingleShot(true);
   connect(consoleUpdater, &QTimer::timeout, this->console, &Console::update);
   this->consoleUpdater->start(0);  // Show initial messages immediately
 
-  progressThrottle->start();
 }
 
 /**

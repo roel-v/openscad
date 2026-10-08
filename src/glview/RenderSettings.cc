@@ -27,6 +27,7 @@ std::optional<RenderBackend3D> renderBackend3DFromString(std::string backend)
 
 RenderSettings *RenderSettings::inst(bool erase)
 {
+  if (threadSettings) return threadSettings;
   static auto instance = new RenderSettings;
   if (erase) {
     delete instance;
@@ -34,6 +35,13 @@ RenderSettings *RenderSettings::inst(bool erase)
   }
   return instance;
 }
+
+thread_local RenderSettings *RenderSettings::threadSettings = nullptr;
+RenderSettings::Scope::Scope(RenderSettings& settings) : previous(threadSettings)
+{
+  threadSettings = &settings;
+}
+RenderSettings::Scope::~Scope() { threadSettings = previous; }
 
 RenderSettings::RenderSettings()
 {

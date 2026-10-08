@@ -94,13 +94,13 @@ std::unique_ptr<OpenCSGVBOPrim> createVBOPrimitive(
 
 OpenCSGRenderer::OpenCSGRenderer(std::shared_ptr<CSGProducts> root_products,
                                  std::shared_ptr<CSGProducts> highlights_products,
-                                 std::shared_ptr<CSGProducts> background_products)
+                                 std::shared_ptr<CSGProducts> background_products, TriangleStatistics triangles)
   : root_products_(std::move(root_products)),
     highlights_products_(std::move(highlights_products)),
     background_products_(std::move(background_products))
 {
   opencsg_vertex_shader_code_ = ShaderUtils::loadShaderSource("OpenCSG.vert");
-  triangles_=previewTriangleStatistics(root_products_,highlights_products_,background_products_);
+  triangles_ = triangles;
 }
 
 void OpenCSGRenderer::prepare(const ShaderUtils::ShaderInfo *shaderinfo)

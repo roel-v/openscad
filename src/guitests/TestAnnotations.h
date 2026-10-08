@@ -9,6 +9,7 @@ private slots:
   void targetInspection();
   void syntaxInspection();
   void modelInspection();
+  void deferredModelInspection();
   void guardedViewport();
   void directHttpWorkflow();
   void nativeSavedViews();

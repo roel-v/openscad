@@ -25,6 +25,7 @@
  */
 
 #include "PolySetRenderer.h"
+#include "core/EvaluationCancellation.h"
 
 #include <cassert>
 #include <cmath>
@@ -64,43 +65,59 @@
 
 // This renderer is used in Manifold mode (F6 with Manifold as geometry engine)
 PolySetRenderer::PolySetRenderer(const std::shared_ptr<const class Geometry>& geom)
+  : PolySetRenderer(prepareGeometry(geom))
 {
-  this->addGeometry(geom);
-  uint64_t count=0;
-  for (const auto& ps:polysets_) {
-    const auto value=preparedTriangleCount(*ps);
-    if (!value) return;
-    count+=*value;
-  }
-  for (const auto& pair:polygons_) {
-    const auto value=preparedTriangleCount(*pair.second);
-    if (!value) return;
-    count+=*value;
-  }
-  triangles_={TriangleStatistics::Kind::Final,count,polygons_.empty() ? 3 : 2};
 }
 
-void PolySetRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)
+PolySetRenderer::PreparedGeometry PolySetRenderer::prepareGeometry(const std::shared_ptr<const Geometry>& geom)
 {
+  PreparedGeometry result;
+  if (geom) result.add(geom);
+  uint64_t count = 0;
+  bool known = true;
+  for (const auto& ps : result.polysets) {
+    evaluationCheckpoint();
+    (void)ps->getBoundingBox();
+    const auto value = preparedTriangleCount(*ps);
+    if (value) count += *value; else known = false;
+  }
+  for (const auto& pair : result.polygons) {
+    evaluationCheckpoint();
+    (void)pair.first->getBoundingBox();
+    const auto value = preparedTriangleCount(*pair.second);
+    if (value) count += *value; else known = false;
+  }
+  if (known) result.triangles = {TriangleStatistics::Kind::Final, count, result.polygons.empty() ? 3 : 2};
+  return result;
+}
+
+PolySetRenderer::PolySetRenderer(PreparedGeometry geometry)
+  : polysets_(std::move(geometry.polysets)), polygons_(std::move(geometry.polygons))
+{
+  triangles_ = geometry.triangles;
+}
+void PolySetRenderer::PreparedGeometry::add(const std::shared_ptr<const Geometry>& geom)
+{
+  evaluationCheckpoint();
   assert(geom != nullptr);
   if (const auto geomlist = std::dynamic_pointer_cast<const GeometryList>(geom)) {
     for (const auto& item : geomlist->getChildren()) {
-      this->addGeometry(item.second);
+      add(item.second);
     }
   } else if (const auto ps = std::dynamic_pointer_cast<const PolySet>(geom)) {
     assert(ps->getDimension() == 3);
     // We need to tessellate here, in case the generated PolySet contains concave polygons
     // See tests/data/scad/3D/features/polyhedron-concave-test.scad
-    this->polysets_.push_back(PolySetUtils::tessellate_faces(*ps));
+    polysets.push_back(PolySetUtils::tessellate_faces(*ps));
   } else if (const auto poly = std::dynamic_pointer_cast<const Polygon2d>(geom)) {
     // Edges are taken from the stored outlines. Overlapping colors stay separate
     // for export, so the view uses their boolean union.
     std::shared_ptr<const Polygon2d> shown = poly->unionedContours();
     if (!shown) shown = poly;
-    this->polygons_.emplace_back(shown, std::shared_ptr<const PolySet>(shown->tessellate()));
+    polygons.emplace_back(shown, std::shared_ptr<const PolySet>(shown->tessellate()));
 #ifdef ENABLE_MANIFOLD
   } else if (const auto mani = std::dynamic_pointer_cast<const ManifoldGeometry>(geom)) {
-    this->polysets_.push_back(mani->toPolySet());
+    polysets.push_back(mani->toPolySet());
 #endif
 #ifdef ENABLE_CGAL
   } else if (const auto N = std::dynamic_pointer_cast<const CGALNefGeometry>(geom)) {
@@ -110,7 +127,7 @@ void PolySetRenderer::addGeometry(const std::shared_ptr<const Geometry>& geom)
     if (!N->isEmpty()) {
       if (auto ps = CGALUtils::createPolySetFromNefPolyhedron3(*N->p3)) {
         ps->setConvexity(N->getConvexity());
-        this->polysets_.push_back(std::shared_ptr<PolySet>(std::move(ps)));
+        polysets.push_back(std::shared_ptr<PolySet>(std::move(ps)));
       }
     }
 #endif

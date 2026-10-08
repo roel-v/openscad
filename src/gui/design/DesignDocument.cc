@@ -376,8 +376,11 @@ LifecycleResult DesignDocument::remove(const std::string& id,const Selection::St
   return applySourceEdit(std::move(prepared),{},{id});
 }
 void DesignDocument::synchronize(){
-  if(!window || !owner)return;auto stamp=window->evaluationBinding->stamp();if(!valid(stamp))return;
-  auto scene=window->evaluationBinding->scene(stamp);
+  if(!window || !owner)return;auto stamp=window->evaluationBinding->stamp();
+  if(stamp.documentId!=owner->documentId())return;
+  // Installation already validated the captured result. Synchronizing the UI
+  // must not reread every dependency; source-edit transactions still do so.
+  auto scene=window->evaluationBinding->displayScene(stamp);if(!scene)return;
   if(scene && scene->designObjects)sourceState={scene->designObjects->records,scene->inputs->consumed(),owner->documentId(),environmentRevision};
   if(scene && scene->backing && scene->backing->parsedRoot)for(const auto& assignment:scene->backing->parsedRoot->scope->assignmentOccurrences)sourceState.names.insert(assignment->getName());
   for(const auto& connection:sourceConnections)disconnect(connection);sourceConnections.clear();

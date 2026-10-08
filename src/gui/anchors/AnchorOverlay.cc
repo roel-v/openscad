@@ -8,8 +8,8 @@ void Controller::prepareOverlay(){
   overlayFrame.reset();overlayWorld.reset();
   if(!window || !window->evaluationBinding->current())return;
   std::optional<Transform3d> frame;std::optional<ReferenceValue> world;auto draft=captureDraft();
-  if(draft){auto key=referenceKey(draft->key);auto reference=std::dynamic_pointer_cast<const ReferenceDeclaration>(draft->preview->evaluated);if(key && reference){Transform3d owner=Transform3d::Identity();auto scene=window->evaluationBinding->scene(window->evaluationBinding->stamp());if(key->owner.role==OwnerRole::Instance){auto found=scene->semantic->instances.find(key->owner.id);if(found==scene->semantic->instances.end())return;owner=found->second.localToWorld;}auto transformed=transformReference(reference->value,owner);frame=transformed.frame;world=transformed.worldValue;}}
-  else if(selected){auto resolved=resolve(*selected);frame=resolved.frame;world=resolved.world;}
+  if(draft){auto key=referenceKey(draft->key);auto reference=std::dynamic_pointer_cast<const ReferenceDeclaration>(draft->preview->evaluated);if(key && reference){Transform3d owner=Transform3d::Identity();auto scene=window->evaluationBinding->displayScene(window->evaluationBinding->stamp());if(!scene || !scene->semantic)return;if(key->owner.role==OwnerRole::Instance){auto found=scene->semantic->instances.find(key->owner.id);if(found==scene->semantic->instances.end())return;owner=found->second.localToWorld;}auto transformed=transformReference(reference->value,owner);frame=transformed.frame;world=transformed.worldValue;}}
+  else if(selected){auto resolved=resolveForDisplay(*selected);frame=resolved.frame;world=resolved.world;}
   overlayFrame=std::move(frame);overlayWorld=std::move(world);
 }
 void Controller::drawOverlay(){

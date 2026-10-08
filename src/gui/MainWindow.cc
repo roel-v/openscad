@@ -1143,7 +1143,8 @@ void MainWindow::instantiateRoot()
     AbstractNode::resetIndexCounter();
     SourceProvenance::ParseScope syntaxScope(evaluationBacking->syntax.get());
     evaluationBacking->session = std::make_shared<EvaluationSession>(doc.parent_path().string());
-    evaluationBacking->session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(evaluationBacking->syntax);
+    if (evaluationBacking->syntax)
+      evaluationBacking->session->provenanceCollector = std::make_shared<SourceProvenance::ProvenanceCollector>(evaluationBacking->syntax);
     evaluationBacking->session->capturedInputs = evaluationInputs;
     ContextHandle<BuiltinContext> builtin_context{Context::create<BuiltinContext>(evaluationBacking->session.get())};
     evaluationBacking->builtin = *builtin_context;
@@ -1178,12 +1179,13 @@ void MainWindow::instantiateRoot()
       evaluationInputs->freeze();
       auto scene = std::make_shared<Selection::EvaluatedScene>();
       scene->semantic = evaluationBacking->session->semanticCollector->finish();
-      scene->inspectionPrepared = true; // This owner has no optional source tracing.
       scene->backing = evaluationBacking;
       scene->designObjects = evaluationBacking->session->designCollector->finish();
       scene->inputs = evaluationInputs;
       scene->root = rootNode;
-      scene->provenance = evaluationBacking->session->provenanceCollector->finish(*rootNode);
+      if (evaluationBacking->session->provenanceCollector)
+        scene->provenance = evaluationBacking->session->provenanceCollector->finish(*rootNode);
+      scene->inspectionPrepared = bool(scene->provenance);
       scene->documentPath = doc.parent_path().string();
       evaluatedScene = std::move(scene);
     }
@@ -1895,6 +1897,89 @@ bool MainWindow::trust_python_file(const std::string& file, const std::string& c
 }
 #endif  // ifdef ENABLE_PYTHON
 
+namespace SourceProvenance {
+struct ParsedLibraryCache {
+  bool modelRequiresInspection = false;
+  std::shared_ptr<EvaluationInputs> inputs;
+  std::shared_ptr<SourceFileCache> libraries;
+  std::shared_ptr<SyntaxTable> syntax;
+  std::vector<LibraryPathLookup> lookups;
+  std::vector<std::string> configuration;
+};
+}
+
+std::shared_ptr<Selection::EvaluationBacking> MainWindow::parseCapturedDocument(EditorInterface *editor, bool requireInspection)
+{
+  NativeExecutionGuard execution;
+  bool collect = requireInspection || evaluationBinding->inspectionRequested(editor);
+  auto captured = Selection::EvaluationBinding::capture(*this, *editor);
+  auto configuration = get_library_path();
+  configuration.push_back(commandline_commands);
+  configuration.push_back(Feature::features());
+  configuration.push_back(fs::current_path().generic_string());
+  auto previous = parsedLibraryCache;
+  bool reuse = previous && previous->configuration == configuration &&
+    previous->inputs->root().fileKey == captured->root().fileKey &&
+    previous->inputs->root().fingerprint == captured->root().fingerprint;
+  if (reuse) {
+    try {
+      reuse = LibraryPathLookupScope::current(previous->lookups);
+      for (const auto& [key, input] : previous->inputs->consumed()) {
+        if (!reuse) break;
+        const auto& current = key == captured->root().fileKey ? captured->root() : captured->read(key);
+        reuse = current.fingerprint == input.fingerprint;
+      }
+    } catch (const EvaluationInputError&) { reuse = false; }
+      catch (const fs::filesystem_error&) { reuse = false; }
+  }
+  if (reuse) collect = collect || previous->modelRequiresInspection;
+  // A lean AST cache has no syntax ordinals/records. Enabling inspection must
+  // reparse the whole closure, including libraries, before publishing mappings.
+  if (reuse && collect && !previous->syntax) reuse = false;
+  if (!reuse) {
+    // Failed validation may have read dependencies that the new parse no longer uses.
+    captured = Selection::EvaluationBinding::capture(*this, *editor);
+    previous.reset();
+    parsedLibraryCache.reset();
+  }
+  auto backing = std::make_shared<Selection::EvaluationBacking>();
+  backing->inputs = captured;
+  backing->libraries = std::make_shared<SourceFileCache>(captured.get());
+  if (collect) backing->syntax = reuse ? previous->syntax->reuseForParse(captured)
+                                      : std::make_shared<SourceProvenance::SyntaxTable>(captured);
+  if (reuse) backing->libraries->seedCapturedLibraries(*previous->libraries);
+  auto cache = std::make_shared<SourceProvenance::ParsedLibraryCache>();
+  if (reuse) cache->lookups = previous->lookups;
+  const auto errors = compileErrors;
+  const auto warnings = compileWarnings;
+  bool reusable = !editor->filepath.endsWith(".py", Qt::CaseInsensitive);
+  const auto parentGuard = nativeParserCapabilityGuard;
+  NativeEvaluationScope inputScope(*captured, *backing->libraries, [&](NativeCapability capability) {
+    reusable = false; // Fonts/external parser side effects must execute on every parse.
+    if (parentGuard) parentGuard(capability);
+  });
+  SourceProvenance::ParseScope syntaxScope(backing->syntax.get());
+  LibraryPathLookupScope lookupScope(cache->lookups);
+  backing->parsedRoot = parseDocument(editor);
+  cache->modelRequiresInspection = backing->parsedRoot && SourceProvenance::modelRequiresInspection(*backing->parsedRoot);
+  if (!collect && cache->modelRequiresInspection) {
+    // A model-structure consumer needs complete mappings even with Inspector off.
+    // Drop the lean cache rather than pairing old AST ordinals with new records.
+    parsedLibraryCache.reset();
+    return parseCapturedDocument(editor, true);
+  }
+  if (backing->parsedRoot && reusable && compileErrors == errors && compileWarnings == warnings) {
+    cache->inputs = captured;
+    cache->libraries = backing->libraries;
+    cache->syntax = backing->syntax;
+    cache->configuration = std::move(configuration);
+    // One parse closure per window. Never retain an EvaluationSession, renderer,
+    // previous cache generation or parameter-mutated root in this cache.
+    parsedLibraryCache = std::move(cache);
+  } else parsedLibraryCache.reset();
+  return backing;
+}
+
 std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
 {
   resetSuppressedMessages();
@@ -1952,7 +2037,7 @@ std::shared_ptr<SourceFile> MainWindow::parseDocument(EditorInterface *editor)
     if(evaluationOverrides && (evaluationOverrides->editor!=editor ||
        !editor->parameterWidget->applyEvaluationValues(evaluationOverrides->parameters,sourceFile))){
       LOG(message_group::Error,"Captured evaluation parameters no longer match the document");
-      delete sourceFile;return {};
+      return {};
     }
     editor->parameterWidget->setEnabled(true);
     editor->setIndicator(sourceFile->indicatorData);
@@ -1970,16 +2055,10 @@ void MainWindow::parseTopLevelDocument()
   this->lastCompiledDoc = activeEditor->toPlainText();
   if (annotationController) annotationController->beginEvaluation(lastCompiledDoc);
   evaluationBinding->invalidate(tr("Evaluation in progress"));
-  evaluationInputs = Selection::EvaluationBinding::capture(*this, *activeEditor);
-  evaluationBacking = std::make_shared<Selection::EvaluationBacking>();
-  evaluationBacking->inputs = evaluationInputs;
-  evaluationBacking->syntax = std::make_shared<SourceProvenance::SyntaxTable>(evaluationInputs);
-  evaluationBacking->libraries = std::make_shared<SourceFileCache>(evaluationInputs.get());
-
   activeEditor->resetHighlighting();
-  NativeEvaluationScope inputScope(*evaluationInputs, *evaluationBacking->libraries);
-  SourceProvenance::ParseScope syntaxScope(evaluationBacking->syntax.get());
-  this->rootFile = parseDocument(activeEditor);
+  evaluationBacking = parseCapturedDocument(activeEditor);
+  evaluationInputs = evaluationBacking->inputs;
+  this->rootFile = evaluationBacking->parsedRoot;
   this->parsedFile = this->rootFile;
   evaluationBacking->parsedRoot = rootFile;
 }
@@ -3366,7 +3445,7 @@ void MainWindow::onTabManagerEditorContentReloaded(EditorInterface *reloadedEdit
   try {
     // when a new editor is created, it is important to compile the initial geometry
     // so the customizer panels are ok.
-    parseDocument(reloadedEditor);
+    parseCapturedDocument(reloadedEditor);
   } catch (const HardWarningException&) {
     exceptionCleanup();
   } catch (const std::exception& ex) {

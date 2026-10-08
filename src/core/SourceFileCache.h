@@ -25,6 +25,8 @@ public:
   SourceFile *lookup(const std::string& filename);
   // Seed a request-local cache from an already captured AST; never reparses current disk.
   void seedCaptured(const std::string& fileKey, const SourceFile&);
+  // Inputs must already contain the independently validated prior parse closure.
+  void seedCapturedLibraries(const SourceFileCache& previous);
   size_t size() const { return this->entries.size(); }
   void clear();
   static void clear_markers();

@@ -76,6 +76,7 @@ class AIDock;
 #include "utils/scope_guard.hpp"
 
 class UXTest;
+namespace SourceProvenance { struct ParsedLibraryCache; }
 namespace AgentAnnotations { class Controller; }
 class InspectionPresentationController;
 namespace Semantic { class Controller; }
@@ -103,6 +104,7 @@ public:
   std::shared_ptr<EvaluationInputs> evaluationInputs;
   std::shared_ptr<Selection::EvaluationBacking> evaluationBacking;
   std::shared_ptr<const Selection::EvaluatedScene> evaluatedScene;
+  std::shared_ptr<SourceProvenance::ParsedLibraryCache> parsedLibraryCache;
   Preferences *prefs;
 
   QTimer *consoleUpdater;
@@ -237,6 +239,7 @@ public:
   // Parse the document contained in the editor, update the editors's parameters and returns a SourceFile
   // object if parsing suceeded. Nullptr otherwise.
   std::shared_ptr<SourceFile> parseDocument(EditorInterface *editor);
+  std::shared_ptr<Selection::EvaluationBacking> parseCapturedDocument(EditorInterface *editor, bool requireInspection = false);
 
   void parseTopLevelDocument();
   bool evaluateCapturedVariables(const RenderVariables&,const ParameterSet&);

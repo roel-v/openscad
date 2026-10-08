@@ -5,6 +5,7 @@
 #include "gui/annotations/AnnotationBridge.h"
 #include "gui/annotations/AgentSyntax.h"
 #include "gui/annotations/AgentModel.h"
+#include "gui/selection/EvaluationBinding.h"
 #include "gui/CameraNavigation.h"
 #include "gui/SavedViews.h"
 #include "core/parsersettings.h"
@@ -319,8 +320,53 @@ void TestAnnotations::guardedViewport()
   bridge->stop();
 }
 
+void TestAnnotations::deferredModelInspection()
+{
+  auto bridge = AgentAnnotations::Bridge::instance();
+  bridge->stop(false);
+  window->designActionAutoReload->setChecked(false);
+  QTemporaryDir directory; QVERIFY(directory.isValid());
+  const auto library = directory.filePath("part.scad");
+  QFile file(library); QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write("module part(){cube(3);}\n"); file.close();
+  window->tabManager->actionNew();
+  auto editor = window->activeEditor;
+  editor->setPlainText("use <" + library + ">\npart();");
+  window->actionRenderPreview(); QVERIFY(waitForEvaluation());
+  const auto before = window->annotationController->status().value("result").toObject();
+  QVERIFY(!before.contains("tree_id"));
+  // Enabling access must inspect retained bytes/ASTs, even after both sources change.
+  QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+  file.write("module part(){cube(99);}\n"); file.close();
+  editor->setPlainText("cube(88);");
+  bridge->start(false);
+  QTRY_VERIFY(!bridge->connection().isEmpty());
+  const auto after = window->annotationController->status().value("result").toObject();
+  QCOMPARE(after.value("result_id"), before.value("result_id"));
+  QVERIFY(!after.value("tree_id").toString().isEmpty());
+  const auto base = "/v1/trees/" + after.value("tree_id").toString();
+  const auto metadata = agentRequest(bridge->connection(), base);
+  QVERIFY(!metadata.value("dependencies").toArray().isEmpty());
+  auto pending = metadata.value("root_ids").toArray();
+  int cubes = 0;
+  for (int i = 0; i < pending.size(); ++i) {
+    QVERIFY(pending.size() < 30);
+    const auto node = agentRequest(bridge->connection(), base + "/nodes/" + pending[i].toString());
+    if (node.value("kind") == "cube") {
+      ++cubes;
+      QCOMPARE(node.value("attributes").toObject().value("size").toArray()[0].toInt(), 3);
+    }
+    for (const auto& child : node.value("children").toArray()) pending.append(child.toObject().value("node_id"));
+  }
+  QCOMPARE(cubes, 1);
+  bridge->publish();
+  QCOMPARE(window->annotationController->status().value("result").toObject().value("tree_id"), after.value("tree_id"));
+  bridge->stop(false);
+}
+
 void TestAnnotations::modelInspection()
 {
+  AgentAnnotations::Bridge::instance()->stop(false);
   window->designActionAutoReload->setChecked(false);
   window->tabManager->actionNew();
   auto editor = window->activeEditor;
@@ -328,17 +374,20 @@ void TestAnnotations::modelInspection()
     "!difference() { for (s=[2:4]) part(s); #sphere(1); %cube(8); } *cube(99);\n");
   window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   auto bridge = AgentAnnotations::Bridge::instance();
+  const auto beforeAccess = window->annotationController->status().value("result").toObject();
+  QVERIFY(!beforeAccess.contains("tree_id"));
   bridge->start(false);
   QTRY_COMPARE(bridge->connection().value("api_version").toInt(), 1);
   const auto info = bridge->connection();
   const auto result = window->annotationController->status().value("result").toObject();
   const auto treeId = result.value("tree_id").toString();
   QVERIFY(!treeId.isEmpty());
+  QCOMPARE(result.value("result_id"), beforeAccess.value("result_id")); // No reevaluation on enable.
   auto tree = agentRequest(info, "/v1/trees/" + treeId);
   QCOMPARE(tree.value("kind").toString(), QString("evaluated"));
   QVERIFY(tree.value("complete").toBool());
   QVERIFY(tree.value("effective_root_ids") != tree.value("root_ids"));
-  auto detached = AgentAnnotations::inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), result);
+  auto detached = AgentAnnotations::inspectModel(window->absoluteRootNode.get(), window->rootNode.get(), window->rootFile.get(), window->evaluationBacking->libraries.get(), result);
   int cubes = 0;
   QSet<QString> spans;
   for (const auto& node : detached.nodes) {
@@ -362,12 +411,20 @@ void TestAnnotations::modelInspection()
   QVERIFY(agentRequest(info, "/v1/trees/" + empty.value("tree_id").toString()).value("empty").toBool());
   GroupNode wide(nullptr);
   for (int i = 0; i < 13000; ++i) wide.children.push_back(std::make_shared<CubeNode>(nullptr));
-  auto bounded = AgentAnnotations::inspectModel(&wide, &wide, nullptr, empty);
+  auto bounded = AgentAnnotations::inspectModel(&wide, &wide, nullptr, nullptr, empty);
   QCOMPARE(bounded.nodes.size(), 12000);
   QVERIFY(!bounded.metadata.value("complete").toBool());
   for (const auto& node : bounded.nodes)
     for (const auto& child : node.value("children").toArray())
       QVERIFY(bounded.nodes.contains(child.toObject().value("node_id").toString()));
+  bridge->stop();
+  QVERIFY(!window->annotationController->status().value("result").toObject().contains("tree_id"));
+  bridge->start(false);
+  QTRY_VERIFY(!bridge->connection().isEmpty());
+  const auto restarted = window->annotationController->status().value("result").toObject();
+  QCOMPARE(restarted.value("result_id"), empty.value("result_id"));
+  QVERIFY(restarted.value("tree_id") != empty.value("tree_id"));
+  QVERIFY(agentRequest(bridge->connection(), "/v1/trees/" + restarted.value("tree_id").toString()).value("empty").toBool());
   bridge->stop();
 }
 
@@ -385,7 +442,7 @@ void TestAnnotations::sourceInspection()
   editor->setPlainText("echo(43); cube(3);\n");
   window->actionRenderPreview(); QVERIFY(waitForEvaluation());
   const auto camera = window->annotationController->camera();
-  const auto before = window->annotationController->status().value("result");
+  const auto beforeAccess = window->annotationController->status().value("result").toObject();
   const auto dirty = editor->isContentModified(), undo = editor->canUndo();
   const auto revision = editor->sourceRevision;
   auto bridge = AgentAnnotations::Bridge::instance();
@@ -394,6 +451,9 @@ void TestAnnotations::sourceInspection()
   const auto info = bridge->connection();
   const auto document = editor->annotations->sessionId;
   const auto route = "/v1/documents/" + document;
+  // Enabling access adds the deferred tree, but must not replace the evaluation.
+  const auto before = window->annotationController->status().value("result");
+  QCOMPARE(before.toObject().value("result_id"), beforeAccess.value("result_id"));
   QJsonObject body{{"request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
     {"server_id", info.value("server_id")}, {"document_id", document},
     {"window_id", window->annotationController->windowId}, {"origin", "disk"}};

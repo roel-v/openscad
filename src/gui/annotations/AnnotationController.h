@@ -40,7 +40,8 @@ public:
   bool drafting() const { return state != Idle; }
 
   void finishEvaluation(bool success);
-  QJsonObject finishBackgroundEvaluation(EditorInterface *owner, QJsonObject metadata, InspectionTree inspection);
+  QJsonObject finishBackgroundEvaluation(EditorInterface *owner, QJsonObject metadata,
+                                        std::function<InspectionTree()> inspection);
   void observeBackgroundAttempt(QJsonObject metadata);
   void rendererChanged();
   void registerPresentationRenderer(const std::shared_ptr<Renderer>& renderer, const QString& resultId);
@@ -62,6 +63,8 @@ public:
   void observeDiagnostic(const Message& message, const QJsonObject& context);
   QJsonObject inspection(const QString& document) const;
   void pruneInspection();
+  void prepareInspectionTrees();
+  void releaseInspectionTrees();
 signals:
   void changed();
   void cameraStateChanged();
@@ -77,7 +80,15 @@ private:
   QPointer<EditorInterface> displayedOwner, evaluationOwner, draftOwner;
   QPointer<QDialog> commentDialog;
   QJsonObject result, evaluation, lastAttempt, draftResult;
-  std::optional<InspectionTree> preparedInspection;
+  std::function<InspectionTree()> preparedInspection;
+  struct DeferredInspection {
+    QJsonObject metadata;
+    std::function<InspectionTree()> prepare;
+    bool attempted = false;
+    QJsonObject fields;
+  };
+  QHash<QString, DeferredInspection> deferredInspections;
+  void updateInspectionMetadata(const QString& resultId, const QJsonObject& fields);
   mutable QMutex contextMutex;
   QJsonObject messageContext;
   QHash<QString, QJsonArray> attemptHistory, resultHistory, diagnosticHistory;

@@ -185,7 +185,7 @@ TEST_CASE("Preferences group spacing follows native metrics without changing set
   larger.setPointSize(18);
   prefs->setFont(larger);
   for (auto *box : prefs->findChildren<QGroupBox *>()) {
-    if (prefs->pageAdvanced->isAncestorOf(box)) CHECK(box->isFlat());
+    CHECK_FALSE(box->isFlat());
     if (box->layout()) CHECK(box->layout()->spacing() == UIUtils::layoutSpacing(prefs, Qt::Vertical));
   }
   CHECK(prefs->getValue("editor/fontsize") == value);

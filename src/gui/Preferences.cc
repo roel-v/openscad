@@ -590,6 +590,13 @@ void Preferences::organizeFeatureSettings()
 {
   // Feature owners append controls before this point. Reparent them into the semantic page groups.
   // This keeps the shared Preferences layout independent of optional feature ancestry.
+  if (auto *appearance = page3DView->findChild<QGroupBox *>("groupBoxAppearance")) {
+    for (auto *box : page3DView->findChildren<QCheckBox *>(QString(), Qt::FindDirectChildrenOnly)) {
+      if (box->objectName() == "alwaysPrepareInspector") continue;
+      page3DView->layout()->removeWidget(box);
+      appearance->layout()->addWidget(box);
+    }
+  }
   if (auto *inspector = page3DView->findChild<QCheckBox *>("alwaysPrepareInspector")) {
     page3DView->layout()->removeWidget(inspector);
     auto *box = new QGroupBox(tr("Inspector"), page3DView);

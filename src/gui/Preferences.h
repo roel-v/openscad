@@ -92,7 +92,7 @@ public slots:
   void on_fontComboBoxApplicationFontFamily_currentFontChanged(const QFont&);
   void on_comboBoxApplicationFontSize_currentIndexChanged(int);
   void on_consoleFontChooser_currentFontChanged(const QFont&);
-  void on_consoleFontSize_currentIndexChanged(int);
+  void on_consoleFontSize_activated(int);
   void on_customizerFontChooser_currentFontChanged(const QFont&);
   void on_customizerFontSize_currentIndexChanged(int);
   void on_checkBoxEnableAutocomplete_toggled(bool);

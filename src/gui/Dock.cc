@@ -1,4 +1,5 @@
 #include "gui/Dock.h"
+#include "gui/SurfaceWidgets.h"
 
 #include <QCloseEvent>
 #include <QDockWidget>
@@ -32,7 +33,9 @@ Dock::Dock(QWidget *parent) : QDockWidget(parent)
 {
   connect(this, &QDockWidget::topLevelChanged, this, &Dock::onTopLevelStatusChanged);
 
-  dockTitleWidget = new QWidget();
+  dockTitleWidget = new QWidget(this);
+  visibleTitleWidget = new SurfaceWidgets::DockTitle(this);
+  setTitleBarWidget(visibleTitleWidget);
 }
 
 Dock::~Dock()
@@ -41,11 +44,10 @@ Dock::~Dock()
 }
 
 // When moving docked panes around is allowed (reorderMode/reorderWindows), enable a title bar.
-// When not allowed, disable the title bar.  Note that nullptr yields a default toolbar, while
-// docTitleWidget is an empty (and so invisible) widget.
+// When not allowed, use the empty title widget. Restoring visibility must retain the shared title.
 void Dock::setTitleBarVisibility(bool isVisible)
 {
-  setTitleBarWidget(isVisible ? nullptr : dockTitleWidget);
+  setTitleBarWidget(isVisible ? visibleTitleWidget : dockTitleWidget);
 }
 
 void Dock::updateTitle()

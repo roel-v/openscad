@@ -26,4 +26,5 @@ private:
   QString name;
   QString namesuffix;
   QWidget *dockTitleWidget;
+  QWidget *visibleTitleWidget;
 };

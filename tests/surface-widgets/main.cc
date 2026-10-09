@@ -1,4 +1,5 @@
 #include "../../src/gui/SurfaceWidgets.h"
+#include "../../src/gui/Dock.h"
 #include <QApplication>
 #include <iostream>
 int main(int argc, char **argv)
@@ -6,6 +7,13 @@ int main(int argc, char **argv)
   QApplication app(argc, argv);
   auto require = [](bool value, const char *message) { if (!value) { std::cerr << message << '\n'; exit(1); } };
   QMainWindow window;
+  Dock actual(&window);
+  auto *styled = actual.titleBarWidget();
+  require(styled && styled->objectName() == "scadmaxxDockTitle", "Dock starts with native title");
+  actual.setTitleBarVisibility(false);
+  require(actual.titleBarWidget() != styled, "Dock hide title failed");
+  actual.setTitleBarVisibility(true);
+  require(actual.titleBarWidget() == styled, "Dock replaced styled title when restoring visibility");
   auto *first = new QDockWidget("First", &window);
   window.addDockWidget(Qt::LeftDockWidgetArea, first);
   new SurfaceWidgets::DockInstaller(&window);

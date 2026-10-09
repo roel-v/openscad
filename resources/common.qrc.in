@@ -7,7 +7,6 @@
     <file>html/AboutDialog.html</file>
 
     <file>sounds/complete.wav</file>
-    <file>icons/prefsShortcuts.png</file>
     <file alias="logo.png">icons/openscad${SNAPSHOT_SUFFIX}.png</file>
 
     <file>icons/button.png</file>

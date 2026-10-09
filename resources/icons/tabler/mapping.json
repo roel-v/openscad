@@ -70,6 +70,7 @@
   "prefsFeatures": "stock/flask.svg",
   "prefsInputAxis": "stock/arrows-move.svg",
   "prefsInputButtons": "stock/keyboard.svg",
+  "prefsShortcuts": "stock/keyboard.svg",
   "prefsInput": "stock/mouse.svg",
   "prefs3DPrint": "stock/printer.svg",
   "prefsDialogs": "stock/app-window.svg",

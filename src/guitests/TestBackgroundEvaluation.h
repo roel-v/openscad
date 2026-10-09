@@ -14,4 +14,6 @@ private slots:
   void failedPreviewRetainsLastDisplay();
   void parsedLibraryReuseTracksBytesAndInspection();
   void parsedLibraryReuseTracksSearchesAndConfiguration();
+  void openPreviewsWithoutAutoReload();
+  void startupPreviewsWithoutAutoReload();
 };

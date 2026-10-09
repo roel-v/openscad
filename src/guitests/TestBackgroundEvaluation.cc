@@ -8,6 +8,7 @@
 #include "core/parsersettings.h"
 #include <QEventLoop>
 #include <QDir>
+#include "gui/QSettingsCached.h"
 #include <QFile>
 #include <QTemporaryDir>
 #include <QSignalSpy>
@@ -15,6 +16,7 @@
 #include <QTimer>
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <thread>
 
 using namespace BackgroundEvaluation;
@@ -420,4 +422,91 @@ void TestBackgroundEvaluation::failedPreviewRetainsLastDisplay()
   QVERIFY(window->evaluatedScene != scene);
   editor->setContentModified(false);
   window->tabManager->closeCurrentTab();
+}
+
+void TestBackgroundEvaluation::openPreviewsWithoutAutoReload()
+{
+  QSettingsCached settings;
+  const auto previous = settings.value("design/autoReload");
+  const bool hadSetting = settings.contains("design/autoReload");
+  auto restoreSetting = sg::make_scope_guard([&] {
+    if (hadSetting) settings.setValue("design/autoReload", previous);
+    else settings.remove("design/autoReload");
+  });
+  settings.setValue("design/autoReload", false);
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  auto write = [](const QString& path, const QByteArray& source) {
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write(source) == source.size();
+  };
+  const auto first = directory.filePath("first.scad");
+  const auto second = directory.filePath("second.scad");
+  QVERIFY(write(first, "cube(2);\n"));
+  QVERIFY(write(second, "sphere(3);\n"));
+  auto owner = std::make_unique<MainWindow>(QStringList{});
+  QVERIFY(!owner->designActionAutoReload->isChecked());
+  QTRY_VERIFY_WITH_TIMEOUT(!owner->backgroundEvaluation->busy(), 10000);
+  auto blank = owner->activeEditor;
+  QSignalSpy completed(owner.get(), &MainWindow::compilationDone);
+  owner->tabManager->open(first);
+  QCOMPARE(owner->activeEditor, blank); // File > Open reuses the initial empty tab.
+  QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty(), 10000);
+  QVERIFY(owner->isPreview);
+  QVERIFY(owner->qglview->renderer != nullptr);
+  QCOMPARE(owner->renderedEditor, owner->activeEditor);
+  QTRY_VERIFY_WITH_TIMEOUT(!owner->backgroundEvaluation->busy(), 10000);
+  completed.clear();
+  owner->tabManager->open(second); // The same action must also work with a new tab.
+  QVERIFY(owner->activeEditor != blank);
+  QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty(), 10000);
+  QCOMPARE(owner->renderedEditor, owner->activeEditor);
+  QVERIFY(owner->isPreview);
+  QVERIFY(owner->qglview->renderer != nullptr);
+  QTRY_VERIFY_WITH_TIMEOUT(!owner->backgroundEvaluation->busy(), 10000);
+
+  const auto scene = owner->evaluatedScene;
+  completed.clear();
+  owner->activeEditor->setPlainText("sphere(4);\n");
+  QTest::qWait(500); // Allow metadata debounce and disk-reload polling, without requesting Preview.
+  QTRY_VERIFY_WITH_TIMEOUT(!owner->backgroundEvaluation->busy(), 10000);
+  QVERIFY(completed.isEmpty());
+  QCOMPARE(owner->evaluatedScene, scene);
+
+  // Exercise the actual menu actions: Render followed by Preview must return to preview mode.
+  owner->designActionRender->trigger();
+  QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty(), 10000);
+  QVERIFY(!owner->isPreview);
+  completed.clear();
+  owner->designActionPreview->trigger();
+  QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty(), 10000);
+  QVERIFY(owner->isPreview);
+  QVERIFY(owner->qglview->renderer != nullptr);
+  QVERIFY(owner->evaluationBinding->current());
+  owner->activeEditor->setContentModified(false);
+}
+
+void TestBackgroundEvaluation::startupPreviewsWithoutAutoReload()
+{
+  QSettingsCached settings;
+  const auto previous = settings.value("design/autoReload");
+  const bool hadSetting = settings.contains("design/autoReload");
+  auto restoreSetting = sg::make_scope_guard([&] {
+    if (hadSetting) settings.setValue("design/autoReload", previous);
+    else settings.remove("design/autoReload");
+  });
+  settings.setValue("design/autoReload", false);
+  QTemporaryDir directory;
+  QVERIFY(directory.isValid());
+  const auto path = directory.filePath("startup.scad");
+  QFile file(path);
+  QVERIFY(file.open(QIODevice::WriteOnly));
+  file.write("cube(2);\n"); file.close();
+  auto owner = std::make_unique<MainWindow>(QStringList{path});
+  QSignalSpy completed(owner.get(), &MainWindow::compilationDone);
+  QVERIFY(!owner->designActionAutoReload->isChecked());
+  QTRY_VERIFY_WITH_TIMEOUT(!completed.isEmpty(), 10000);
+  QVERIFY(owner->isPreview);
+  QCOMPARE(owner->renderedEditor, owner->activeEditor);
+  QVERIFY(owner->qglview->renderer != nullptr);
 }

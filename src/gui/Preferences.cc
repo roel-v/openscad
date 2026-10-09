@@ -34,6 +34,9 @@
 #include <QFont>
 #include <QGroupBox>
 #include "gui/UIUtils.h"
+#include "gui/SurfaceWidgets.h"
+#include <QVBoxLayout>
+#include <QScrollArea>
 #include <QFontComboBox>
 #include <QFontDatabase>
 #include <QKeyEvent>
@@ -423,12 +426,13 @@ void Preferences::init()
     if (prefPages.contains(action)) categoryActions.append(action);
   }
 
-  categoryTabs = new QTabBar(centralwidget);
+  categoryTabs = new SurfaceWidgets::CategoryTabs(centralwidget);
   categoryTabs->setObjectName("categoryTabs");
   categoryTabs->setExpanding(false);
   categoryTabs->setUsesScrollButtons(true);
   categoryTabs->setIconSize(QSize(32, 32));
   categoryTabs->setAccessibleName(tr("Preferences categories"));
+  organizeFeatureSettings();
   updatePageMetrics();
   gridLayout_6->removeWidget(stackedWidget);
   gridLayout_6->addWidget(categoryTabs, 0, 0);
@@ -605,6 +609,46 @@ void Preferences::rebuildCategoryTabs()
   rebuildingCategoryTabs = false;
 }
 
+void Preferences::organizeFeatureSettings()
+{
+  // Feature owners append controls before this point. Reparent them into the semantic page groups.
+  // This keeps the shared Preferences layout independent of optional feature ancestry.
+  if (auto *appearance = page3DView->findChild<QGroupBox *>("groupBoxAppearance")) {
+    for (auto *box : page3DView->findChildren<QCheckBox *>(QString(), Qt::FindDirectChildrenOnly)) {
+      if (box->objectName() == "alwaysPrepareInspector") continue;
+      page3DView->layout()->removeWidget(box);
+      appearance->layout()->addWidget(box);
+    }
+  }
+  if (auto *inspector = page3DView->findChild<QCheckBox *>("alwaysPrepareInspector")) {
+    page3DView->layout()->removeWidget(inspector);
+    auto *box = new QGroupBox(tr("Inspector"), page3DView);
+    auto *layout = new QVBoxLayout(box);
+    layout->addWidget(inspector);
+    page3DView->layout()->addWidget(box);
+  }
+  if (auto *vim = pageEditor->findChild<QCheckBox *>("vimModeCheckBox")) {
+    pageEditor->layout()->removeWidget(vim);
+    if (auto *box = pageEditor->findChild<QGroupBox *>("groupBoxDisplay")) box->layout()->addWidget(vim);
+  }
+  auto *pageLayout = qobject_cast<QVBoxLayout *>(page3DView->layout());
+  if (pageLayout) {
+    // All settings stay together at the top; only the final spacer consumes excess height.
+    pageLayout->setAlignment(Qt::AlignTop);
+    for (int i = 0; i < pageLayout->count(); ++i) pageLayout->setStretch(i, 0);
+    pageLayout->addStretch(1);
+    auto *content = new QWidget;
+    content->setLayout(pageLayout);
+    auto *scroll = new QScrollArea(page3DView);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidget(content);
+    auto *outer = new QVBoxLayout(page3DView);
+    outer->setContentsMargins(0, 0, 0, 0);
+    outer->addWidget(scroll);
+  }
+}
+
 void Preferences::updatePageMetrics()
 {
   const int horizontal = UIUtils::layoutSpacing(this, Qt::Horizontal);
@@ -613,7 +657,7 @@ void Preferences::updatePageMetrics()
   gridLayout_6->setSpacing(vertical);
   pageDialogs->layout()->setAlignment(Qt::AlignTop);
   for (auto *box : findChildren<QGroupBox *>()) {
-    if (pageAdvanced->isAncestorOf(box) || pageDialogs->isAncestorOf(box)) box->setFlat(true);
+    box->setFlat(false);
     if (pageDialogs->isAncestorOf(box)) box->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
     if (auto *layout = box->layout()) {
       layout->setSpacing(vertical);

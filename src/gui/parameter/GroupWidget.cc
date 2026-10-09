@@ -73,8 +73,8 @@ void GroupDisclosureButton::paintEvent(QPaintEvent *event)
   // https://doc.qt.io/qt-6/qstylehints.html#colorScheme-prop
   const auto window = option.palette.color(QPalette::Window);
   const auto accent = option.palette.color(QPalette::Accent);
-  const qreal amount = option.state.testFlag(QStyle::State_Sunken) ? 0.22 :
-                       option.state.testFlag(QStyle::State_MouseOver) ? 0.16 : 0.10;
+  const qreal amount = option.state.testFlag(QStyle::State_Sunken) ? 0.08 :
+                       option.state.testFlag(QStyle::State_MouseOver) ? 0.06 : 0.04;
   const auto surface = QColor::fromRgbF(
     window.redF() + amount * (accent.redF() - window.redF()),
     window.greenF() + amount * (accent.greenF() - window.greenF()),

@@ -52,6 +52,7 @@
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDockWidget>
+#include "gui/SurfaceWidgets.h"
 #include <QDropEvent>
 #include <QElapsedTimer>
 #include <QEvent>
@@ -2984,6 +2985,7 @@ void MainWindow::setupWindow()
 {
   installEventFilter(this);
   setupUi(this);
+  new SurfaceWidgets::DockInstaller(this);
   for (auto *toolbar : findChildren<QToolBar *>()) toolbar->setIconSize(QSize(24, 24));
   this->setAttribute(Qt::WA_DeleteOnClose);
   scadApp->windowManager.add(this);

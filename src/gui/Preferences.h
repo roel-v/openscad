@@ -226,6 +226,7 @@ private:
   void addPrefPage(QActionGroup *group, QAction *action, QWidget *widget);
   void rebuildCategoryTabs();
   void updatePageMetrics();
+  void organizeFeatureSettings();
   QList<QAction *> categoryActions;
   bool rebuildingCategoryTabs = false;
   void createFontSizeMenu(QComboBox *box, const QString& setting);

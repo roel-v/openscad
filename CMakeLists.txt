@@ -1386,6 +1386,7 @@ set(GUI_SOURCES
   src/gui/UIUtils.cc
   src/gui/Icons.cc
   src/gui/WindowManager.cc
+  src/gui/ShortcutConfigurator.cc
   src/gui/IgnoreWheelWhenNotFocused.cc
   src/gui/input/AxisConfigWidget.cc
   src/gui/input/ButtonConfigWidget.cc

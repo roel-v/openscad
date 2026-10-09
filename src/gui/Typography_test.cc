@@ -288,9 +288,12 @@ TEST_CASE("UI font inheritance preserves independent content fonts", "[ui-typogr
   auto *prefs = GlobalPreferences::inst();
   QSettingsCached settings;
   for (const auto *key : {"advanced/applicationFontFamily", "advanced/applicationFontSize",
-                          "advanced/customizerFontFamily", "advanced/customizerFontSize"}) {
+                          "advanced/customizerFontFamily", "advanced/customizerFontSize",
+                          "advanced/consoleFontSize"}) {
     settings.remove(key);
   }
+  // A chosen Console size (and its transient zoom) remains independent of UI changes.
+  settings.setValue("advanced/consoleFontSize", prefs->getValue("advanced/applicationFontSize"));
   applyConfiguredFont();
   ParameterWidget first;
   ParameterWidget second;
@@ -365,6 +368,38 @@ TEST_CASE("UI font inheritance preserves independent content fonts", "[ui-typogr
   CHECK(editor.qsci->SendScintilla(QsciScintilla::SCI_GETZOOM) == editorZoom);
   CHECK(editor.qsci->SendScintilla(QsciScintilla::SCI_STYLEGETSIZE, 0UL) == editorTextSize);
   (void)app;
+}
+
+TEST_CASE("Console size inherits the UI until explicitly selected", "[ui-typography]")
+{
+  typographyApp();
+  auto *prefs = GlobalPreferences::inst();
+  QSettingsCached settings;
+  settings.remove("advanced/consoleFontSize");
+  settings.setValue("advanced/applicationFontSize", 14);
+  prefs->fireApplicationFontChanged();
+  const auto family = prefs->getValue("advanced/consoleFontFamily").toString();
+  Console console;
+  console.setConsoleFont(family, prefs->getValue("advanced/consoleFontSize").toUInt());
+  CHECK(console.document()->defaultFont().pointSize() == 14);
+  settings.setValue("advanced/applicationFontSize", 18);
+  prefs->fireApplicationFontChanged();
+  CHECK(console.document()->defaultFont().pointSize() == 18);
+  CHECK(console.document()->defaultFont().family() == family);
+  CHECK(prefs->consoleFontSize->currentText() == "18");
+  CHECK_FALSE(settings.contains("advanced/consoleFontSize"));
+
+  // Selecting even the current inherited size turns it into an explicit choice.
+  const auto selected = prefs->consoleFontSize->findText("18");
+  REQUIRE(selected >= 0);
+  prefs->consoleFontSize->activated(selected);
+  settings.setValue("advanced/applicationFontSize", 20);
+  prefs->fireApplicationFontChanged();
+  CHECK(console.document()->defaultFont().pointSize() == 18);
+  CHECK(prefs->consoleFontSize->currentText() == "18");
+  settings.release();
+  CHECK(prefs->getValue("advanced/consoleFontSize").toUInt() == 18);
+  settings.remove("advanced/consoleFontSize");
 }
 
 TEST_CASE("Customizer help is compact unfocusable and modes can be reused", "[ui-customizer]")
@@ -565,6 +600,7 @@ TEST_CASE("Persisted UI fonts load in a fresh process", "[ui-typography]")
     saved.setValue("advanced/applicationFontSize", 14);
     if (overrides & 1) saved.setValue("advanced/customizerFontFamily", "Courier New");
     if (overrides & 2) saved.setValue("advanced/customizerFontSize", 11);
+    if (overrides & 2) saved.setValue("advanced/consoleFontSize", 10);
     saved.sync();
     REQUIRE(saved.status() == QSettings::NoError);
     QProcess child;
@@ -595,6 +631,17 @@ TEST_CASE("Load persisted typography fixture", "[.][typography-restart]")
   GlobalPreferences::inst()->updateGUI();
   CHECK(saved.contains("advanced/customizerFontFamily") == familyOverride);
   CHECK(saved.contains("advanced/customizerFontSize") == sizeOverride);
+  const bool consoleOverride = saved.contains("advanced/consoleFontSize");
+  auto *prefs = GlobalPreferences::inst();
+  Console console;
+  console.setConsoleFont(prefs->getValue("advanced/consoleFontFamily").toString(),
+                         prefs->getValue("advanced/consoleFontSize").toUInt());
+  CHECK(console.document()->defaultFont().pointSize() == (consoleOverride ? 10 : 14));
+  // This hidden case runs alone in a child process. Exercise actual shutdown cleanup:
+  // an explicit 10 pt choice must survive even though it equals the Windows UI default.
+  delete prefs;
+  CHECK(saved.contains("advanced/consoleFontSize") == consoleOverride);
+  if (consoleOverride) CHECK(saved.value("advanced/consoleFontSize").toUInt() == 10);
 }
 
 // Opt-in native widget evidence; excluded from ordinary unit-test runs.

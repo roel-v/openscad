@@ -193,7 +193,7 @@ void Preferences::init()
   this->defaultmap["editor/fontsize"] = 12;
   this->defaultmap["editor/syntaxhighlight"] = "For Light Background";
 
-  // Content fonts must not inherit the application's UI typography defaults.
+  // Console family and editor typography remain independent of the application's UI font.
   const QFont platformFont = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
   QFont applicationFont = platformFont;
 #ifdef Q_OS_WIN
@@ -203,9 +203,9 @@ void Preferences::init()
   this->defaultmap["advanced/applicationFontFamily"] = applicationFont.family();
   this->defaultmap["advanced/applicationFontSize"] = applicationFont.pointSize();
 
-  // Leave Console font with default if user has not chosen another.
+  // Keep the platform Console family; getValue() inherits an unspecified size from the UI.
   this->defaultmap["advanced/consoleFontFamily"] = platformFont.family();
-  this->defaultmap["advanced/consoleFontSize"] = platformFont.pointSize();
+  this->defaultmap["advanced/consoleFontSize"] = applicationFont.pointSize();
 
   // getValue() resolves absent Customizer overrides against the current application settings.
   this->defaultmap["advanced/customizerFontFamily"] = applicationFont.family();
@@ -1041,10 +1041,15 @@ void Preferences::fireApplicationFontChanged() const
   emit applicationFontChanged(family, size);
   emit customizerFontChanged(getValue("advanced/customizerFontFamily").toString(),
                              getValue("advanced/customizerFontSize").toUInt());
+  const QSettingsCached settings;
+  if (!settings.contains("advanced/consoleFontSize")) {
+    emit consoleFontChanged(getValue("advanced/consoleFontFamily").toString(), size);
+  }
   updateGUIFontFamily(fontComboBoxApplicationFontFamily, "advanced/applicationFontFamily");
   updateGUIFontFamily(customizerFontChooser, "advanced/customizerFontFamily");
   updateGUIFontSize(customizerFontSize, "advanced/customizerFontSize");
   updateGUIFontFamily(consoleFontChooser, "advanced/consoleFontFamily");
+  updateGUIFontSize(consoleFontSize, "advanced/consoleFontSize");
   updateGUIFontFamily(fontChooser, "editor/fontfamily");
 }
 
@@ -1078,8 +1083,9 @@ void Preferences::on_consoleFontChooser_currentFontChanged(const QFont& font)
   emit consoleFontChanged(font.family(), getValue("advanced/consoleFontSize").toUInt());
 }
 
-void Preferences::on_consoleFontSize_currentIndexChanged(int index)
+void Preferences::on_consoleFontSize_activated(int index)
 {
+  // Activation records an explicit choice even when the user selects the inherited size again.
   uint intsize = this->consoleFontSize->itemText(index).toUInt();
   QSettingsCached settings;
   settings.setValue("advanced/consoleFontSize", intsize);
@@ -2002,7 +2008,8 @@ void Preferences::removeDefaultSettings()
        iter != this->defaultmap.end(); iter++) {
     // An explicit UI font choice remains an override even if it currently equals the default.
     if (iter.key() == "advanced/applicationFontFamily" || iter.key() == "advanced/applicationFontSize" ||
-        iter.key() == "advanced/customizerFontFamily" || iter.key() == "advanced/customizerFontSize") {
+        iter.key() == "advanced/customizerFontFamily" || iter.key() == "advanced/customizerFontSize" ||
+        iter.key() == "advanced/consoleFontSize") {
       continue;
     }
     if (settings.value(iter.key()) == iter.value()) {
@@ -2016,7 +2023,8 @@ QVariant Preferences::getValue(const QString& key) const
   QSettingsCached settings;
   if (!settings.contains(key)) {
     if (key == "advanced/customizerFontFamily") return getValue("advanced/applicationFontFamily");
-    if (key == "advanced/customizerFontSize") return getValue("advanced/applicationFontSize");
+    if (key == "advanced/customizerFontSize" || key == "advanced/consoleFontSize")
+      return getValue("advanced/applicationFontSize");
   }
   assert(settings.contains(key) || this->defaultmap.contains(key));
   return settings.value(key, this->defaultmap[key]);

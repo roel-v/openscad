@@ -65,6 +65,9 @@ signals:
   // emitted when the content of an editor is reloaded
   void editorContentReloaded(EditorInterface *editor);
 
+  // A newly opened document is loaded and registered; initial preview can now be requested.
+  void editorFileOpened(EditorInterface *editor);
+
 private:
   MainWindow *parent;
   QTabWidget *tabWidget;

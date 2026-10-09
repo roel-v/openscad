@@ -313,7 +313,11 @@ TEST_CASE("Capture integrated native icon modes", "[.][icons-visual]")
   first->activeEditor->setPlainText("cube( ;");
   REQUIRE(QMetaObject::invokeMethod(first, "actionRenderPreview"));
   timer.restart();
-  while (first->compileErrors == 0 && timer.elapsed() < 10000) {
+  // Background evaluation publishes the error count before the queued UI completion updates
+  // the banner. Verify its final visible state rather than racing that completion callback.
+  while ((first->compileErrors == 0 || !first->frameCompileResult->isVisible() ||
+          first->labelCompileResultIcon->property("openscadIcon").toString() != "information-icons-error") &&
+         timer.elapsed() < 10000) {
     QApplication::processEvents();
     QThread::msleep(10);
   }

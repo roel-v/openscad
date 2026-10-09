@@ -78,11 +78,20 @@ Controller::Controller(MainWindow *window) : QObject(window), window(window)
   });
   connect(window->tabManager, &TabManager::currentEditorChanged, this,
           [this](EditorInterface *editor) { activate(editor); });
+  connect(window->tabManager, &TabManager::editorFileOpened, this,
+          [this](EditorInterface *editor) { request(editor, Mode::Preview); });
   for (auto editor : window->tabManager->editorList) bind(editor);
   QTimer::singleShot(0, this, [this] {
-    for (auto editor : this->window->tabManager->editorList) request(editor, Mode::Parameters, true);
-    if (this->window->designActionAutoReload->isChecked() && !this->window->isEmpty())
-      request(this->window->activeEditor, Mode::Preview, true);
+    // The initial document was opened before this controller existed. Preview it once,
+    // independently of disk auto-reload. Upgrade metadata-only work, but do not supersede
+    // a Preview or Render already requested while the window was being initialized.
+    for (auto editor : this->window->tabManager->editorList) {
+      const auto existing = pending.find(editor->annotations->sessionId);
+      if (existing != pending.end() && existing->second->request.mode != Mode::Parameters) continue;
+      const auto mode = editor == this->window->activeEditor && !editor->toPlainText().isEmpty()
+        ? Mode::Preview : Mode::Parameters;
+      request(editor, mode, true);
+    }
   });
   poll();
 }

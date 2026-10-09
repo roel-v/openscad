@@ -12,4 +12,6 @@ private slots:
   void cancelledQueuedJobNeverComputes();
   void obsoleteQueuedPreviewRetainsLastDisplay();
   void failedPreviewRetainsLastDisplay();
+  void openPreviewsWithoutAutoReload();
+  void startupPreviewsWithoutAutoReload();
 };

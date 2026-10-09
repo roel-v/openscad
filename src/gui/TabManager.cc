@@ -194,6 +194,7 @@ void TabManager::open(const QString& filename)
   if (editor->filepath.isEmpty() && !editor->isContentModified() &&
       !editor->parameterWidget->isModified() && !editor->hasViewChanges() && editor->annotations->records().isEmpty() && !editor->annotations->dirty()) {
     openTabFile(filename);
+    emit editorFileOpened(editor);
   } else {
     createTab(filename);
   }
@@ -274,6 +275,7 @@ void TabManager::createTab(const QString& filename)
     tabWidget->setCurrentWidget(editor);
   }
   emit tabCountChanged(editorList.size());
+  if (!filename.isEmpty()) emit editorFileOpened(editor);
 }
 
 size_t TabManager::count()

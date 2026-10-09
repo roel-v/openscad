@@ -3428,8 +3428,7 @@
     <bool>true</bool>
    </property>
    <property name="icon">
-    <iconset resource="../../resources/common.qrc">
-     <normaloff>:/icons/prefsShortcuts.png</normaloff>:/icons/prefsShortcuts.png</iconset>
+    <iconset theme="openscad-prefsShortcuts"/>
    </property>
    <property name="text">
     <string>Shortcuts</string>

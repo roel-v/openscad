@@ -200,6 +200,12 @@ bool ShortcutConfigurator::eventFilter(QObject *obj, QEvent *event)
 void ShortcutConfigurator::collectDefaults(const QList<QAction *>& allActions)
 {
   for (auto& action : allActions) {
+    if (!defaultShortcuts.contains(action)) {
+      const QString name = action->objectName();
+      connect(action, &QObject::destroyed, this, [this, action, name] {
+        defaultShortcuts.remove(action); actionsList.removeAll(action); shortcutsMap.remove(name, action);
+      });
+    }
     defaultShortcuts.insert(action, action->shortcuts());
     QString actionName = action->objectName();
     shortcutsMap.insert(actionName, action);

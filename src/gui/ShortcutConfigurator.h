@@ -11,6 +11,7 @@
 #include <QJsonValue>
 #include <QHash>
 #include <QMessageBox>
+#include <QComboBox>
 
 class ShortcutConfigurator : public QWidget, public Ui::ShortcutConfigurator
 {
@@ -46,6 +47,12 @@ private:
   QMessageBox *shortcutCatcher;
   QStandardItemModel *model;
   QSortFilterProxyModel *proxyModel;
+  QComboBox *presetChooser;
+  QJsonObject presets;
+  QJsonObject currentPreset() const;
+  bool activatePreset(const QJsonObject& preset);
+  bool storePresets();
+  void refreshPresets();
 
 protected:
   bool eventFilter(QObject *obj, QEvent *event) override;

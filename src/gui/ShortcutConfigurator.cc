@@ -7,6 +7,13 @@
 #include <QMessageBox>
 #include <QKeyEvent>
 #include <QEvent>
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QPushButton>
+#include <QHBoxLayout>
+#include <QDir>
+#include <QSaveFile>
+#include "ShortcutPreset.h"
 #include "platform/PlatformUtils.h"
 
 ShortcutConfigurator::ShortcutConfigurator(QWidget *parent) : QWidget(parent)
@@ -22,6 +29,121 @@ ShortcutConfigurator::ShortcutConfigurator(QWidget *parent) : QWidget(parent)
   shortcutCatcher = nullptr;
 
   connect(shortcutsTable, &QTableView::clicked, this, &ShortcutConfigurator::onTableCellClicked);
+  auto *bar = new QHBoxLayout;
+  presetChooser = new QComboBox(this);
+  presetChooser->setAccessibleName(tr("Shortcut preset"));
+  bar->addWidget(presetChooser, 1);
+  auto button = [this, bar](const QString& text, auto callback) {
+    auto *widget = new QPushButton(text, this); bar->addWidget(widget);
+    connect(widget, &QPushButton::clicked, this, callback);
+  };
+  button(tr("Save as…"), [this] {
+    bool ok;
+    const QString name = QInputDialog::getText(this, tr("Save shortcut preset"), tr("Preset name:"),
+                                               QLineEdit::Normal, {}, &ok).trimmed();
+    if (!ok || name.isEmpty()) return;
+    if (presets.contains(name) && QMessageBox::question(this, tr("Replace preset"),
+        tr("Replace preset '%1'?").arg(name)) != QMessageBox::Yes) return;
+    const auto previous = presets;
+    presets.insert(name, currentPreset());
+    if (!storePresets()) { presets = previous; return; }
+    refreshPresets(); presetChooser->setCurrentText(name);
+  });
+  button(tr("Load"), [this] {
+    if (presets.contains(presetChooser->currentText())) activatePreset(presets[presetChooser->currentText()].toObject());
+  });
+  button(tr("Import…"), [this] {
+    const QString path = QFileDialog::getOpenFileName(this, tr("Import shortcut preset"), {}, tr("JSON files (*.json)"));
+    if (path.isEmpty()) return;
+    QFile file(path); if (!file.open(QIODevice::ReadOnly)) { raiseError(file.errorString()); return; }
+    QJsonParseError error; const auto document = QJsonDocument::fromJson(file.readAll(), &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject()) {
+      raiseError(tr("Not a valid shortcut preset JSON file.")); return;
+    }
+    const auto preset = document.object();
+    if (preset.value("format").toString() != "scadmaxx-shortcuts" || preset.value("version").toInt() != 1 ||
+        !preset.value("bindings").isObject()) { raiseError(tr("Unsupported shortcut preset format.")); return; }
+    const QString problem = ShortcutPreset::validate(preset["bindings"].toObject(), actionsList, defaultShortcuts);
+    if (!problem.isEmpty()) { raiseError(problem); return; }
+    bool ok; const QString name = QInputDialog::getText(this, tr("Import shortcut preset"), tr("Preset name:"),
+      QLineEdit::Normal, QFileInfo(path).completeBaseName(), &ok).trimmed();
+    if (!ok || name.isEmpty()) return;
+    if (presets.contains(name) && QMessageBox::question(this, tr("Replace preset"),
+        tr("Replace preset '%1'?").arg(name)) != QMessageBox::Yes) return;
+    const auto previous = presets; presets.insert(name, preset);
+    if (!storePresets()) { presets = previous; return; }
+    refreshPresets(); presetChooser->setCurrentText(name);
+  });
+  button(tr("Export…"), [this] {
+    const QString path = QFileDialog::getSaveFileName(this, tr("Export current shortcuts"), {}, tr("JSON files (*.json)"));
+    if (path.isEmpty()) return;
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(QJsonDocument(currentPreset()).toJson()) < 0 || !file.commit())
+      raiseError(file.errorString());
+  });
+  gridLayout->addLayout(bar, 3, 0, 1, 2);
+  QFile presetFile(QString::fromStdString(PlatformUtils::userConfigPath()) + "/shortcut-presets.json");
+  if (presetFile.exists()) {
+    QJsonParseError error;
+    if (presetFile.open(QIODevice::ReadOnly)) {
+      const auto document = QJsonDocument::fromJson(presetFile.readAll(), &error);
+      if (error.error == QJsonParseError::NoError && document.isObject()) presets = document.object();
+      else raiseError(tr("Cannot read saved shortcut presets: invalid JSON."));
+    } else raiseError(presetFile.errorString());
+  }
+  refreshPresets();
+}
+
+QJsonObject ShortcutConfigurator::currentPreset() const
+{
+  // Retain bindings for optional actions not exposed by this build.
+  QJsonObject bindings;
+  QFile file(QString::fromStdString(configFileLoc));
+  if (file.open(QIODevice::ReadOnly)) bindings = QJsonDocument::fromJson(file.readAll()).object();
+  const auto current = ShortcutPreset::snapshot(actionsList);
+  for (auto it = current.begin(); it != current.end(); ++it) bindings.insert(it.key(), it.value());
+  return {{"format", "scadmaxx-shortcuts"}, {"version", 1}, {"bindings", bindings}};
+}
+
+bool ShortcutConfigurator::activatePreset(const QJsonObject& preset)
+{
+  if (preset["format"].toString() != "scadmaxx-shortcuts" || preset["version"].toInt() != 1 ||
+      !preset["bindings"].isObject()) { raiseError(tr("Unsupported shortcut preset format.")); return false; }
+  const auto bindings = preset["bindings"].toObject();
+  const QString problem = ShortcutPreset::validate(bindings, actionsList, defaultShortcuts);
+  if (!problem.isEmpty()) { raiseError(problem); return false; }
+  if (!writeToConfigFile(bindings)) { raiseError(tr("Could not save active shortcuts.")); return false; }
+  for (auto *action : actionsList) {
+    auto keys = defaultShortcuts.value(action);
+    if (bindings.contains(action->objectName())) {
+      keys.clear();
+      for (const auto& value : bindings[action->objectName()].toArray())
+        keys.append(QKeySequence(value.toString(), QKeySequence::PortableText));
+    }
+    action->setShortcuts(keys);
+  }
+  shortcutOccupied.clear();
+  for (auto *action : actionsList) for (const auto& key : action->shortcuts())
+    if (!key.isEmpty()) shortcutOccupied.insert(key.toString(QKeySequence::NativeText), action->objectName());
+  initGUI(actionsList);
+  return true;
+}
+
+bool ShortcutConfigurator::storePresets()
+{
+  const QString directory = QString::fromStdString(PlatformUtils::userConfigPath());
+  QDir().mkpath(directory);
+  QSaveFile file(directory + "/shortcut-presets.json");
+  const auto bytes = QJsonDocument(presets).toJson();
+  if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size() || !file.commit()) {
+    raiseError(file.errorString()); return false;
+  }
+  return true;
+}
+
+void ShortcutConfigurator::refreshPresets()
+{
+  presetChooser->clear(); presetChooser->addItems(presets.keys());
 }
 
 ShortcutConfigurator::~ShortcutConfigurator()
@@ -97,8 +219,7 @@ void ShortcutConfigurator::createModel(const QList<QAction *>& actions)
 {
   QList<QString> alreadyInGUI;
   int row = 0;
-  model->removeRows(0, model->rowCount());
-  model->removeColumns(0, 3);
+  model->clear();
   QList<QString> labels = QList<QString>() << QString(_("Action")) << QString(_("Shortcut"))
                                            << QString(_("Alternative-1"));
   model->setHorizontalHeaderLabels(labels);
@@ -159,16 +280,15 @@ QJsonObject ShortcutConfigurator::readConfigFile()
 
 bool ShortcutConfigurator::writeToConfigFile(const QJsonObject& object)
 {
-  QFile jsonFile(QString::fromStdString(configFileLoc.c_str()));
-
+  QDir().mkpath(QString::fromStdString(PlatformUtils::userConfigPath()));
+  QSaveFile jsonFile(QString::fromStdString(configFileLoc.c_str()));
   if (!jsonFile.open(QIODevice::WriteOnly)) {
     return false;
   }
 
   QJsonDocument doc(object);
-  jsonFile.write(doc.toJson());
-  jsonFile.close();
-  return true;
+  const auto bytes = doc.toJson();
+  return jsonFile.write(bytes) == bytes.size() && jsonFile.commit();
 }
 
 void ShortcutConfigurator::applyConfigFile(const QList<QAction *>& actions)

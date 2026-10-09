@@ -58,7 +58,6 @@
             </item>
             <item>
              <widget class="QListWidget" name="colorSchemeChooser">
-              <property name="maximumSize"><size><width>16777215</width><height>180</height></size></property>
               <property name="sizePolicy">
                <sizepolicy hsizetype="Expanding" vsizetype="MinimumExpanding">
                 <horstretch>0</horstretch>
@@ -75,7 +74,6 @@
             </item>
            </layout>
           </item>
-          
          </layout>
          </widget>
         </item>
@@ -133,7 +131,6 @@
             </rect>
            </property>
            <layout class="QGridLayout" name="gridLayout_5">
-            
             <item row="4" column="0">
              <widget class="QGroupBox" name="groupBoxNumberScroll">
               <property name="title">

@@ -606,7 +606,10 @@ void Preferences::organizeFeatureSettings()
   }
   if (auto *vim = pageEditor->findChild<QCheckBox *>("vimModeCheckBox")) {
     pageEditor->layout()->removeWidget(vim);
-    if (auto *box = pageEditor->findChild<QGroupBox *>("groupBoxDisplay")) box->layout()->addWidget(vim);
+    if (auto *box = pageEditor->findChild<QGroupBox *>("groupBoxDisplay")) {
+      auto *grid = qobject_cast<QGridLayout *>(box->layout());
+      if (grid) grid->addWidget(vim, grid->rowCount(), 0, 1, grid->columnCount());
+    }
   }
   auto *pageLayout = qobject_cast<QVBoxLayout *>(page3DView->layout());
   if (pageLayout) {
@@ -630,6 +633,8 @@ void Preferences::updatePageMetrics()
 {
   const int horizontal = UIUtils::layoutSpacing(this, Qt::Horizontal);
   const int vertical = UIUtils::layoutSpacing(this, Qt::Vertical);
+  colorSchemeChooser->setMaximumHeight(6 * (colorSchemeChooser->fontMetrics().height() + vertical) +
+                                      2 * colorSchemeChooser->frameWidth());
   gridLayout_6->setContentsMargins(horizontal, vertical, horizontal, vertical);
   gridLayout_6->setSpacing(vertical);
   pageDialogs->layout()->setAlignment(Qt::AlignTop);
